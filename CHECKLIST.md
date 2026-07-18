@@ -54,7 +54,8 @@ features land or priorities change.
   - [x] stack references workspaces
 - [ ] Add composition commands.
   - [x] `kit restore workspace <name>`
-  - [ ] `kit add tab <name> --to <workspace>`
+  - [x] `kit add tab <name> --to <workspace>`
+  - [x] `kit add tab <name>` defaults to current workspace
   - [x] `kit restore stack <name>`
   - [x] `kit stack create <name> <workspace...>`
 

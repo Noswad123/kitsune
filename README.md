@@ -35,6 +35,8 @@ kit capture all --plan
 kit capture workspace darkness --plan
 kit capture all --no-reuse
 kit stack create morning darkness rustlings
+kit add tab logs --to darkness
+kit add tab logs
 kit restore stack morning --dry-run
 kit list
 kit list workspaces
@@ -94,6 +96,18 @@ kit restore stack morning --dry-run
 ```
 
 Stack files live in `stacks/*.yaml` and reference workspaces by name.
+
+Add an existing tab template to an existing workspace template:
+
+```bash
+kit add tab logs --to darkness
+```
+
+Omit `--to` to add the tab to the currently focused workspace template:
+
+```bash
+kit add tab logs
+```
 
 ## Fingerprints
 

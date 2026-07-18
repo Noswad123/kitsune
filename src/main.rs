@@ -9,7 +9,9 @@ mod validate;
 use anyhow::{Result, bail};
 use backend::detect_backend;
 use clap::Parser;
-use cli::{CaptureScope, Cli, Command, KindArg, RestoreTarget, StackCommand, StoreCommand};
+use cli::{
+    AddCommand, CaptureScope, Cli, Command, KindArg, RestoreTarget, StackCommand, StoreCommand,
+};
 use model::{ComponentRef, StackTemplate};
 use std::collections::HashSet;
 use store::{ItemKind, Store};
@@ -153,6 +155,15 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Add(args) => match args.command {
+            AddCommand::Tab(args) => {
+                let workspace_name = match args.to {
+                    Some(workspace) => workspace,
+                    None => current_workspace_template_name(cli.backend.map(Into::into))?,
+                };
+                add_tab_to_workspace(&store, &args.name, &workspace_name)?;
+            }
+        },
         Command::List(args) => list_items(&store, args.kind, args.json)?,
         Command::Show(args) => {
             let contents = store.show(args.kind.into(), &args.name)?;
@@ -241,6 +252,76 @@ fn restore_workspace_by_name(
     let backend_kind = requested_backend.or(Some(workspace.workspace.backend));
     let backend = detect_backend(backend_kind)?;
     backend.restore_workspace(&workspace, dry_run, skip_commands)
+}
+
+fn current_workspace_template_name(
+    requested_backend: Option<model::BackendKind>,
+) -> Result<String> {
+    let backend = detect_backend(requested_backend)?;
+    let workspace = backend.capture_current_workspace(None)?;
+    Ok(workspace.workspace.name)
+}
+
+fn add_tab_to_workspace(store: &Store, tab_name: &str, workspace_name: &str) -> Result<()> {
+    let mut workspace = store.load_workspace(workspace_name)?;
+    if workspace
+        .tabs
+        .iter()
+        .any(|reference| reference.name == tab_name)
+    {
+        println!(
+            "workspace '{}' already references tab '{}'",
+            workspace.name, tab_name
+        );
+        return Ok(());
+    }
+
+    let mut tab = store.load_tab_capture(tab_name)?;
+    if tab.tab.identity.is_none() {
+        fingerprint::annotate_tab_capture(&mut tab);
+    }
+    let fingerprint = tab
+        .tab
+        .identity
+        .as_ref()
+        .map(|identity| identity.fingerprint.clone());
+
+    workspace.tabs.push(ComponentRef {
+        name: tab_name.to_string(),
+        fingerprint,
+    });
+
+    let tab_fingerprints = workspace_tab_fingerprints(store, &workspace)?;
+    fingerprint::annotate_workspace_from_fingerprints(&mut workspace, tab_fingerprints);
+    let path = store.save_workspace(&workspace)?;
+    println!(
+        "added tab '{}' to workspace '{}' -> {}",
+        tab_name,
+        workspace.name,
+        path.display()
+    );
+    Ok(())
+}
+
+fn workspace_tab_fingerprints(
+    store: &Store,
+    workspace: &model::WorkspaceTemplate,
+) -> Result<Vec<String>> {
+    let mut fingerprints = vec![];
+    for reference in &workspace.tabs {
+        if let Some(fingerprint) = &reference.fingerprint {
+            fingerprints.push(fingerprint.clone());
+            continue;
+        }
+        let mut tab = store.load_tab_capture(&reference.name)?;
+        if tab.tab.identity.is_none() {
+            fingerprint::annotate_tab_capture(&mut tab);
+        }
+        if let Some(identity) = tab.tab.identity {
+            fingerprints.push(identity.fingerprint);
+        }
+    }
+    Ok(fingerprints)
 }
 
 #[derive(Debug, Clone, Default)]

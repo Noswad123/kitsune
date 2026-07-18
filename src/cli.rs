@@ -40,6 +40,8 @@ pub enum Command {
     Capture(CaptureArgs),
     /// Restore a saved workspace template.
     Restore(RestoreArgs),
+    /// Compose templates by adding refs between components.
+    Add(AddArgs),
     /// List saved templates.
     List(ListArgs),
     /// Show a saved template as YAML.
@@ -132,6 +134,28 @@ pub struct RestoreArgs {
     /// Recreate panes/layout but do not rerun captured commands.
     #[arg(long)]
     pub skip_commands: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AddArgs {
+    #[command(subcommand)]
+    pub command: AddCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AddCommand {
+    /// Add a tab ref to a workspace template.
+    Tab(AddTabArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AddTabArgs {
+    /// Existing tab template name to reference.
+    pub name: String,
+
+    /// Existing workspace template to modify. Defaults to the focused workspace.
+    #[arg(long)]
+    pub to: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
