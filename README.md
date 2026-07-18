@@ -1,5 +1,6 @@
 # Kitsune (`kit`)
 
+![Kitsune](img/kitsune.png)
 Kitsune is a multiplexer companion for named, composable working-session kits.
 
 It starts with Herdr support and is structured so tmux/Zellij/etc. can be added
@@ -23,10 +24,16 @@ This installs the daily command as `kit`.
 ```bash
 kit doctor
 kit init
+kit store path
+kit store doctor
 kit capture darkness
+kit capture workspace darkness
+kit capture tab coding
+kit capture pane agent
 kit list
 kit list workspaces
 kit show workspace darkness
+kit validate
 kit restore darkness --dry-run
 kit restore darkness --skip-commands
 kit nav left ctrl+h
@@ -69,6 +76,23 @@ Use `KITSUNE_STORE` or `--store` to override the location, for example:
 ```bash
 kit --store ~/.config/kitsune capture darkness
 ```
+
+## Fingerprints
+
+Captured workspaces, tabs, and panes include a first-pass stable identity
+fingerprint. Fingerprints are for recognizing reusable components and duplicate
+templates; they intentionally ignore volatile runtime details like foreground
+commands and pane dimensions.
+
+Pane fingerprints currently use stable-ish fields:
+
+- normalized label
+- git root when available, otherwise cwd
+- agent kind
+
+Tab fingerprints derive from pane fingerprints. Workspace fingerprints derive
+from tab fingerprints. During capture, Kitsune reports matching saved tabs/panes
+when it finds an existing template with the same fingerprint.
 
 ## Current status
 

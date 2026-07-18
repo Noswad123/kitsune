@@ -53,6 +53,8 @@ pub struct WorkspaceTemplate {
     pub schema: String,
     pub name: String,
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<WorkspaceIdentity>,
     pub backend: BackendKind,
     pub cwd: Option<PathBuf>,
     pub captured_at: DateTime<Utc>,
@@ -71,6 +73,8 @@ impl WorkspaceTemplate {
 pub struct TabTemplate {
     pub name: String,
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<TabIdentity>,
     pub cwd: Option<PathBuf>,
     pub panes: Vec<PaneTemplate>,
     pub layout: LayoutTemplate,
@@ -88,12 +92,39 @@ impl TabTemplate {
 pub struct PaneTemplate {
     pub name: String,
     pub label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<PaneIdentity>,
     pub cwd: Option<PathBuf>,
     pub command: Option<String>,
     pub agent: Option<String>,
     pub rect: Option<Rect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkspaceIdentity {
+    pub label: Option<String>,
+    pub cwd: Option<PathBuf>,
+    pub git_root: Option<PathBuf>,
+    pub tab_fingerprints: Vec<String>,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TabIdentity {
+    pub label: Option<String>,
+    pub pane_fingerprints: Vec<String>,
+    pub fingerprint: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PaneIdentity {
+    pub label: Option<String>,
+    pub cwd: Option<PathBuf>,
+    pub git_root: Option<PathBuf>,
+    pub agent: Option<String>,
+    pub fingerprint: String,
 }
 
 impl PaneTemplate {

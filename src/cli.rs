@@ -1,5 +1,6 @@
 use crate::model::{BackendKind, Direction};
 use crate::store::ItemKind;
+use anyhow::{Result, bail};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
@@ -43,8 +44,12 @@ pub enum Command {
     List(ListArgs),
     /// Show a saved template as YAML.
     Show(ShowArgs),
+    /// Validate the Kitsune store and saved templates.
+    Validate(ValidateArgs),
     /// Smart pane navigation that passes keys through to Vim/fzf-like apps.
     Nav(NavArgs),
+    /// Inspect and initialize Kitsune's template store.
+    Store(StoreArgs),
     /// Open the interactive selector/browser.
     Tui,
     /// Print store path and create expected directories.
@@ -53,17 +58,46 @@ pub enum Command {
 
 #[derive(Debug, Args)]
 pub struct CaptureArgs {
-    /// Logical name for the captured workspace.
+    /// Scope (`workspace`, `tab`, `pane`) or workspace name shorthand.
+    pub scope_or_name: Option<String>,
+
+    /// Logical name for the captured item when a scope is provided.
     pub name: Option<String>,
 
-    /// Scope to capture. Only current-workspace is implemented for now.
-    #[arg(long, value_enum, default_value_t = CaptureScope::Workspace)]
-    pub scope: CaptureScope,
+    /// Explicit scope to capture. Preserves `kit capture <name>` as workspace shorthand.
+    #[arg(long, value_enum)]
+    pub scope: Option<CaptureScope>,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum CaptureScope {
     Workspace,
+    Tab,
+    Pane,
+}
+
+impl CaptureArgs {
+    pub fn resolve(&self) -> Result<(CaptureScope, Option<String>)> {
+        if let Some(scope) = self.scope {
+            if self.name.is_some() {
+                bail!("capture name was provided twice");
+            }
+            return Ok((scope, self.scope_or_name.clone()));
+        }
+
+        match self.scope_or_name.as_deref() {
+            None => Ok((CaptureScope::Workspace, None)),
+            Some("workspace" | "workspaces") => Ok((CaptureScope::Workspace, self.name.clone())),
+            Some("tab" | "tabs") => Ok((CaptureScope::Tab, self.name.clone())),
+            Some("pane" | "panes") => Ok((CaptureScope::Pane, self.name.clone())),
+            Some(name) => {
+                if self.name.is_some() {
+                    bail!("unknown capture scope '{name}'; expected workspace, tab, or pane");
+                }
+                Ok((CaptureScope::Workspace, Some(name.to_string())))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -119,6 +153,17 @@ pub struct ShowArgs {
     pub name: String,
 }
 
+#[derive(Debug, Args)]
+pub struct ValidateArgs {
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    pub json: bool,
+
+    /// Treat warnings as validation failures.
+    #[arg(long)]
+    pub strict: bool,
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum KindArgRequired {
     Workspace,
@@ -145,6 +190,36 @@ pub struct NavArgs {
     #[arg(value_enum)]
     pub direction: DirectionArg,
     pub key: String,
+}
+
+#[derive(Debug, Args)]
+pub struct StoreArgs {
+    #[command(subcommand)]
+    pub command: StoreCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum StoreCommand {
+    /// Print the configured store path.
+    Path(StorePathArgs),
+    /// Check the configured store path and expected directories.
+    Doctor(StoreDoctorArgs),
+    /// Create the configured store and expected directories.
+    Init,
+}
+
+#[derive(Debug, Args)]
+pub struct StorePathArgs {
+    /// Resolve symlinks and print the real path when possible.
+    #[arg(long)]
+    pub real: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct StoreDoctorArgs {
+    /// Print machine-readable JSON.
+    #[arg(long)]
+    pub json: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]

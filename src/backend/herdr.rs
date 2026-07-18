@@ -171,6 +171,7 @@ impl Backend for HerdrBackend {
                 pane_templates.push(PaneTemplate {
                     name,
                     label,
+                    identity: None,
                     cwd,
                     command,
                     agent: pane["agent"].as_str().map(str::to_string),
@@ -183,6 +184,7 @@ impl Backend for HerdrBackend {
             tabs.push(TabTemplate {
                 name: slug(tab_label.as_deref().unwrap_or(tab_id)),
                 label: tab_label,
+                identity: None,
                 cwd: tab_cwd,
                 panes: pane_templates,
                 layout,
@@ -194,12 +196,54 @@ impl Backend for HerdrBackend {
             schema: "kitsune.workspace.v1".into(),
             name: template_name,
             label: workspace_label,
+            identity: None,
             backend: BackendKind::Herdr,
             cwd: workspace_cwd,
             captured_at: Utc::now(),
             tabs,
             raw: Some(workspace.clone()),
         })
+    }
+
+    fn capture_current_tab(&self, name: Option<String>) -> Result<TabTemplate> {
+        let workspace = self.capture_current_workspace(None)?;
+        let mut tab = workspace
+            .tabs
+            .into_iter()
+            .find(|tab| {
+                tab.raw
+                    .as_ref()
+                    .and_then(|raw| raw.get("focused"))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+            })
+            .context("no focused Herdr tab found")?;
+
+        if let Some(name) = name {
+            tab.name = slug(&name);
+        }
+        Ok(tab)
+    }
+
+    fn capture_current_pane(&self, name: Option<String>) -> Result<PaneTemplate> {
+        let workspace = self.capture_current_workspace(None)?;
+        let mut pane = workspace
+            .tabs
+            .into_iter()
+            .flat_map(|tab| tab.panes.into_iter())
+            .find(|pane| {
+                pane.raw
+                    .as_ref()
+                    .and_then(|raw| raw.get("focused"))
+                    .and_then(Value::as_bool)
+                    == Some(true)
+            })
+            .context("no focused Herdr pane found")?;
+
+        if let Some(name) = name {
+            pane.name = slug(&name);
+        }
+        Ok(pane)
     }
 
     fn restore_workspace(

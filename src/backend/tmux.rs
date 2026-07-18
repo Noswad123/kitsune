@@ -1,5 +1,5 @@
 use super::{Backend, DoctorReport};
-use crate::model::{BackendKind, Direction, WorkspaceTemplate};
+use crate::model::{BackendKind, Direction, PaneTemplate, TabTemplate, WorkspaceTemplate};
 use anyhow::{Result, bail};
 use std::process::Command;
 
@@ -47,6 +47,14 @@ impl Backend for TmuxBackend {
 
     fn capture_current_workspace(&self, _name: Option<String>) -> Result<WorkspaceTemplate> {
         bail!("tmux capture is not implemented yet; herdr is the first backend")
+    }
+
+    fn capture_current_tab(&self, _name: Option<String>) -> Result<TabTemplate> {
+        bail!("tmux tab capture is not implemented yet; herdr is the first backend")
+    }
+
+    fn capture_current_pane(&self, _name: Option<String>) -> Result<PaneTemplate> {
+        bail!("tmux pane capture is not implemented yet; herdr is the first backend")
     }
 
     fn restore_workspace(

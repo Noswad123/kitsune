@@ -4,13 +4,15 @@ mod tmux;
 pub use herdr::HerdrBackend;
 pub use tmux::TmuxBackend;
 
-use crate::model::{BackendKind, Direction, WorkspaceTemplate};
+use crate::model::{BackendKind, Direction, PaneTemplate, TabTemplate, WorkspaceTemplate};
 use anyhow::{Result, bail};
 
 pub trait Backend {
     fn kind(&self) -> BackendKind;
     fn doctor(&self) -> Result<DoctorReport>;
     fn capture_current_workspace(&self, name: Option<String>) -> Result<WorkspaceTemplate>;
+    fn capture_current_tab(&self, name: Option<String>) -> Result<TabTemplate>;
+    fn capture_current_pane(&self, name: Option<String>) -> Result<PaneTemplate>;
     fn restore_workspace(
         &self,
         workspace: &WorkspaceTemplate,

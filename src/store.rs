@@ -1,5 +1,6 @@
-use crate::model::WorkspaceTemplate;
+use crate::model::{PaneTemplate, TabTemplate, WorkspaceTemplate};
 use anyhow::{Context, Result};
+use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -20,6 +21,16 @@ impl ItemKind {
             ItemKind::Pane => "panes",
             ItemKind::Stack => "stacks",
             ItemKind::Snapshot => "snapshots",
+        }
+    }
+
+    pub fn singular_name(self) -> &'static str {
+        match self {
+            ItemKind::Workspace => "workspace",
+            ItemKind::Tab => "tab",
+            ItemKind::Pane => "pane",
+            ItemKind::Stack => "stack",
+            ItemKind::Snapshot => "snapshot",
         }
     }
 }
@@ -105,6 +116,22 @@ impl Store {
         Ok(path)
     }
 
+    pub fn save_tab(&self, tab: &TabTemplate) -> Result<PathBuf> {
+        self.ensure()?;
+        let path = self.path(ItemKind::Tab, &tab.name);
+        let yaml = serde_yaml::to_string(tab)?;
+        fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
+        Ok(path)
+    }
+
+    pub fn save_pane(&self, pane: &PaneTemplate) -> Result<PathBuf> {
+        self.ensure()?;
+        let path = self.path(ItemKind::Pane, &pane.name);
+        let yaml = serde_yaml::to_string(pane)?;
+        fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
+        Ok(path)
+    }
+
     pub fn load_workspace(&self, name: &str) -> Result<WorkspaceTemplate> {
         let path = self.path(ItemKind::Workspace, name);
         let contents = fs::read_to_string(&path)
@@ -112,10 +139,82 @@ impl Store {
         Ok(serde_yaml::from_str(&contents)?)
     }
 
+    pub fn load_tab(&self, name: &str) -> Result<TabTemplate> {
+        let path = self.path(ItemKind::Tab, name);
+        let contents = fs::read_to_string(&path)
+            .with_context(|| format!("reading tab template {}", path.display()))?;
+        Ok(serde_yaml::from_str(&contents)?)
+    }
+
+    pub fn load_pane(&self, name: &str) -> Result<PaneTemplate> {
+        let path = self.path(ItemKind::Pane, name);
+        let contents = fs::read_to_string(&path)
+            .with_context(|| format!("reading pane template {}", path.display()))?;
+        Ok(serde_yaml::from_str(&contents)?)
+    }
+
     pub fn show(&self, kind: ItemKind, name: &str) -> Result<String> {
         let path = self.path(kind, name);
         fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))
     }
+
+    pub fn doctor(&self) -> StoreDoctor {
+        let root_exists = self.root.exists();
+        let root_is_symlink = fs::symlink_metadata(&self.root)
+            .map(|metadata| metadata.file_type().is_symlink())
+            .unwrap_or(false);
+        let real_root = fs::canonicalize(&self.root).ok();
+        let directories = ItemKind::all()
+            .into_iter()
+            .map(|kind| StoreDirectoryStatus {
+                name: kind.dir_name(),
+                path: self.root.join(kind.dir_name()),
+                exists: self.root.join(kind.dir_name()).is_dir(),
+            })
+            .collect();
+
+        StoreDoctor {
+            root: self.root.clone(),
+            real_root,
+            root_exists,
+            root_is_symlink,
+            directories,
+        }
+    }
+}
+
+impl ItemKind {
+    pub fn all() -> [ItemKind; 5] {
+        [
+            ItemKind::Workspace,
+            ItemKind::Tab,
+            ItemKind::Pane,
+            ItemKind::Stack,
+            ItemKind::Snapshot,
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StoreDoctor {
+    pub root: PathBuf,
+    pub real_root: Option<PathBuf>,
+    pub root_exists: bool,
+    pub root_is_symlink: bool,
+    pub directories: Vec<StoreDirectoryStatus>,
+}
+
+impl StoreDoctor {
+    pub fn ok(&self) -> bool {
+        self.root_exists && self.directories.iter().all(|dir| dir.exists)
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct StoreDirectoryStatus {
+    pub name: &'static str,
+    pub path: PathBuf,
+    pub exists: bool,
 }
 
 pub fn slug(input: &str) -> String {
