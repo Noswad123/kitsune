@@ -48,6 +48,8 @@ pub enum Command {
     Validate(ValidateArgs),
     /// Smart pane navigation that passes keys through to Vim/fzf-like apps.
     Nav(NavArgs),
+    /// Create and manage workspace stacks.
+    Stack(StackArgs),
     /// Inspect and initialize Kitsune's template store.
     Store(StoreArgs),
     /// Open the interactive selector/browser.
@@ -117,8 +119,11 @@ impl CaptureArgs {
 
 #[derive(Debug, Args)]
 pub struct RestoreArgs {
-    /// Workspace template name.
-    pub name: String,
+    /// Template kind (`workspace` or `stack`) or workspace name shorthand.
+    pub target_or_name: String,
+
+    /// Template name when kind is provided.
+    pub name: Option<String>,
 
     /// Print Herdr/tmux commands without executing them.
     #[arg(long)]
@@ -127,6 +132,39 @@ pub struct RestoreArgs {
     /// Recreate panes/layout but do not rerun captured commands.
     #[arg(long)]
     pub skip_commands: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreTarget {
+    Workspace,
+    Stack,
+}
+
+impl RestoreArgs {
+    pub fn resolve(&self) -> Result<(RestoreTarget, String)> {
+        match self.target_or_name.as_str() {
+            "workspace" | "workspaces" => {
+                let name = self
+                    .name
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("restore workspace requires a name"))?;
+                Ok((RestoreTarget::Workspace, name))
+            }
+            "stack" | "stacks" => {
+                let name = self
+                    .name
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("restore stack requires a name"))?;
+                Ok((RestoreTarget::Stack, name))
+            }
+            name => {
+                if self.name.is_some() {
+                    bail!("unknown restore target '{name}'; expected workspace or stack");
+                }
+                Ok((RestoreTarget::Workspace, name.to_string()))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -205,6 +243,24 @@ pub struct NavArgs {
     #[arg(value_enum)]
     pub direction: DirectionArg,
     pub key: String,
+}
+
+#[derive(Debug, Args)]
+pub struct StackArgs {
+    #[command(subcommand)]
+    pub command: StackCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum StackCommand {
+    /// Create a stack from existing workspace template refs.
+    Create(StackCreateArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct StackCreateArgs {
+    pub name: String,
+    pub workspaces: Vec<String>,
 }
 
 #[derive(Debug, Args)]

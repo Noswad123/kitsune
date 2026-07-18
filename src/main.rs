@@ -6,10 +6,11 @@ mod store;
 mod tui;
 mod validate;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use backend::detect_backend;
 use clap::Parser;
-use cli::{CaptureScope, Cli, Command, KindArg, StoreCommand};
+use cli::{CaptureScope, Cli, Command, KindArg, RestoreTarget, StackCommand, StoreCommand};
+use model::{ComponentRef, StackTemplate};
 use std::collections::HashSet;
 use store::{ItemKind, Store};
 
@@ -127,13 +128,30 @@ fn main() -> Result<()> {
             }
         }
         Command::Restore(args) => {
-            let workspace = store.load_workspace_capture(&args.name)?;
-            let backend_kind = cli
-                .backend
-                .map(Into::into)
-                .or(Some(workspace.workspace.backend));
-            let backend = detect_backend(backend_kind)?;
-            backend.restore_workspace(&workspace, args.dry_run, args.skip_commands)?;
+            let (target, name) = args.resolve()?;
+            match target {
+                RestoreTarget::Workspace => {
+                    restore_workspace_by_name(
+                        &store,
+                        cli.backend.map(Into::into),
+                        &name,
+                        args.dry_run,
+                        args.skip_commands,
+                    )?;
+                }
+                RestoreTarget::Stack => {
+                    let stack = store.load_stack(&name)?;
+                    for workspace in &stack.workspaces {
+                        restore_workspace_by_name(
+                            &store,
+                            cli.backend.map(Into::into),
+                            &workspace.name,
+                            args.dry_run,
+                            args.skip_commands,
+                        )?;
+                    }
+                }
+            }
         }
         Command::List(args) => list_items(&store, args.kind, args.json)?,
         Command::Show(args) => {
@@ -155,6 +173,33 @@ fn main() -> Result<()> {
             let backend = detect_backend(cli.backend.map(Into::into))?;
             backend.smart_nav(args.direction.into(), &args.key)?;
         }
+        Command::Stack(args) => match args.command {
+            StackCommand::Create(args) => {
+                if args.workspaces.is_empty() {
+                    bail!("stack create requires at least one workspace");
+                }
+                for workspace in &args.workspaces {
+                    store.load_workspace(workspace)?;
+                }
+                let stack = StackTemplate {
+                    schema: "kitsune.stack.v1".into(),
+                    name: store::slug(&args.name),
+                    workspaces: args
+                        .workspaces
+                        .iter()
+                        .map(|name| ComponentRef {
+                            name: name.clone(),
+                            fingerprint: store
+                                .load_workspace(name)
+                                .ok()
+                                .and_then(|workspace| workspace.identity.map(|i| i.fingerprint)),
+                        })
+                        .collect(),
+                };
+                let path = store.save_stack(&stack)?;
+                println!("created stack '{}' -> {}", stack.name, path.display());
+            }
+        },
         Command::Store(args) => match args.command {
             StoreCommand::Path(args) => {
                 if args.real {
@@ -183,6 +228,19 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn restore_workspace_by_name(
+    store: &Store,
+    requested_backend: Option<model::BackendKind>,
+    name: &str,
+    dry_run: bool,
+    skip_commands: bool,
+) -> Result<()> {
+    let workspace = store.load_workspace_capture(name)?;
+    let backend_kind = requested_backend.or(Some(workspace.workspace.backend));
+    let backend = detect_backend(backend_kind)?;
+    backend.restore_workspace(&workspace, dry_run, skip_commands)
 }
 
 #[derive(Debug, Clone, Default)]

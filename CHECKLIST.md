@@ -47,15 +47,16 @@ features land or priorities change.
   - [x] `workspaces/*.yaml`
   - [x] `tabs/*.yaml`
   - [x] `panes/*.yaml`
-  - [ ] `stacks/*.yaml`
+  - [x] `stacks/*.yaml`
 - [x] Add refs between templates.
   - [x] workspace references tabs
   - [x] tab references panes
-  - [ ] stack references workspaces
+  - [x] stack references workspaces
 - [ ] Add composition commands.
-  - [ ] `kit restore workspace <name>`
+  - [x] `kit restore workspace <name>`
   - [ ] `kit add tab <name> --to <workspace>`
-  - [ ] `kit restore stack <name>`
+  - [x] `kit restore stack <name>`
+  - [x] `kit stack create <name> <workspace...>`
 
 ## TUI
 

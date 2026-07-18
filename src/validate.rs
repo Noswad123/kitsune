@@ -308,11 +308,19 @@ fn validate_stack(
         );
     }
     for workspace in &stack.workspaces {
-        if !workspace_names.contains(workspace) {
+        if workspace.name.trim().is_empty() {
+            report.error(
+                "workspace-ref",
+                Some(path.to_path_buf()),
+                "stack contains an empty workspace ref",
+            );
+            continue;
+        }
+        if !workspace_names.contains(&workspace.name) {
             report.error(
                 "broken-ref",
                 Some(path.to_path_buf()),
-                format!("stack references missing workspace '{workspace}'"),
+                format!("stack references missing workspace '{}'", workspace.name),
             );
         }
     }

@@ -206,5 +206,6 @@ impl SplitDirection {
 pub struct StackTemplate {
     pub schema: String,
     pub name: String,
-    pub workspaces: Vec<String>,
+    #[serde(default)]
+    pub workspaces: Vec<ComponentRef>,
 }

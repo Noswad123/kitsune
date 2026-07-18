@@ -1,4 +1,6 @@
-use crate::model::{PaneTemplate, TabCapture, TabTemplate, WorkspaceCapture, WorkspaceTemplate};
+use crate::model::{
+    PaneTemplate, StackTemplate, TabCapture, TabTemplate, WorkspaceCapture, WorkspaceTemplate,
+};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
@@ -132,6 +134,14 @@ impl Store {
         Ok(path)
     }
 
+    pub fn save_stack(&self, stack: &StackTemplate) -> Result<PathBuf> {
+        self.ensure()?;
+        let path = self.path(ItemKind::Stack, &stack.name);
+        let yaml = serde_yaml::to_string(stack)?;
+        fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
+        Ok(path)
+    }
+
     pub fn load_workspace(&self, name: &str) -> Result<WorkspaceTemplate> {
         let path = self.path(ItemKind::Workspace, name);
         let contents = fs::read_to_string(&path)
@@ -170,6 +180,13 @@ impl Store {
         let path = self.path(ItemKind::Pane, name);
         let contents = fs::read_to_string(&path)
             .with_context(|| format!("reading pane template {}", path.display()))?;
+        Ok(serde_yaml::from_str(&contents)?)
+    }
+
+    pub fn load_stack(&self, name: &str) -> Result<StackTemplate> {
+        let path = self.path(ItemKind::Stack, name);
+        let contents = fs::read_to_string(&path)
+            .with_context(|| format!("reading stack template {}", path.display()))?;
         Ok(serde_yaml::from_str(&contents)?)
     }
 

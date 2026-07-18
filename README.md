@@ -34,6 +34,8 @@ kit capture all
 kit capture all --plan
 kit capture workspace darkness --plan
 kit capture all --no-reuse
+kit stack create morning darkness rustlings
+kit restore stack morning --dry-run
 kit list
 kit list workspaces
 kit show workspace darkness
@@ -80,6 +82,18 @@ Use `KITSUNE_STORE` or `--store` to override the location, for example:
 ```bash
 kit --store ~/.config/kitsune capture darkness
 ```
+
+## Stacks
+
+Stacks are named refs to workspace templates. Create one from existing captured
+workspaces:
+
+```bash
+kit stack create morning darkness rustlings
+kit restore stack morning --dry-run
+```
+
+Stack files live in `stacks/*.yaml` and reference workspaces by name.
 
 ## Fingerprints
 
