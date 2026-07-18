@@ -116,30 +116,12 @@ impl Store {
         Ok(path)
     }
 
-    pub fn save_workspace_capture(&self, capture: &WorkspaceCapture) -> Result<Vec<PathBuf>> {
-        let mut paths = vec![];
-        for tab in &capture.tabs {
-            paths.extend(self.save_tab_capture(tab)?);
-        }
-        paths.push(self.save_workspace(&capture.workspace)?);
-        Ok(paths)
-    }
-
     pub fn save_tab(&self, tab: &TabTemplate) -> Result<PathBuf> {
         self.ensure()?;
         let path = self.path(ItemKind::Tab, &tab.name);
         let yaml = serde_yaml::to_string(tab)?;
         fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
         Ok(path)
-    }
-
-    pub fn save_tab_capture(&self, capture: &TabCapture) -> Result<Vec<PathBuf>> {
-        let mut paths = vec![];
-        for pane in &capture.panes {
-            paths.push(self.save_pane(pane)?);
-        }
-        paths.push(self.save_tab(&capture.tab)?);
-        Ok(paths)
     }
 
     pub fn save_pane(&self, pane: &PaneTemplate) -> Result<PathBuf> {

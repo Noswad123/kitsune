@@ -31,6 +31,9 @@ kit capture workspace darkness
 kit capture tab coding
 kit capture pane agent
 kit capture all
+kit capture all --plan
+kit capture workspace darkness --plan
+kit capture all --no-reuse
 kit list
 kit list workspaces
 kit show workspace darkness
@@ -98,6 +101,21 @@ Pane fingerprints currently use stable-ish fields:
 Tab fingerprints derive from pane fingerprints. Workspace fingerprints derive
 from tab fingerprints. During capture, Kitsune reports matching saved tabs/panes
 when it finds an existing template with the same fingerprint.
+
+Capture reuses matching components by default. If a pane or tab fingerprint
+already exists in the store, parent refs point at the existing component instead
+of creating another duplicate. Preview the write/reuse plan with:
+
+```bash
+kit capture all --plan
+kit capture workspace darkness --plan
+```
+
+Force fresh component writes with:
+
+```bash
+kit capture all --no-reuse
+```
 
 ## Current status
 

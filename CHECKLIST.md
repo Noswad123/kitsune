@@ -35,6 +35,13 @@ features land or priorities change.
   - [x] workspace fingerprints derive from tab fingerprints
   - [x] capture reports matching saved tabs/panes
   - [x] validation warns on duplicate fingerprints
+- [x] Add capture planning and component reuse.
+  - [x] `kit capture all --plan`
+  - [x] `kit capture workspace <name> --plan`
+  - [x] `kit capture tab <name> --plan`
+  - [x] reuse matching pane refs by fingerprint
+  - [x] reuse matching tab refs by fingerprint
+  - [x] `--no-reuse` escape hatch
 
 - [x] Split embedded captures into reusable template files.
   - [x] `workspaces/*.yaml`

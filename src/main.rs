@@ -10,6 +10,7 @@ use anyhow::Result;
 use backend::detect_backend;
 use clap::Parser;
 use cli::{CaptureScope, Cli, Command, KindArg, StoreCommand};
+use std::collections::HashSet;
 use store::{ItemKind, Store};
 
 fn main() -> Result<()> {
@@ -35,62 +36,93 @@ fn main() -> Result<()> {
         Command::Capture(args) => {
             let backend = detect_backend(cli.backend.map(Into::into))?;
             let (scope, name) = args.resolve()?;
+            let reuse = !args.no_reuse;
             match scope {
                 CaptureScope::All => {
                     let mut captures = backend.capture_all_workspaces()?;
                     let mut files_written = 0usize;
+                    let mut total_plan = CapturePlan::default();
                     for capture in &mut captures {
                         fingerprint::annotate_workspace_capture(capture);
-                        print_workspace_matches(&store, capture)?;
-                        files_written += store.save_workspace_capture(capture)?.len();
+                        let plan = plan_workspace_capture(&store, capture, reuse)?;
+                        total_plan.extend(plan.clone());
+                        if args.plan {
+                            print_capture_plan(&plan);
+                        } else {
+                            files_written +=
+                                save_planned_workspace_capture(&store, capture, &plan)?;
+                            println!(
+                                "captured workspace '{}' from {}",
+                                capture.workspace.name,
+                                backend.kind()
+                            );
+                        }
+                    }
+                    if args.plan {
                         println!(
-                            "captured workspace '{}' from {}",
-                            capture.workspace.name,
-                            backend.kind()
+                            "plan: {} workspaces, {} new files, {} reused components",
+                            captures.len(),
+                            total_plan.new_files,
+                            total_plan.reused_components()
+                        );
+                    } else {
+                        println!(
+                            "captured {} workspaces from {} -> {} files",
+                            captures.len(),
+                            backend.kind(),
+                            files_written
                         );
                     }
-                    println!(
-                        "captured {} workspaces from {} -> {} files",
-                        captures.len(),
-                        backend.kind(),
-                        files_written
-                    );
                 }
                 CaptureScope::Workspace => {
                     let mut workspace = backend.capture_current_workspace(name)?;
                     fingerprint::annotate_workspace_capture(&mut workspace);
-                    print_workspace_matches(&store, &workspace)?;
-                    let paths = store.save_workspace_capture(&workspace)?;
-                    println!(
-                        "captured workspace '{}' from {} -> {} files",
-                        workspace.workspace.name,
-                        backend.kind(),
-                        paths.len()
-                    );
+                    let plan = plan_workspace_capture(&store, &mut workspace, reuse)?;
+                    if args.plan {
+                        print_capture_plan(&plan);
+                    } else {
+                        let files = save_planned_workspace_capture(&store, &workspace, &plan)?;
+                        println!(
+                            "captured workspace '{}' from {} -> {} files",
+                            workspace.workspace.name,
+                            backend.kind(),
+                            files
+                        );
+                    }
                 }
                 CaptureScope::Tab => {
                     let mut tab = backend.capture_current_tab(name)?;
                     fingerprint::annotate_tab_capture(&mut tab);
-                    print_tab_matches(&store, &tab)?;
-                    let paths = store.save_tab_capture(&tab)?;
-                    println!(
-                        "captured tab '{}' from {} -> {} files",
-                        tab.tab.name,
-                        backend.kind(),
-                        paths.len()
-                    );
+                    let mut plan = plan_tab_capture(&store, &mut tab, reuse)?;
+                    plan.new_files = files_for_tab_capture(&tab, &plan);
+                    if args.plan {
+                        print_capture_plan(&plan);
+                    } else {
+                        let files = save_planned_tab_capture(&store, &tab, &plan)?;
+                        println!(
+                            "captured tab '{}' from {} -> {} files",
+                            tab.tab.name,
+                            backend.kind(),
+                            files
+                        );
+                    }
                 }
                 CaptureScope::Pane => {
                     let mut pane = backend.capture_current_pane(name)?;
                     fingerprint::annotate_pane(&mut pane);
-                    print_pane_matches(&store, &pane)?;
-                    let path = store.save_pane(&pane)?;
-                    println!(
-                        "captured pane '{}' from {} -> {}",
-                        pane.name,
-                        backend.kind(),
-                        path.display()
-                    );
+                    let mut plan = plan_pane_capture(&store, &pane)?;
+                    plan.new_files = 1;
+                    if args.plan {
+                        print_capture_plan(&plan);
+                    } else {
+                        let path = store.save_pane(&pane)?;
+                        println!(
+                            "captured pane '{}' from {} -> {}",
+                            pane.name,
+                            backend.kind(),
+                            path.display()
+                        );
+                    }
                 }
             }
         }
@@ -153,49 +185,200 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn print_workspace_matches(store: &Store, workspace: &model::WorkspaceCapture) -> Result<()> {
-    for tab in &workspace.tabs {
-        print_tab_matches(store, tab)?;
-        for pane in &tab.panes {
-            print_pane_matches(store, pane)?;
+#[derive(Debug, Clone, Default)]
+struct CapturePlan {
+    actions: Vec<String>,
+    reused_tabs: HashSet<String>,
+    reused_panes: HashSet<String>,
+    new_files: usize,
+}
+
+impl CapturePlan {
+    fn extend(&mut self, other: CapturePlan) {
+        self.actions.extend(other.actions);
+        self.reused_tabs.extend(other.reused_tabs);
+        self.reused_panes.extend(other.reused_panes);
+        self.new_files += other.new_files;
+    }
+
+    fn reused_components(&self) -> usize {
+        self.reused_tabs.len() + self.reused_panes.len()
+    }
+}
+
+fn plan_workspace_capture(
+    store: &Store,
+    workspace: &mut model::WorkspaceCapture,
+    reuse: bool,
+) -> Result<CapturePlan> {
+    let mut plan = CapturePlan::default();
+    plan.actions
+        .push(format!("workspace {}", workspace.workspace.name));
+
+    for tab in &mut workspace.tabs {
+        let before_tab_name = tab.tab.name.clone();
+        let tab_plan = plan_tab_capture(store, tab, reuse)?;
+        plan.extend(tab_plan);
+
+        if reuse {
+            let Some(fingerprint) = tab
+                .tab
+                .identity
+                .as_ref()
+                .map(|identity| &identity.fingerprint)
+            else {
+                continue;
+            };
+            let matches = matching_tabs(store, fingerprint)?;
+            if let Some(existing) = matches.first() {
+                plan.actions.push(format!(
+                    "  reuse tab {} -> {}",
+                    tab.tab.label_or_name(),
+                    existing
+                ));
+                tab.tab.name = existing.clone();
+                plan.reused_tabs.insert(existing.clone());
+            } else {
+                plan.actions.push(format!("  save tab {}", before_tab_name));
+            }
+        } else {
+            plan.actions.push(format!("  save tab {}", before_tab_name));
         }
     }
-    Ok(())
+
+    fingerprint::annotate_workspace_capture(workspace);
+    plan.actions
+        .push(format!("  save workspace {}", workspace.workspace.name));
+    plan.new_files += files_for_workspace_capture(workspace, &plan);
+    Ok(plan)
 }
 
-fn print_tab_matches(store: &Store, tab: &model::TabCapture) -> Result<()> {
-    let Some(fingerprint) = tab
-        .tab
-        .identity
-        .as_ref()
-        .map(|identity| &identity.fingerprint)
-    else {
-        return Ok(());
-    };
-    let matches = matching_tabs(store, fingerprint)?;
-    if !matches.is_empty() {
-        println!(
-            "matched saved tab '{}' -> {}",
-            tab.tab.label_or_name(),
-            matches.join(", ")
-        );
+fn plan_tab_capture(
+    store: &Store,
+    tab: &mut model::TabCapture,
+    reuse: bool,
+) -> Result<CapturePlan> {
+    let mut plan = CapturePlan::default();
+    plan.actions.push(format!("tab {}", tab.tab.name));
+
+    for pane in &mut tab.panes {
+        let pane_plan = plan_pane_capture(store, pane)?;
+        plan.extend(pane_plan);
+
+        if reuse {
+            let Some(fingerprint) = pane.identity.as_ref().map(|identity| &identity.fingerprint)
+            else {
+                continue;
+            };
+            let matches = matching_panes(store, fingerprint)?;
+            if let Some(existing) = matches.first() {
+                plan.actions.push(format!(
+                    "  reuse pane {} -> {}",
+                    pane.label_or_name(),
+                    existing
+                ));
+                pane.name = existing.clone();
+                plan.reused_panes.insert(existing.clone());
+            } else {
+                plan.actions.push(format!("  save pane {}", pane.name));
+            }
+        } else {
+            plan.actions.push(format!("  save pane {}", pane.name));
+        }
     }
-    Ok(())
+
+    fingerprint::annotate_tab_capture(tab);
+    Ok(plan)
 }
 
-fn print_pane_matches(store: &Store, pane: &model::PaneTemplate) -> Result<()> {
+fn plan_pane_capture(store: &Store, pane: &model::PaneTemplate) -> Result<CapturePlan> {
+    let mut plan = CapturePlan::default();
     let Some(fingerprint) = pane.identity.as_ref().map(|identity| &identity.fingerprint) else {
-        return Ok(());
+        plan.actions.push(format!("pane {}", pane.name));
+        return Ok(plan);
     };
     let matches = matching_panes(store, fingerprint)?;
     if !matches.is_empty() {
-        println!(
-            "matched saved pane '{}' -> {}",
+        plan.actions.push(format!(
+            "pane {} matches existing {}",
             pane.label_or_name(),
             matches.join(", ")
-        );
+        ));
     }
-    Ok(())
+    Ok(plan)
+}
+
+fn save_planned_workspace_capture(
+    store: &Store,
+    capture: &model::WorkspaceCapture,
+    plan: &CapturePlan,
+) -> Result<usize> {
+    let mut count = 0usize;
+    for tab in &capture.tabs {
+        if plan.reused_tabs.contains(&tab.tab.name) {
+            continue;
+        }
+        count += save_planned_tab_capture(store, tab, plan)?;
+    }
+    store.save_workspace(&capture.workspace)?;
+    count += 1;
+    Ok(count)
+}
+
+fn save_planned_tab_capture(
+    store: &Store,
+    capture: &model::TabCapture,
+    plan: &CapturePlan,
+) -> Result<usize> {
+    let mut count = 0usize;
+    for pane in &capture.panes {
+        if plan.reused_panes.contains(&pane.name) {
+            continue;
+        }
+        store.save_pane(pane)?;
+        count += 1;
+    }
+    store.save_tab(&capture.tab)?;
+    count += 1;
+    Ok(count)
+}
+
+fn files_for_workspace_capture(capture: &model::WorkspaceCapture, plan: &CapturePlan) -> usize {
+    let mut count = 1;
+    for tab in &capture.tabs {
+        if plan.reused_tabs.contains(&tab.tab.name) {
+            continue;
+        }
+        count += 1;
+        for pane in &tab.panes {
+            if !plan.reused_panes.contains(&pane.name) {
+                count += 1;
+            }
+        }
+    }
+    count
+}
+
+fn files_for_tab_capture(capture: &model::TabCapture, plan: &CapturePlan) -> usize {
+    let mut count = 1;
+    for pane in &capture.panes {
+        if !plan.reused_panes.contains(&pane.name) {
+            count += 1;
+        }
+    }
+    count
+}
+
+fn print_capture_plan(plan: &CapturePlan) {
+    for action in &plan.actions {
+        println!("{action}");
+    }
+    println!(
+        "summary: {} new files, {} reused tabs, {} reused panes",
+        plan.new_files,
+        plan.reused_tabs.len(),
+        plan.reused_panes.len()
+    );
 }
 
 fn matching_tabs(store: &Store, fingerprint: &str) -> Result<Vec<String>> {

@@ -67,6 +67,14 @@ pub struct CaptureArgs {
     /// Explicit scope to capture. Preserves `kit capture <name>` as workspace shorthand.
     #[arg(long, value_enum)]
     pub scope: Option<CaptureScope>,
+
+    /// Preview what would be captured/reused without writing files.
+    #[arg(long)]
+    pub plan: bool,
+
+    /// Do not reuse existing components with matching fingerprints.
+    #[arg(long)]
+    pub no_reuse: bool,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
