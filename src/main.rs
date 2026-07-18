@@ -10,7 +10,8 @@ use anyhow::{Result, bail};
 use backend::detect_backend;
 use clap::Parser;
 use cli::{
-    AddCommand, CaptureScope, Cli, Command, KindArg, RestoreTarget, StackCommand, StoreCommand,
+    AddCommand, ApplyCommand, CaptureScope, Cli, Command, KindArg, RestoreTarget, StackCommand,
+    StoreCommand,
 };
 use model::{ComponentRef, StackTemplate};
 use std::collections::HashSet;
@@ -155,13 +156,54 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Apply(args) => match args.command {
+            ApplyCommand::Tab(args) => {
+                apply_tab_by_name(
+                    &store,
+                    cli.backend.map(Into::into),
+                    &args.name,
+                    args.to.as_deref(),
+                    args.dry_run,
+                    args.skip_commands,
+                )?;
+            }
+            ApplyCommand::Workspace(args) => {
+                restore_workspace_by_name(
+                    &store,
+                    cli.backend.map(Into::into),
+                    &args.name,
+                    args.dry_run,
+                    args.skip_commands,
+                )?;
+            }
+            ApplyCommand::Stack(args) => {
+                apply_stack_by_name(
+                    &store,
+                    cli.backend.map(Into::into),
+                    &args.name,
+                    args.dry_run,
+                    args.skip_commands,
+                )?;
+            }
+        },
         Command::Add(args) => match args.command {
             AddCommand::Tab(args) => {
+                let live_workspace_selector = args.to.clone();
                 let workspace_name = match args.to {
                     Some(workspace) => workspace,
                     None => current_workspace_template_name(cli.backend.map(Into::into))?,
                 };
                 add_tab_to_workspace(&store, &args.name, &workspace_name)?;
+                if args.apply {
+                    apply_tab_by_name(
+                        &store,
+                        cli.backend.map(Into::into),
+                        &args.name,
+                        live_workspace_selector.as_deref(),
+                        args.dry_run,
+                        args.skip_commands,
+                    )?;
+                }
             }
         },
         Command::List(args) => list_items(&store, args.kind, args.json)?,
@@ -252,6 +294,39 @@ fn restore_workspace_by_name(
     let backend_kind = requested_backend.or(Some(workspace.workspace.backend));
     let backend = detect_backend(backend_kind)?;
     backend.restore_workspace(&workspace, dry_run, skip_commands)
+}
+
+fn apply_stack_by_name(
+    store: &Store,
+    requested_backend: Option<model::BackendKind>,
+    name: &str,
+    dry_run: bool,
+    skip_commands: bool,
+) -> Result<()> {
+    let stack = store.load_stack(name)?;
+    for workspace in &stack.workspaces {
+        restore_workspace_by_name(
+            store,
+            requested_backend,
+            &workspace.name,
+            dry_run,
+            skip_commands,
+        )?;
+    }
+    Ok(())
+}
+
+fn apply_tab_by_name(
+    store: &Store,
+    requested_backend: Option<model::BackendKind>,
+    name: &str,
+    workspace: Option<&str>,
+    dry_run: bool,
+    skip_commands: bool,
+) -> Result<()> {
+    let tab = store.load_tab_capture(name)?;
+    let backend = detect_backend(requested_backend)?;
+    backend.apply_tab(&tab, workspace, dry_run, skip_commands)
 }
 
 fn current_workspace_template_name(

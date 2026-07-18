@@ -197,6 +197,38 @@ impl HerdrBackend {
             tabs,
         })
     }
+
+    fn resolve_workspace_id(&self, selector: Option<&str>) -> Result<String> {
+        let workspace_list = self.workspace_list()?;
+        let workspaces = workspace_list["result"]["workspaces"]
+            .as_array()
+            .context("missing result.workspaces")?;
+
+        let workspace = match selector {
+            None => workspaces
+                .iter()
+                .find(|workspace| workspace["focused"].as_bool() == Some(true))
+                .or_else(|| workspaces.first())
+                .context("no Herdr workspaces found")?,
+            Some(selector) => {
+                let normalized = slug(selector);
+                workspaces
+                    .iter()
+                    .find(|workspace| {
+                        workspace["workspace_id"].as_str() == Some(selector)
+                            || workspace["number"].as_i64().map(|n| n.to_string())
+                                == Some(selector.to_string())
+                            || workspace["label"].as_str().map(slug) == Some(normalized.clone())
+                    })
+                    .with_context(|| format!("no live Herdr workspace matches '{selector}'"))?
+            }
+        };
+
+        Ok(workspace["workspace_id"]
+            .as_str()
+            .context("workspace missing workspace_id")?
+            .to_string())
+    }
 }
 
 impl Backend for HerdrBackend {
@@ -370,6 +402,42 @@ impl Backend for HerdrBackend {
             .with_context(|| format!("restoring tab {} ({})", idx + 1, tab.label_or_name()))?;
         }
         Ok(())
+    }
+
+    fn apply_tab(
+        &self,
+        tab: &TabCapture,
+        workspace: Option<&str>,
+        dry_run: bool,
+        skip_commands: bool,
+    ) -> Result<()> {
+        let workspace_id = self.resolve_workspace_id(workspace)?;
+        let mut tab_args = vec![
+            "tab".into(),
+            "create".into(),
+            "--workspace".into(),
+            workspace_id,
+        ];
+        if let Some(cwd) = &tab.tab.cwd {
+            tab_args.extend(["--cwd".into(), cwd.display().to_string()]);
+        }
+        tab_args.extend(["--label".into(), tab.tab.label_or_name().into()]);
+
+        let created_tab = self
+            .run(&tab_args, dry_run)?
+            .unwrap_or_else(|| fake_create_response("dry-workspace", "dry-tab", "dry-pane"));
+        let root_pane = created_tab["result"]["root_pane"]["pane_id"]
+            .as_str()
+            .unwrap_or("dry-pane")
+            .to_string();
+        restore_tab(
+            self,
+            &tab.tab,
+            &tab.panes,
+            &root_pane,
+            dry_run,
+            skip_commands,
+        )
     }
 
     fn smart_nav(&self, direction: Direction, key: &str) -> Result<()> {

@@ -40,6 +40,8 @@ pub enum Command {
     Capture(CaptureArgs),
     /// Restore a saved workspace template.
     Restore(RestoreArgs),
+    /// Apply saved templates to the live multiplexer without editing YAML.
+    Apply(ApplyArgs),
     /// Compose templates by adding refs between components.
     Add(AddArgs),
     /// List saved templates.
@@ -156,6 +158,73 @@ pub struct AddTabArgs {
     /// Existing workspace template to modify. Defaults to the focused workspace.
     #[arg(long)]
     pub to: Option<String>,
+
+    /// Also apply the tab to the live multiplexer.
+    #[arg(long)]
+    pub apply: bool,
+
+    /// Print backend commands without executing live changes.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Apply layout but do not rerun captured commands.
+    #[arg(long)]
+    pub skip_commands: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ApplyArgs {
+    #[command(subcommand)]
+    pub command: ApplyCommand,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ApplyCommand {
+    /// Apply a saved tab to a live workspace. Defaults to focused workspace.
+    Tab(ApplyTabArgs),
+    /// Apply/restore a saved workspace as a new live workspace.
+    Workspace(ApplyWorkspaceArgs),
+    /// Apply/restore every workspace in a saved stack.
+    Stack(ApplyStackArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct ApplyTabArgs {
+    pub name: String,
+
+    /// Live workspace selector. Defaults to focused workspace.
+    #[arg(long)]
+    pub to: Option<String>,
+
+    /// Print backend commands without executing them.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Apply layout but do not rerun captured commands.
+    #[arg(long)]
+    pub skip_commands: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ApplyWorkspaceArgs {
+    pub name: String,
+
+    #[arg(long)]
+    pub dry_run: bool,
+
+    #[arg(long)]
+    pub skip_commands: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct ApplyStackArgs {
+    pub name: String,
+
+    #[arg(long)]
+    pub dry_run: bool,
+
+    #[arg(long)]
+    pub skip_commands: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

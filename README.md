@@ -37,6 +37,10 @@ kit capture all --no-reuse
 kit stack create morning darkness rustlings
 kit add tab logs --to darkness
 kit add tab logs
+kit add tab logs --apply
+kit apply tab logs --dry-run
+kit apply workspace darkness --dry-run
+kit apply stack morning --dry-run
 kit restore stack morning --dry-run
 kit list
 kit list workspaces
@@ -107,6 +111,22 @@ Omit `--to` to add the tab to the currently focused workspace template:
 
 ```bash
 kit add tab logs
+```
+
+Use `--apply` to update the template and apply the same tab to the live
+multiplexer session:
+
+```bash
+kit add tab logs --apply
+kit add tab logs --to darkness --apply --dry-run
+```
+
+Use `apply` for live-only changes from saved templates:
+
+```bash
+kit apply tab logs
+kit apply workspace darkness --dry-run
+kit apply stack morning --dry-run
 ```
 
 ## Fingerprints

@@ -70,6 +70,16 @@ impl Backend for TmuxBackend {
         bail!("tmux restore is not implemented yet; herdr is the first backend")
     }
 
+    fn apply_tab(
+        &self,
+        _tab: &TabCapture,
+        _workspace: Option<&str>,
+        _dry_run: bool,
+        _skip_commands: bool,
+    ) -> Result<()> {
+        bail!("tmux apply tab is not implemented yet; herdr is the first backend")
+    }
+
     fn smart_nav(&self, direction: Direction, key: &str) -> Result<()> {
         let pane_current_command = Command::new("tmux")
             .args(["display-message", "-p", "#{pane_current_command}"])

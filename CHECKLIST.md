@@ -56,6 +56,10 @@ features land or priorities change.
   - [x] `kit restore workspace <name>`
   - [x] `kit add tab <name> --to <workspace>`
   - [x] `kit add tab <name>` defaults to current workspace
+  - [x] `kit add tab <name> --apply`
+  - [x] `kit apply tab <name>`
+  - [x] `kit apply workspace <name>`
+  - [x] `kit apply stack <name>`
   - [x] `kit restore stack <name>`
   - [x] `kit stack create <name> <workspace...>`
 

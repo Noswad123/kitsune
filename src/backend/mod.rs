@@ -20,6 +20,13 @@ pub trait Backend {
         dry_run: bool,
         skip_commands: bool,
     ) -> Result<()>;
+    fn apply_tab(
+        &self,
+        tab: &TabCapture,
+        workspace: Option<&str>,
+        dry_run: bool,
+        skip_commands: bool,
+    ) -> Result<()>;
     fn smart_nav(&self, direction: Direction, key: &str) -> Result<()>;
 }
 
