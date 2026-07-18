@@ -1,4 +1,4 @@
-use crate::model::{PaneTemplate, TabTemplate, WorkspaceTemplate};
+use crate::model::{PaneTemplate, TabCapture, TabTemplate, WorkspaceCapture, WorkspaceTemplate};
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
@@ -116,12 +116,30 @@ impl Store {
         Ok(path)
     }
 
+    pub fn save_workspace_capture(&self, capture: &WorkspaceCapture) -> Result<Vec<PathBuf>> {
+        let mut paths = vec![];
+        for tab in &capture.tabs {
+            paths.extend(self.save_tab_capture(tab)?);
+        }
+        paths.push(self.save_workspace(&capture.workspace)?);
+        Ok(paths)
+    }
+
     pub fn save_tab(&self, tab: &TabTemplate) -> Result<PathBuf> {
         self.ensure()?;
         let path = self.path(ItemKind::Tab, &tab.name);
         let yaml = serde_yaml::to_string(tab)?;
         fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
         Ok(path)
+    }
+
+    pub fn save_tab_capture(&self, capture: &TabCapture) -> Result<Vec<PathBuf>> {
+        let mut paths = vec![];
+        for pane in &capture.panes {
+            paths.push(self.save_pane(pane)?);
+        }
+        paths.push(self.save_tab(&capture.tab)?);
+        Ok(paths)
     }
 
     pub fn save_pane(&self, pane: &PaneTemplate) -> Result<PathBuf> {
@@ -139,11 +157,31 @@ impl Store {
         Ok(serde_yaml::from_str(&contents)?)
     }
 
+    pub fn load_workspace_capture(&self, name: &str) -> Result<WorkspaceCapture> {
+        let workspace = self.load_workspace(name)?;
+        let tabs = workspace
+            .tabs
+            .iter()
+            .map(|reference| self.load_tab_capture(&reference.name))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(WorkspaceCapture { workspace, tabs })
+    }
+
     pub fn load_tab(&self, name: &str) -> Result<TabTemplate> {
         let path = self.path(ItemKind::Tab, name);
         let contents = fs::read_to_string(&path)
             .with_context(|| format!("reading tab template {}", path.display()))?;
         Ok(serde_yaml::from_str(&contents)?)
+    }
+
+    pub fn load_tab_capture(&self, name: &str) -> Result<TabCapture> {
+        let tab = self.load_tab(name)?;
+        let panes = tab
+            .panes
+            .iter()
+            .map(|reference| self.load_pane(&reference.name))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(TabCapture { tab, panes })
     }
 
     pub fn load_pane(&self, name: &str) -> Result<PaneTemplate> {

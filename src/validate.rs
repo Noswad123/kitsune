@@ -125,7 +125,7 @@ fn validate_workspace_templates(store: &Store, report: &mut ValidationReport) ->
         let contents = fs::read_to_string(&path)
             .with_context(|| format!("reading workspace template {}", path.display()))?;
         match serde_yaml::from_str::<WorkspaceTemplate>(&contents) {
-            Ok(workspace) => validate_workspace(&path, &workspace, report),
+            Ok(workspace) => validate_workspace(store, &path, &workspace, report),
             Err(err) => report.error(
                 "workspace-template",
                 Some(path),
@@ -136,7 +136,12 @@ fn validate_workspace_templates(store: &Store, report: &mut ValidationReport) ->
     Ok(())
 }
 
-fn validate_workspace(path: &Path, workspace: &WorkspaceTemplate, report: &mut ValidationReport) {
+fn validate_workspace(
+    store: &Store,
+    path: &Path,
+    workspace: &WorkspaceTemplate,
+    report: &mut ValidationReport,
+) {
     if workspace.schema != "kitsune.workspace.v1" {
         report.warning(
             "workspace-schema",
@@ -172,45 +177,17 @@ fn validate_workspace(path: &Path, workspace: &WorkspaceTemplate, report: &mut V
     for tab in &workspace.tabs {
         if tab.name.trim().is_empty() {
             report.error(
-                "tab-name",
+                "tab-ref",
                 Some(path.to_path_buf()),
-                format!(
-                    "workspace '{}' contains a tab with an empty name",
-                    workspace.name
-                ),
+                format!("workspace '{}' contains an empty tab ref", workspace.name),
             );
         }
-        if tab.panes.is_empty() {
-            report.warning(
-                "tab-panes",
+        if !store.path(ItemKind::Tab, &tab.name).exists() {
+            report.error(
+                "broken-ref",
                 Some(path.to_path_buf()),
-                format!("tab '{}' has no panes", tab.label_or_name()),
+                format!("workspace references missing tab '{}'", tab.name),
             );
-        }
-        for pane in &tab.panes {
-            if pane.name.trim().is_empty() {
-                report.error(
-                    "pane-name",
-                    Some(path.to_path_buf()),
-                    format!(
-                        "tab '{}' contains a pane with an empty name",
-                        tab.label_or_name()
-                    ),
-                );
-            }
-            if let Some(cwd) = &pane.cwd {
-                if !cwd.exists() {
-                    report.warning(
-                        "pane-cwd",
-                        Some(path.to_path_buf()),
-                        format!(
-                            "pane '{}' cwd does not exist: {}",
-                            pane.label_or_name(),
-                            cwd.display()
-                        ),
-                    );
-                }
-            }
         }
     }
 }
@@ -239,7 +216,26 @@ fn validate_tab_templates(store: &Store, report: &mut ValidationReport) -> Resul
         match serde_yaml::from_str::<TabTemplate>(&contents) {
             Ok(tab) => {
                 if tab.name.trim().is_empty() {
-                    report.error("tab-name", Some(path), "tab name is empty");
+                    report.error("tab-name", Some(path.clone()), "tab name is empty");
+                }
+                if tab.panes.is_empty() {
+                    report.warning("tab-panes", Some(path.clone()), "tab has no pane refs");
+                }
+                for pane in &tab.panes {
+                    if pane.name.trim().is_empty() {
+                        report.error(
+                            "pane-ref",
+                            Some(path.clone()),
+                            "tab contains an empty pane ref",
+                        );
+                    }
+                    if !store.path(ItemKind::Pane, &pane.name).exists() {
+                        report.error(
+                            "broken-ref",
+                            Some(path.clone()),
+                            format!("tab references missing pane '{}'", pane.name),
+                        );
+                    }
                 }
             }
             Err(err) => report.error(
@@ -364,22 +360,25 @@ fn warn_duplicate_fingerprints(
         };
         let fingerprint = match kind {
             ItemKind::Workspace => {
-                let Ok(mut workspace) = store.load_workspace(&name) else {
+                let Ok(mut workspace) = store.load_workspace_capture(&name) else {
                     continue;
                 };
-                if workspace.identity.is_none() {
-                    fingerprint::annotate_workspace(&mut workspace);
+                if workspace.workspace.identity.is_none() {
+                    fingerprint::annotate_workspace_capture(&mut workspace);
                 }
-                workspace.identity.map(|identity| identity.fingerprint)
+                workspace
+                    .workspace
+                    .identity
+                    .map(|identity| identity.fingerprint)
             }
             ItemKind::Tab => {
-                let Ok(mut tab) = store.load_tab(&name) else {
+                let Ok(mut tab) = store.load_tab_capture(&name) else {
                     continue;
                 };
-                if tab.identity.is_none() {
-                    fingerprint::annotate_tab(&mut tab);
+                if tab.tab.identity.is_none() {
+                    fingerprint::annotate_tab_capture(&mut tab);
                 }
-                tab.identity.map(|identity| identity.fingerprint)
+                tab.tab.identity.map(|identity| identity.fingerprint)
             }
             ItemKind::Pane => {
                 let Ok(mut pane) = store.load_pane(&name) else {

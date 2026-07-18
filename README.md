@@ -30,6 +30,7 @@ kit capture darkness
 kit capture workspace darkness
 kit capture tab coding
 kit capture pane agent
+kit capture all
 kit list
 kit list workspaces
 kit show workspace darkness
@@ -83,6 +84,10 @@ Captured workspaces, tabs, and panes include a first-pass stable identity
 fingerprint. Fingerprints are for recognizing reusable components and duplicate
 templates; they intentionally ignore volatile runtime details like foreground
 commands and pane dimensions.
+
+Captures are componentized: workspace files contain refs to tab files, and tab
+files contain refs to pane files. Parent templates do not embed full child
+details.
 
 Pane fingerprints currently use stable-ish fields:
 

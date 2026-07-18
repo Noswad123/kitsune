@@ -58,7 +58,8 @@ pub struct WorkspaceTemplate {
     pub backend: BackendKind,
     pub cwd: Option<PathBuf>,
     pub captured_at: DateTime<Utc>,
-    pub tabs: Vec<TabTemplate>,
+    #[serde(default)]
+    pub tabs: Vec<ComponentRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<Value>,
 }
@@ -76,10 +77,31 @@ pub struct TabTemplate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<TabIdentity>,
     pub cwd: Option<PathBuf>,
-    pub panes: Vec<PaneTemplate>,
+    #[serde(default)]
+    pub panes: Vec<ComponentRef>,
     pub layout: LayoutTemplate,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentRef {
+    #[serde(rename = "ref")]
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceCapture {
+    pub workspace: WorkspaceTemplate,
+    pub tabs: Vec<TabCapture>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TabCapture {
+    pub tab: TabTemplate,
+    pub panes: Vec<PaneTemplate>,
 }
 
 impl TabTemplate {

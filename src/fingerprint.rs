@@ -1,5 +1,6 @@
 use crate::model::{
-    PaneIdentity, PaneTemplate, TabIdentity, TabTemplate, WorkspaceIdentity, WorkspaceTemplate,
+    ComponentRef, PaneIdentity, PaneTemplate, TabCapture, TabIdentity, TabTemplate,
+    WorkspaceCapture, WorkspaceIdentity, WorkspaceTemplate,
 };
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -7,20 +8,41 @@ use std::process::Command;
 const FNV_OFFSET: u64 = 0xcbf29ce484222325;
 const FNV_PRIME: u64 = 0x100000001b3;
 
-pub fn annotate_workspace(workspace: &mut WorkspaceTemplate) {
-    for tab in &mut workspace.tabs {
-        annotate_tab(tab);
+pub fn annotate_workspace_capture(capture: &mut WorkspaceCapture) {
+    for tab in &mut capture.tabs {
+        annotate_tab_capture(tab);
     }
 
-    let mut tab_fingerprints: Vec<String> = workspace
+    let mut tab_fingerprints: Vec<String> = capture
         .tabs
         .iter()
         .filter_map(|tab| {
-            tab.identity
+            tab.tab
+                .identity
                 .as_ref()
                 .map(|identity| identity.fingerprint.clone())
         })
         .collect();
+    tab_fingerprints.sort();
+
+    capture.workspace.tabs = capture
+        .tabs
+        .iter()
+        .map(|tab| {
+            component_ref(
+                &tab.tab.name,
+                tab.tab.identity.as_ref().map(|i| &i.fingerprint),
+            )
+        })
+        .collect();
+
+    annotate_workspace_from_fingerprints(&mut capture.workspace, tab_fingerprints);
+}
+
+pub fn annotate_workspace_from_fingerprints(
+    workspace: &mut WorkspaceTemplate,
+    mut tab_fingerprints: Vec<String>,
+) {
     tab_fingerprints.sort();
 
     let git_root = workspace.cwd.as_deref().and_then(git_root_for);
@@ -43,12 +65,12 @@ pub fn annotate_workspace(workspace: &mut WorkspaceTemplate) {
     });
 }
 
-pub fn annotate_tab(tab: &mut TabTemplate) {
-    for pane in &mut tab.panes {
+pub fn annotate_tab_capture(capture: &mut TabCapture) {
+    for pane in &mut capture.panes {
         annotate_pane(pane);
     }
 
-    let mut pane_fingerprints: Vec<String> = tab
+    let mut pane_fingerprints: Vec<String> = capture
         .panes
         .iter()
         .filter_map(|pane| {
@@ -57,6 +79,18 @@ pub fn annotate_tab(tab: &mut TabTemplate) {
                 .map(|identity| identity.fingerprint.clone())
         })
         .collect();
+    pane_fingerprints.sort();
+
+    capture.tab.panes = capture
+        .panes
+        .iter()
+        .map(|pane| component_ref(&pane.name, pane.identity.as_ref().map(|i| &i.fingerprint)))
+        .collect();
+
+    annotate_tab_from_fingerprints(&mut capture.tab, pane_fingerprints);
+}
+
+pub fn annotate_tab_from_fingerprints(tab: &mut TabTemplate, mut pane_fingerprints: Vec<String>) {
     pane_fingerprints.sort();
 
     let key = stable_key(&[
@@ -70,6 +104,13 @@ pub fn annotate_tab(tab: &mut TabTemplate) {
         pane_fingerprints,
         fingerprint: fingerprint(&key),
     });
+}
+
+fn component_ref(name: &str, fingerprint: Option<&String>) -> ComponentRef {
+    ComponentRef {
+        name: name.to_string(),
+        fingerprint: fingerprint.cloned(),
+    }
 }
 
 pub fn annotate_pane(pane: &mut PaneTemplate) {

@@ -1,7 +1,7 @@
 use super::{Backend, DoctorReport};
 use crate::model::{
     BackendKind, Direction, LayoutTemplate, PaneTemplate, Rect, SplitDirection, SplitTemplate,
-    TabTemplate, WorkspaceTemplate,
+    TabCapture, TabTemplate, WorkspaceCapture, WorkspaceTemplate,
 };
 use crate::store::slug;
 use anyhow::{Context, Result, bail};
@@ -71,6 +71,132 @@ impl HerdrBackend {
             Ok(Some(serde_json::from_slice(&output.stdout)?))
         }
     }
+
+    fn workspace_list(&self) -> Result<Value> {
+        self.json(&["workspace", "list"])
+    }
+
+    fn capture_workspace_from_value(
+        &self,
+        workspace: &Value,
+        name: Option<String>,
+        prefix_components: bool,
+    ) -> Result<WorkspaceCapture> {
+        let workspace_id = workspace["workspace_id"]
+            .as_str()
+            .context("workspace missing workspace_id")?;
+        let workspace_label = workspace["label"].as_str().map(str::to_string);
+        let template_name =
+            name.unwrap_or_else(|| slug(workspace_label.as_deref().unwrap_or(workspace_id)));
+
+        let tab_list = self.json(&["tab", "list", "--workspace", workspace_id])?;
+        let pane_list = self.json(&["pane", "list", "--workspace", workspace_id])?;
+        let panes = pane_list["result"]["panes"]
+            .as_array()
+            .context("missing result.panes")?;
+
+        let mut tabs = Vec::new();
+        let mut workspace_cwd = None;
+        let mut tab_names_seen = HashMap::<String, usize>::new();
+        let mut pane_names_seen = HashMap::<String, usize>::new();
+        for tab in tab_list["result"]["tabs"]
+            .as_array()
+            .context("missing result.tabs")?
+        {
+            let tab_id = tab["tab_id"].as_str().context("tab missing tab_id")?;
+            let tab_label = tab["label"].as_str().map(str::to_string);
+            let tab_panes: Vec<&Value> = panes
+                .iter()
+                .filter(|p| p["tab_id"].as_str() == Some(tab_id))
+                .collect();
+
+            let first_pane_id = tab_panes
+                .first()
+                .and_then(|p| p["pane_id"].as_str())
+                .unwrap_or("");
+            let raw_layout = if first_pane_id.is_empty() {
+                None
+            } else {
+                Some(
+                    self.json(&["pane", "layout", "--pane", first_pane_id])?["result"]["layout"]
+                        .clone(),
+                )
+            };
+            let layout = parse_layout(raw_layout.as_ref());
+
+            let tab_base = slug(tab_label.as_deref().unwrap_or(tab_id));
+            let tab_base = if prefix_components {
+                format!("{}-{}", template_name, tab_base)
+            } else {
+                tab_base
+            };
+            let tab_name = unique_name(&tab_base, &mut tab_names_seen);
+
+            let mut pane_templates = Vec::new();
+            for pane in tab_panes {
+                let pane_id = pane["pane_id"].as_str().context("pane missing pane_id")?;
+                let process = self
+                    .json(&["pane", "process-info", "--pane", pane_id])
+                    .unwrap_or(Value::Null);
+                let command = first_cmdline(&process);
+                let cwd = pane["foreground_cwd"]
+                    .as_str()
+                    .or_else(|| pane["cwd"].as_str())
+                    .map(PathBuf::from);
+                if workspace_cwd.is_none() {
+                    workspace_cwd = cwd.clone();
+                }
+                let label = pane["label"].as_str().map(str::to_string);
+                let pane_base = slug(label.as_deref().unwrap_or(pane_id));
+                let pane_base = if prefix_components {
+                    format!("{}-{}", tab_name, pane_base)
+                } else {
+                    pane_base
+                };
+                let name = unique_name(&pane_base, &mut pane_names_seen);
+                let rect = layout_rect_for_pane(raw_layout.as_ref(), pane_id);
+                pane_templates.push(PaneTemplate {
+                    name,
+                    label,
+                    identity: None,
+                    cwd,
+                    command,
+                    agent: pane["agent"].as_str().map(str::to_string),
+                    rect,
+                    raw: Some(pane.clone()),
+                });
+            }
+
+            let tab_cwd = pane_templates.first().and_then(|p| p.cwd.clone());
+            tabs.push(TabCapture {
+                tab: TabTemplate {
+                    name: tab_name,
+                    label: tab_label,
+                    identity: None,
+                    cwd: tab_cwd,
+                    panes: vec![],
+                    layout,
+                    raw: Some(tab.clone()),
+                },
+                panes: pane_templates,
+            });
+        }
+
+        Ok(WorkspaceCapture {
+            workspace: WorkspaceTemplate {
+                schema: "kitsune.workspace.v1".into(),
+                name: template_name,
+                label: workspace_label,
+                identity: None,
+                backend: BackendKind::Herdr,
+                cwd: workspace_cwd,
+                captured_at: Utc::now(),
+                tabs: vec![],
+                raw: Some(workspace.clone()),
+            },
+            tabs,
+        })
+    }
 }
 
 impl Backend for HerdrBackend {
@@ -98,8 +224,19 @@ impl Backend for HerdrBackend {
         })
     }
 
-    fn capture_current_workspace(&self, name: Option<String>) -> Result<WorkspaceTemplate> {
-        let workspace_list = self.json(&["workspace", "list"])?;
+    fn capture_all_workspaces(&self) -> Result<Vec<WorkspaceCapture>> {
+        let workspace_list = self.workspace_list()?;
+        let workspaces = workspace_list["result"]["workspaces"]
+            .as_array()
+            .context("missing result.workspaces")?;
+        workspaces
+            .iter()
+            .map(|workspace| self.capture_workspace_from_value(workspace, None, true))
+            .collect()
+    }
+
+    fn capture_current_workspace(&self, name: Option<String>) -> Result<WorkspaceCapture> {
+        let workspace_list = self.workspace_list()?;
         let workspaces = workspace_list["result"]["workspaces"]
             .as_array()
             .context("missing result.workspaces")?;
@@ -108,110 +245,17 @@ impl Backend for HerdrBackend {
             .find(|w| w["focused"].as_bool() == Some(true))
             .or_else(|| workspaces.first())
             .context("no herdr workspaces found")?;
-
-        let workspace_id = workspace["workspace_id"]
-            .as_str()
-            .context("workspace missing workspace_id")?;
-        let workspace_label = workspace["label"].as_str().map(str::to_string);
-        let template_name =
-            name.unwrap_or_else(|| slug(workspace_label.as_deref().unwrap_or(workspace_id)));
-
-        let tab_list = self.json(&["tab", "list", "--workspace", workspace_id])?;
-        let pane_list = self.json(&["pane", "list", "--workspace", workspace_id])?;
-        let panes = pane_list["result"]["panes"]
-            .as_array()
-            .context("missing result.panes")?;
-
-        let mut tabs = Vec::new();
-        let mut workspace_cwd = None;
-        for tab in tab_list["result"]["tabs"]
-            .as_array()
-            .context("missing result.tabs")?
-        {
-            let tab_id = tab["tab_id"].as_str().context("tab missing tab_id")?;
-            let tab_label = tab["label"].as_str().map(str::to_string);
-            let tab_panes: Vec<&Value> = panes
-                .iter()
-                .filter(|p| p["tab_id"].as_str() == Some(tab_id))
-                .collect();
-
-            let first_pane_id = tab_panes
-                .first()
-                .and_then(|p| p["pane_id"].as_str())
-                .unwrap_or("");
-            let raw_layout = if first_pane_id.is_empty() {
-                None
-            } else {
-                Some(
-                    self.json(&["pane", "layout", "--pane", first_pane_id])?["result"]["layout"]
-                        .clone(),
-                )
-            };
-            let layout = parse_layout(raw_layout.as_ref());
-
-            let mut pane_templates = Vec::new();
-            let mut names_seen = HashMap::<String, usize>::new();
-            for pane in tab_panes {
-                let pane_id = pane["pane_id"].as_str().context("pane missing pane_id")?;
-                let process = self
-                    .json(&["pane", "process-info", "--pane", pane_id])
-                    .unwrap_or(Value::Null);
-                let command = first_cmdline(&process);
-                let cwd = pane["foreground_cwd"]
-                    .as_str()
-                    .or_else(|| pane["cwd"].as_str())
-                    .map(PathBuf::from);
-                if workspace_cwd.is_none() {
-                    workspace_cwd = cwd.clone();
-                }
-                let label = pane["label"].as_str().map(str::to_string);
-                let base_name = slug(label.as_deref().unwrap_or(pane_id));
-                let name = unique_name(&base_name, &mut names_seen);
-                let rect = layout_rect_for_pane(raw_layout.as_ref(), pane_id);
-                pane_templates.push(PaneTemplate {
-                    name,
-                    label,
-                    identity: None,
-                    cwd,
-                    command,
-                    agent: pane["agent"].as_str().map(str::to_string),
-                    rect,
-                    raw: Some(pane.clone()),
-                });
-            }
-
-            let tab_cwd = pane_templates.first().and_then(|p| p.cwd.clone());
-            tabs.push(TabTemplate {
-                name: slug(tab_label.as_deref().unwrap_or(tab_id)),
-                label: tab_label,
-                identity: None,
-                cwd: tab_cwd,
-                panes: pane_templates,
-                layout,
-                raw: Some(tab.clone()),
-            });
-        }
-
-        Ok(WorkspaceTemplate {
-            schema: "kitsune.workspace.v1".into(),
-            name: template_name,
-            label: workspace_label,
-            identity: None,
-            backend: BackendKind::Herdr,
-            cwd: workspace_cwd,
-            captured_at: Utc::now(),
-            tabs,
-            raw: Some(workspace.clone()),
-        })
+        self.capture_workspace_from_value(workspace, name, false)
     }
 
-    fn capture_current_tab(&self, name: Option<String>) -> Result<TabTemplate> {
+    fn capture_current_tab(&self, name: Option<String>) -> Result<TabCapture> {
         let workspace = self.capture_current_workspace(None)?;
         let mut tab = workspace
             .tabs
             .into_iter()
             .find(|tab| {
-                tab.raw
+                tab.tab
+                    .raw
                     .as_ref()
                     .and_then(|raw| raw.get("focused"))
                     .and_then(Value::as_bool)
@@ -220,7 +264,7 @@ impl Backend for HerdrBackend {
             .context("no focused Herdr tab found")?;
 
         if let Some(name) = name {
-            tab.name = slug(&name);
+            tab.tab.name = slug(&name);
         }
         Ok(tab)
     }
@@ -248,22 +292,22 @@ impl Backend for HerdrBackend {
 
     fn restore_workspace(
         &self,
-        workspace: &WorkspaceTemplate,
+        workspace: &WorkspaceCapture,
         dry_run: bool,
         skip_commands: bool,
     ) -> Result<()> {
-        if workspace.backend != BackendKind::Herdr {
+        if workspace.workspace.backend != BackendKind::Herdr {
             bail!(
                 "workspace was captured for {}, not herdr",
-                workspace.backend
+                workspace.workspace.backend
             );
         }
 
         let mut args = vec!["workspace".into(), "create".into()];
-        if let Some(cwd) = &workspace.cwd {
+        if let Some(cwd) = &workspace.workspace.cwd {
             args.extend(["--cwd".into(), cwd.display().to_string()]);
         }
-        args.extend(["--label".into(), workspace.label_or_name().into()]);
+        args.extend(["--label".into(), workspace.workspace.label_or_name().into()]);
 
         let created = self
             .run(&args, dry_run)?
@@ -281,7 +325,8 @@ impl Backend for HerdrBackend {
             .unwrap_or("dry-pane")
             .to_string();
 
-        for (idx, tab) in workspace.tabs.iter().enumerate() {
+        for (idx, tab_capture) in workspace.tabs.iter().enumerate() {
+            let tab = &tab_capture.tab;
             if idx == 0 {
                 let rename = vec![
                     "tab".into(),
@@ -314,8 +359,15 @@ impl Backend for HerdrBackend {
                     .to_string();
             }
 
-            restore_tab(self, tab, &current_root_pane, dry_run, skip_commands)
-                .with_context(|| format!("restoring tab {} ({})", idx + 1, tab.label_or_name()))?;
+            restore_tab(
+                self,
+                tab,
+                &tab_capture.panes,
+                &current_root_pane,
+                dry_run,
+                skip_commands,
+            )
+            .with_context(|| format!("restoring tab {} ({})", idx + 1, tab.label_or_name()))?;
         }
         Ok(())
     }
@@ -355,6 +407,7 @@ impl Backend for HerdrBackend {
 fn restore_tab(
     backend: &HerdrBackend,
     tab: &TabTemplate,
+    panes: &[PaneTemplate],
     root_pane: &str,
     dry_run: bool,
     skip_commands: bool,
@@ -405,7 +458,7 @@ fn restore_tab(
         });
     }
 
-    for pane in &tab.panes {
+    for pane in panes {
         let pane_id = match pane.rect {
             Some(rect) => leaves
                 .iter()

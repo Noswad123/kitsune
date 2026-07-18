@@ -71,6 +71,7 @@ pub struct CaptureArgs {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum CaptureScope {
+    All,
     Workspace,
     Tab,
     Pane,
@@ -87,12 +88,18 @@ impl CaptureArgs {
 
         match self.scope_or_name.as_deref() {
             None => Ok((CaptureScope::Workspace, None)),
+            Some("all") => {
+                if self.name.is_some() {
+                    bail!("capture all does not take a name");
+                }
+                Ok((CaptureScope::All, None))
+            }
             Some("workspace" | "workspaces") => Ok((CaptureScope::Workspace, self.name.clone())),
             Some("tab" | "tabs") => Ok((CaptureScope::Tab, self.name.clone())),
             Some("pane" | "panes") => Ok((CaptureScope::Pane, self.name.clone())),
             Some(name) => {
                 if self.name.is_some() {
-                    bail!("unknown capture scope '{name}'; expected workspace, tab, or pane");
+                    bail!("unknown capture scope '{name}'; expected all, workspace, tab, or pane");
                 }
                 Ok((CaptureScope::Workspace, Some(name.to_string())))
             }

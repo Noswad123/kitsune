@@ -36,28 +36,48 @@ fn main() -> Result<()> {
             let backend = detect_backend(cli.backend.map(Into::into))?;
             let (scope, name) = args.resolve()?;
             match scope {
+                CaptureScope::All => {
+                    let mut captures = backend.capture_all_workspaces()?;
+                    let mut files_written = 0usize;
+                    for capture in &mut captures {
+                        fingerprint::annotate_workspace_capture(capture);
+                        print_workspace_matches(&store, capture)?;
+                        files_written += store.save_workspace_capture(capture)?.len();
+                        println!(
+                            "captured workspace '{}' from {}",
+                            capture.workspace.name,
+                            backend.kind()
+                        );
+                    }
+                    println!(
+                        "captured {} workspaces from {} -> {} files",
+                        captures.len(),
+                        backend.kind(),
+                        files_written
+                    );
+                }
                 CaptureScope::Workspace => {
                     let mut workspace = backend.capture_current_workspace(name)?;
-                    fingerprint::annotate_workspace(&mut workspace);
+                    fingerprint::annotate_workspace_capture(&mut workspace);
                     print_workspace_matches(&store, &workspace)?;
-                    let path = store.save_workspace(&workspace)?;
+                    let paths = store.save_workspace_capture(&workspace)?;
                     println!(
-                        "captured workspace '{}' from {} -> {}",
-                        workspace.name,
+                        "captured workspace '{}' from {} -> {} files",
+                        workspace.workspace.name,
                         backend.kind(),
-                        path.display()
+                        paths.len()
                     );
                 }
                 CaptureScope::Tab => {
                     let mut tab = backend.capture_current_tab(name)?;
-                    fingerprint::annotate_tab(&mut tab);
+                    fingerprint::annotate_tab_capture(&mut tab);
                     print_tab_matches(&store, &tab)?;
-                    let path = store.save_tab(&tab)?;
+                    let paths = store.save_tab_capture(&tab)?;
                     println!(
-                        "captured tab '{}' from {} -> {}",
-                        tab.name,
+                        "captured tab '{}' from {} -> {} files",
+                        tab.tab.name,
                         backend.kind(),
-                        path.display()
+                        paths.len()
                     );
                 }
                 CaptureScope::Pane => {
@@ -75,8 +95,11 @@ fn main() -> Result<()> {
             }
         }
         Command::Restore(args) => {
-            let workspace = store.load_workspace(&args.name)?;
-            let backend_kind = cli.backend.map(Into::into).or(Some(workspace.backend));
+            let workspace = store.load_workspace_capture(&args.name)?;
+            let backend_kind = cli
+                .backend
+                .map(Into::into)
+                .or(Some(workspace.workspace.backend));
             let backend = detect_backend(backend_kind)?;
             backend.restore_workspace(&workspace, args.dry_run, args.skip_commands)?;
         }
@@ -130,7 +153,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn print_workspace_matches(store: &Store, workspace: &model::WorkspaceTemplate) -> Result<()> {
+fn print_workspace_matches(store: &Store, workspace: &model::WorkspaceCapture) -> Result<()> {
     for tab in &workspace.tabs {
         print_tab_matches(store, tab)?;
         for pane in &tab.panes {
@@ -140,15 +163,20 @@ fn print_workspace_matches(store: &Store, workspace: &model::WorkspaceTemplate) 
     Ok(())
 }
 
-fn print_tab_matches(store: &Store, tab: &model::TabTemplate) -> Result<()> {
-    let Some(fingerprint) = tab.identity.as_ref().map(|identity| &identity.fingerprint) else {
+fn print_tab_matches(store: &Store, tab: &model::TabCapture) -> Result<()> {
+    let Some(fingerprint) = tab
+        .tab
+        .identity
+        .as_ref()
+        .map(|identity| &identity.fingerprint)
+    else {
         return Ok(());
     };
     let matches = matching_tabs(store, fingerprint)?;
     if !matches.is_empty() {
         println!(
             "matched saved tab '{}' -> {}",
-            tab.label_or_name(),
+            tab.tab.label_or_name(),
             matches.join(", ")
         );
     }
@@ -173,11 +201,12 @@ fn print_pane_matches(store: &Store, pane: &model::PaneTemplate) -> Result<()> {
 fn matching_tabs(store: &Store, fingerprint: &str) -> Result<Vec<String>> {
     let mut matches = vec![];
     for name in store.list(ItemKind::Tab)? {
-        let mut tab = store.load_tab(&name)?;
-        if tab.identity.is_none() {
-            fingerprint::annotate_tab(&mut tab);
+        let mut tab = store.load_tab_capture(&name)?;
+        if tab.tab.identity.is_none() {
+            fingerprint::annotate_tab_capture(&mut tab);
         }
         if tab
+            .tab
             .identity
             .as_ref()
             .map(|identity| identity.fingerprint.as_str())

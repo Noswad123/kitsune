@@ -24,7 +24,7 @@ features land or priorities change.
   - [x] `kit capture pane <name>`
 - [ ] Add broader capture modes.
   - [ ] `kit capture --current`
-  - [ ] `kit capture --all-workspaces`
+  - [x] `kit capture all`
   - [ ] `kit capture --append-snapshot`
 
 ## Composable templates
@@ -36,14 +36,14 @@ features land or priorities change.
   - [x] capture reports matching saved tabs/panes
   - [x] validation warns on duplicate fingerprints
 
-- [ ] Split embedded captures into reusable template files.
-  - [ ] `workspaces/*.yaml`
-  - [ ] `tabs/*.yaml`
-  - [ ] `panes/*.yaml`
+- [x] Split embedded captures into reusable template files.
+  - [x] `workspaces/*.yaml`
+  - [x] `tabs/*.yaml`
+  - [x] `panes/*.yaml`
   - [ ] `stacks/*.yaml`
-- [ ] Add refs between templates.
-  - [ ] workspace references tabs
-  - [ ] tab references panes
+- [x] Add refs between templates.
+  - [x] workspace references tabs
+  - [x] tab references panes
   - [ ] stack references workspaces
 - [ ] Add composition commands.
   - [ ] `kit restore workspace <name>`
