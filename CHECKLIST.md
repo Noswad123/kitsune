@@ -105,8 +105,8 @@ features land or priorities change.
 
 ## Navigation
 
-- [ ] Replace `herdr-smart-nav` with `kit nav` once trusted.
+- [x] Replace `herdr-smart-nav` with `kit nav` once trusted.
 - [x] Move nav passthrough settings into Kitsune config.
-  - [ ] Vim/Neovim/view/fzf defaults
+  - [x] Vim/Neovim/view/fzf defaults
   - [x] Helix support
   - [x] lazygit support

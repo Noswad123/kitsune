@@ -7,7 +7,7 @@ mod tui;
 mod validate;
 
 use anyhow::{Result, bail};
-use backend::detect_backend;
+use backend::{Backend, detect_backend};
 use chrono::Utc;
 use clap::Parser;
 use cli::{
@@ -21,6 +21,10 @@ use std::io::{self, Write};
 use store::{ItemKind, Store};
 
 fn main() -> Result<()> {
+    if maybe_run_fast_herdr_nav()? {
+        return Ok(());
+    }
+
     let cli = Cli::parse();
     let store = Store::new(cli.store.clone())?;
 
@@ -354,6 +358,50 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn maybe_run_fast_herdr_nav() -> Result<bool> {
+    let mut args = std::env::args_os();
+    let _program = args.next();
+    let Some(command) = args.next() else {
+        return Ok(false);
+    };
+    if command.to_string_lossy() != "herdr-nav" {
+        return Ok(false);
+    }
+
+    let direction = args
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: kit herdr-nav <left|down|up|right> <key>"))?;
+    if matches!(direction.to_string_lossy().as_ref(), "--help" | "-h") {
+        println!("usage: kit herdr-nav <left|down|up|right> <key>");
+        return Ok(true);
+    }
+    let key = args
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: kit herdr-nav <left|down|up|right> <key>"))?;
+    if args.next().is_some() {
+        bail!("usage: kit herdr-nav <left|down|up|right> <key>");
+    }
+
+    let direction = parse_fast_direction(&direction.to_string_lossy())?;
+    let key = key
+        .into_string()
+        .map_err(|_| anyhow::anyhow!("key must be valid UTF-8"))?;
+    let passthrough_pattern = std::env::var("KITSUNE_NAV_PASSTHROUGH")
+        .unwrap_or_else(|_| backend::DEFAULT_NAV_PASSTHROUGH_REGEX.into());
+    backend::HerdrBackend::new().smart_nav(direction, &key, &passthrough_pattern)?;
+    Ok(true)
+}
+
+fn parse_fast_direction(value: &str) -> Result<model::Direction> {
+    match value {
+        "left" => Ok(model::Direction::Left),
+        "down" => Ok(model::Direction::Down),
+        "up" => Ok(model::Direction::Up),
+        "right" => Ok(model::Direction::Right),
+        _ => bail!("unknown direction '{value}'; expected left, down, up, or right"),
+    }
 }
 
 fn capture_current_workspace(

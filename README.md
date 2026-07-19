@@ -67,9 +67,13 @@ Kitsune can replace `herdr-smart-nav`:
 [[keys.command]]
 key = "ctrl+h"
 type = "shell"
-command = "kit nav left ctrl+h"
+command = "~/.local/bin/kit herdr-nav left ctrl+h"
 description = "smart focus pane left"
 ```
+
+`kit herdr-nav` is a Herdr-only fast path for keybindings. It bypasses the full
+CLI/config startup path and uses `KITSUNE_NAV_PASSTHROUGH` or the built-in
+passthrough regex. Use `kit nav` for the normal backend-aware command.
 
 The default passthrough regex matches Vim/Neovim/view/fzf, Helix, and lazygit.
 Configure it in `config.yaml`:
