@@ -75,7 +75,7 @@ features land or priorities change.
   - [x] saved Kitsune templates pane
   - [ ] capture action
   - [ ] restore action
-  - [ ] view action
+  - [x] view action
   - [ ] diff action
   - [ ] edit action
   - [ ] multi-select

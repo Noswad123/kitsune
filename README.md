@@ -80,8 +80,10 @@ export KITSUNE_NAV_PASSTHROUGH='(^|/)(g?view|l?n?vim?x?|fzf|hx|helix|lazygit)(di
 
 ## TUI
 
-`kit tui` opens a read-only split view of live backend state and saved Kitsune
-templates. Press `r` to refresh, or `q`/Esc to quit. Capture, restore, view, and
+`kit tui` opens a read-only split view with full-width top tabs for live backend
+state and saved Kitsune templates. Use Tab to switch tabs, `h`/`l` to focus the
+list or metadata pane, ↑/↓ or `j`/`k` to select rows or scroll metadata, `r` to
+refresh, or `q`/Esc to quit. The selected live component or saved template
 edit actions are planned next.
 
 ## Storage
