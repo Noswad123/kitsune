@@ -48,6 +48,8 @@ pub enum Command {
     List(ListArgs),
     /// Show a saved template as YAML.
     Show(ShowArgs),
+    /// Show a human-readable template/ref tree.
+    Tree(TreeArgs),
     /// Validate the Kitsune store and saved templates.
     Validate(ValidateArgs),
     /// Smart pane navigation that passes keys through to Vim/fzf-like apps.
@@ -136,6 +138,10 @@ pub struct RestoreArgs {
     /// Recreate panes/layout but do not rerun captured commands.
     #[arg(long)]
     pub skip_commands: bool,
+
+    /// Prompt before applying live restore changes.
+    #[arg(long)]
+    pub confirm: bool,
 }
 
 #[derive(Debug, Args)]
@@ -170,6 +176,10 @@ pub struct AddTabArgs {
     /// Apply layout but do not rerun captured commands.
     #[arg(long)]
     pub skip_commands: bool,
+
+    /// Prompt before applying live changes.
+    #[arg(long)]
+    pub confirm: bool,
 }
 
 #[derive(Debug, Args)]
@@ -203,6 +213,10 @@ pub struct ApplyTabArgs {
     /// Apply layout but do not rerun captured commands.
     #[arg(long)]
     pub skip_commands: bool,
+
+    /// Prompt before applying live changes.
+    #[arg(long)]
+    pub confirm: bool,
 }
 
 #[derive(Debug, Args)]
@@ -214,6 +228,10 @@ pub struct ApplyWorkspaceArgs {
 
     #[arg(long)]
     pub skip_commands: bool,
+
+    /// Prompt before applying live changes.
+    #[arg(long)]
+    pub confirm: bool,
 }
 
 #[derive(Debug, Args)]
@@ -225,6 +243,10 @@ pub struct ApplyStackArgs {
 
     #[arg(long)]
     pub skip_commands: bool,
+
+    /// Prompt before applying live changes.
+    #[arg(long)]
+    pub confirm: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -294,6 +316,13 @@ impl KindArg {
 
 #[derive(Debug, Args)]
 pub struct ShowArgs {
+    #[arg(value_enum)]
+    pub kind: KindArgRequired,
+    pub name: String,
+}
+
+#[derive(Debug, Args)]
+pub struct TreeArgs {
     #[arg(value_enum)]
     pub kind: KindArgRequired,
     pub name: String,

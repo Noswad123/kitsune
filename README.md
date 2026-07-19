@@ -41,10 +41,13 @@ kit add tab logs --apply
 kit apply tab logs --dry-run
 kit apply workspace darkness --dry-run
 kit apply stack morning --dry-run
+kit restore stack morning --confirm
 kit restore stack morning --dry-run
 kit list
 kit list workspaces
 kit show workspace darkness
+kit tree workspace darkness
+kit tree stack morning
 kit validate
 kit restore darkness --dry-run
 kit restore darkness --skip-commands
@@ -127,6 +130,13 @@ Use `apply` for live-only changes from saved templates:
 kit apply tab logs
 kit apply workspace darkness --dry-run
 kit apply stack morning --dry-run
+```
+
+Add `--confirm` to prompt before live restore/apply changes:
+
+```bash
+kit apply tab logs --confirm
+kit restore stack morning --confirm
 ```
 
 ## Fingerprints

@@ -15,6 +15,11 @@ features land or priorities change.
   - [x] detect invalid YAML/templates
   - [x] detect broken refs
   - [x] detect unsupported backend features
+- [x] Add tree inspection for saved templates.
+  - [x] `kit tree workspace <name>`
+  - [x] `kit tree tab <name>`
+  - [x] `kit tree pane <name>`
+  - [x] `kit tree stack <name>`
 
 ## Capture
 
@@ -78,11 +83,11 @@ features land or priorities change.
 ## Restore safety
 
 - [ ] Harden restore flows.
-  - [ ] `--dry-run`
-  - [ ] `--skip-commands`
-  - [ ] `--confirm`
+  - [x] `--dry-run`
+  - [x] `--skip-commands`
+  - [x] `--confirm`
   - [ ] better layout conflict handling
-  - [ ] clearer summaries before execution
+  - [x] clearer summaries before execution
 
 ## Navigation
 
