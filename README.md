@@ -57,7 +57,6 @@ kit run start rustlings --dry-run
 - [Actions](docs/actions.md): explicit runnable actions and fan-out behavior
 - [Navigation](docs/navigation.md): `kit nav` / `kit herdr-nav` setup
 - [Planning](docs/planning.md): design topics that are not implementation-ready
-- [Roadmap](docs/roadmap.md): pointer to current planning work
 
 ## Current status
 
