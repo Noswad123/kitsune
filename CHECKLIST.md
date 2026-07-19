@@ -21,16 +21,16 @@ features land or priorities change.
   - [x] `kit tree pane <name>`
   - [x] `kit tree stack <name>`
 
-## Capture
+## Save
 
-- [x] Improve capture naming.
-  - [x] `kit capture workspace <name>`
-  - [x] `kit capture tab <name>`
-  - [x] `kit capture pane <name>`
-- [ ] Add broader capture modes.
-  - [x] `kit capture --current`
-  - [x] `kit capture all`
-  - [x] `kit capture --append-snapshot`
+- [x] Improve save naming.
+  - [x] `kit save workspace <name>`
+  - [x] `kit save tab <name>`
+  - [x] `kit save pane <name>`
+- [ ] Add broader save modes.
+  - [x] `kit save --current`
+  - [x] `kit save all`
+  - [x] `kit save --append-snapshot`
 
 ## Composable templates
 
@@ -38,17 +38,17 @@ features land or priorities change.
   - [x] pane fingerprints ignore command and dimensions
   - [x] tab fingerprints derive from pane fingerprints
   - [x] workspace fingerprints derive from tab fingerprints
-  - [x] capture reports matching saved tabs/panes
+  - [x] save reports matching saved tabs/panes
   - [x] validation warns on duplicate fingerprints
-- [x] Add capture planning and component reuse.
-  - [x] `kit capture all --plan`
-  - [x] `kit capture workspace <name> --plan`
-  - [x] `kit capture tab <name> --plan`
+- [x] Add save planning and component reuse.
+  - [x] `kit save all --plan`
+  - [x] `kit save workspace <name> --plan`
+  - [x] `kit save tab <name> --plan`
   - [x] reuse matching pane refs by fingerprint
   - [x] reuse matching tab refs by fingerprint
   - [x] `--no-reuse` escape hatch
 
-- [x] Split embedded captures into reusable template files.
+- [x] Split embedded saved state into reusable template files.
   - [x] `workspaces/*.yaml`
   - [x] `tabs/*.yaml`
   - [x] `panes/*.yaml`
@@ -73,28 +73,40 @@ features land or priorities change.
 - [ ] Build the TUI around live state vs saved kits.
   - [x] live backend state pane
   - [x] saved Kitsune templates pane
-  - [x] capture action
+  - [x] save action
   - [x] restore action
   - [x] view action
-  - [ ] diff action
+  - [x] diff action
   - [x] edit action
-  - [ ] multi-select
+  - [x] multi-select
 
 ## Restore safety
 
 - [ ] Harden restore flows.
   - [x] `--dry-run`
   - [x] `--confirm`
-  - [x] captured/observed commands are inert and never run during restore/apply
+  - [x] saved/observed commands are inert and never run during restore/apply
   - [x] better layout conflict handling
     - [x] prevent duplicate live Herdr workspace/tab labels by default
     - [x] `--force` escape hatch for intentional duplicate labels
   - [x] clearer summaries before execution
 
+## Actions
+
+- [ ] Add action config for workspaces, tabs, and panes.
+  - [ ] support named actions such as `start`, `stop`, `test`, or `dev`
+  - [ ] add command shape like `kit run <action> <target>`
+  - [ ] allow workspace-level actions to fan out to tab/pane actions
+  - [ ] allow tab-level actions to fan out to pane actions
+  - [ ] allow pane-level actions to run configured commands
+  - [ ] example: `kit run start rustlings-workspace`
+  - [ ] preserve restore/apply safety: actions must be explicit config, not observed commands
+  - [ ] design confirmation/dry-run behavior before execution
+
 ## Navigation
 
 - [ ] Replace `herdr-smart-nav` with `kit nav` once trusted.
-- [ ] Move nav passthrough settings into Kitsune config.
+- [x] Move nav passthrough settings into Kitsune config.
   - [ ] Vim/Neovim/view/fzf defaults
   - [x] Helix support
   - [x] lazygit support

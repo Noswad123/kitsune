@@ -1,4 +1,4 @@
-use super::{Backend, DoctorReport, nav_passthrough_pattern};
+use super::{Backend, DoctorReport};
 use crate::model::{
     BackendKind, BackendRef, Direction, LayoutTemplate, PaneTemplate, Rect, SplitDirection,
     SplitTemplate, TabCapture, TabTemplate, WorkspaceCapture, WorkspaceTemplate,
@@ -203,7 +203,7 @@ impl HerdrBackend {
                 identity: None,
                 backend: BackendKind::Herdr,
                 cwd: workspace_cwd,
-                captured_at: Utc::now(),
+                saved_at: Utc::now(),
                 tabs: vec![],
                 backend_ref: Some(BackendRef {
                     workspace_id: Some(workspace_id.to_string()),
@@ -357,7 +357,7 @@ impl Backend for HerdrBackend {
     ) -> Result<()> {
         if workspace.workspace.backend != BackendKind::Herdr {
             bail!(
-                "workspace was captured for {}, not herdr",
+                "workspace was saved for {}, not herdr",
                 workspace.workspace.backend
             );
         }
@@ -466,6 +466,38 @@ impl Backend for HerdrBackend {
         restore_tab(self, &tab.tab, &tab.panes, &root_pane, dry_run)
     }
 
+    fn apply_workspace_metadata(&self, workspace: &WorkspaceTemplate, dry_run: bool) -> Result<()> {
+        let workspace_id = workspace
+            .backend_ref
+            .as_ref()
+            .and_then(|ref_| ref_.workspace_id.as_deref())
+            .context("saved workspace has no Herdr workspace_id; recapture or restore it first")?;
+        let args = vec![
+            "workspace".into(),
+            "rename".into(),
+            workspace_id.into(),
+            workspace.label_or_name().into(),
+        ];
+        self.run(&args, dry_run)?;
+        Ok(())
+    }
+
+    fn apply_tab_metadata(&self, tab: &TabTemplate, dry_run: bool) -> Result<()> {
+        let tab_id = tab
+            .backend_ref
+            .as_ref()
+            .and_then(|ref_| ref_.tab_id.as_deref())
+            .context("saved tab has no Herdr tab_id; recapture or apply it first")?;
+        let args = vec![
+            "tab".into(),
+            "rename".into(),
+            tab_id.into(),
+            tab.label_or_name().into(),
+        ];
+        self.run(&args, dry_run)?;
+        Ok(())
+    }
+
     fn apply_pane_metadata(&self, pane: &PaneTemplate, dry_run: bool) -> Result<()> {
         let pane_id = pane
             .backend_ref
@@ -484,7 +516,7 @@ impl Backend for HerdrBackend {
         Ok(())
     }
 
-    fn smart_nav(&self, direction: Direction, key: &str) -> Result<()> {
+    fn smart_nav(&self, direction: Direction, key: &str, passthrough_pattern: &str) -> Result<()> {
         let pane_id = match std::env::var("HERDR_ACTIVE_PANE_ID")
             .or_else(|_| std::env::var("HERDR_PANE_ID"))
         {
@@ -498,7 +530,7 @@ impl Backend for HerdrBackend {
         let process = self
             .json(&["pane", "process-info", "--pane", &pane_id])
             .unwrap_or(Value::Null);
-        if foreground_matches_passthrough(&process)? {
+        if foreground_matches_passthrough(&process, passthrough_pattern)? {
             let args = vec!["pane".into(), "send-keys".into(), pane_id, key.into()];
             self.run(&args, false)?;
         } else {
@@ -754,9 +786,8 @@ fn unique_name(base: &str, seen: &mut HashMap<String, usize>) -> String {
     }
 }
 
-fn foreground_matches_passthrough(process: &Value) -> Result<bool> {
-    let pattern = nav_passthrough_pattern();
-    let re = Regex::new(&pattern).context("invalid KITSUNE_NAV_PASSTHROUGH regex")?;
+fn foreground_matches_passthrough(process: &Value, passthrough_pattern: &str) -> Result<bool> {
+    let re = Regex::new(passthrough_pattern).context("invalid nav passthrough regex")?;
     let Some(processes) = process["result"]["process_info"]["foreground_processes"].as_array()
     else {
         return Ok(false);
@@ -789,6 +820,7 @@ mod tests {
         foreground_matches_passthrough, looks_like_generated_pane_label, pane_base_name,
         prefixed_name, split_rect, template_label,
     };
+    use crate::backend::DEFAULT_NAV_PASSTHROUGH_REGEX;
     use crate::model::{Rect, SplitDirection};
 
     #[test]
@@ -813,7 +845,7 @@ mod tests {
         let value = serde_json::json!({
             "result": {"process_info": {"foreground_processes": [{"name": "nvim", "argv0": "nvim"}]}}
         });
-        assert!(foreground_matches_passthrough(&value).unwrap());
+        assert!(foreground_matches_passthrough(&value, DEFAULT_NAV_PASSTHROUGH_REGEX).unwrap());
     }
 
     #[test]
@@ -824,7 +856,7 @@ mod tests {
                 {"name": "lazygit", "argv0": "lazygit"}
             ]}}
         });
-        assert!(foreground_matches_passthrough(&value).unwrap());
+        assert!(foreground_matches_passthrough(&value, DEFAULT_NAV_PASSTHROUGH_REGEX).unwrap());
     }
 
     #[test]

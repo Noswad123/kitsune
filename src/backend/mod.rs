@@ -4,15 +4,20 @@ mod tmux;
 pub use herdr::HerdrBackend;
 pub use tmux::TmuxBackend;
 
-use crate::model::{BackendKind, Direction, PaneTemplate, TabCapture, WorkspaceCapture};
+use crate::model::{
+    BackendKind, Direction, KitsuneConfig, PaneTemplate, TabCapture, TabTemplate, WorkspaceCapture,
+    WorkspaceTemplate,
+};
 use anyhow::{Result, bail};
 
 pub const DEFAULT_NAV_PASSTHROUGH_REGEX: &str =
     "(^|/)(g?view|l?n?vim?x?|fzf|hx|helix|lazygit)(diff)?$";
 
-pub fn nav_passthrough_pattern() -> String {
+pub fn nav_passthrough_pattern(config: &KitsuneConfig) -> String {
     std::env::var("KITSUNE_NAV_PASSTHROUGH")
-        .unwrap_or_else(|_| DEFAULT_NAV_PASSTHROUGH_REGEX.into())
+        .ok()
+        .or_else(|| config.nav.passthrough_regex.clone())
+        .unwrap_or_else(|| DEFAULT_NAV_PASSTHROUGH_REGEX.into())
 }
 
 pub trait Backend {
@@ -35,8 +40,10 @@ pub trait Backend {
         dry_run: bool,
         force: bool,
     ) -> Result<()>;
+    fn apply_workspace_metadata(&self, workspace: &WorkspaceTemplate, dry_run: bool) -> Result<()>;
+    fn apply_tab_metadata(&self, tab: &TabTemplate, dry_run: bool) -> Result<()>;
     fn apply_pane_metadata(&self, pane: &PaneTemplate, dry_run: bool) -> Result<()>;
-    fn smart_nav(&self, direction: Direction, key: &str) -> Result<()>;
+    fn smart_nav(&self, direction: Direction, key: &str, passthrough_pattern: &str) -> Result<()>;
 }
 
 #[derive(Debug, Clone)]

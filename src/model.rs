@@ -59,7 +59,7 @@ pub struct WorkspaceTemplate {
     pub backend: BackendKind,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<PathBuf>,
-    pub captured_at: DateTime<Utc>,
+    pub saved_at: DateTime<Utc>,
     #[serde(default)]
     pub tabs: Vec<ComponentRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -249,7 +249,7 @@ pub struct StackTemplate {
 pub struct CaptureSnapshot {
     pub schema: String,
     pub name: String,
-    pub captured_at: DateTime<Utc>,
+    pub saved_at: DateTime<Utc>,
     pub backend: BackendKind,
     pub scope: SnapshotScope,
     pub payload: serde_yaml::Value,
@@ -273,4 +273,26 @@ impl SnapshotScope {
             SnapshotScope::Pane => "pane",
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct KitsuneConfig {
+    pub schema: String,
+    pub nav: NavConfig,
+}
+
+impl Default for KitsuneConfig {
+    fn default() -> Self {
+        Self {
+            schema: "kitsune.config.v1".into(),
+            nav: NavConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NavConfig {
+    pub passthrough_regex: Option<String>,
 }

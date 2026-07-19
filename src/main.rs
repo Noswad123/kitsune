@@ -11,7 +11,7 @@ use backend::detect_backend;
 use chrono::Utc;
 use clap::Parser;
 use cli::{
-    AddCommand, ApplyCommand, CaptureScope, Cli, Command, KindArg, RestoreTarget, StackCommand,
+    AddCommand, ApplyCommand, Cli, Command, KindArg, RestoreTarget, SaveScope, StackCommand,
     StoreCommand,
 };
 use model::{CaptureSnapshot, ComponentRef, SnapshotScope, StackTemplate};
@@ -40,12 +40,12 @@ fn main() -> Result<()> {
                 println!("  {name}: {}", if supported { "yes" } else { "no" });
             }
         }
-        Command::Capture(args) => {
+        Command::Save(args) => {
             let backend = detect_backend(cli.backend.map(Into::into))?;
             let (scope, name) = args.resolve()?;
             let reuse = !args.no_reuse;
             match scope {
-                CaptureScope::All => {
+                SaveScope::All => {
                     let mut captures = backend.capture_all_workspaces()?;
                     for capture in &mut captures {
                         fingerprint::annotate_workspace_capture(capture);
@@ -70,7 +70,7 @@ fn main() -> Result<()> {
                             files_written +=
                                 save_planned_workspace_capture(&store, capture, &plan)?;
                             println!(
-                                "captured workspace '{}' from {}",
+                                "saved workspace '{}' from {}",
                                 capture.workspace.name,
                                 backend.kind()
                             );
@@ -85,14 +85,14 @@ fn main() -> Result<()> {
                         );
                     } else {
                         println!(
-                            "captured {} workspaces from {} -> {} files",
+                            "saved {} workspaces from {} -> {} files",
                             captures.len(),
                             backend.kind(),
                             files_written
                         );
                     }
                 }
-                CaptureScope::Workspace => {
+                SaveScope::Workspace => {
                     let mut workspace = capture_current_workspace(backend.as_ref(), name)?;
                     maybe_save_capture_snapshot(
                         &store,
@@ -109,14 +109,14 @@ fn main() -> Result<()> {
                     } else {
                         let files = save_planned_workspace_capture(&store, &workspace, &plan)?;
                         println!(
-                            "captured workspace '{}' from {} -> {} files",
+                            "saved workspace '{}' from {} -> {} files",
                             workspace.workspace.name,
                             backend.kind(),
                             files
                         );
                     }
                 }
-                CaptureScope::Tab => {
+                SaveScope::Tab => {
                     let mut tab = backend.capture_current_tab(name)?;
                     fingerprint::annotate_tab_capture(&mut tab);
                     maybe_save_capture_snapshot(
@@ -135,14 +135,14 @@ fn main() -> Result<()> {
                     } else {
                         let files = save_planned_tab_capture(&store, &tab, &plan)?;
                         println!(
-                            "captured tab '{}' from {} -> {} files",
+                            "saved tab '{}' from {} -> {} files",
                             tab.tab.name,
                             backend.kind(),
                             files
                         );
                     }
                 }
-                CaptureScope::Pane => {
+                SaveScope::Pane => {
                     let mut pane = backend.capture_current_pane(name)?;
                     fingerprint::annotate_pane(&mut pane);
                     maybe_save_capture_snapshot(
@@ -161,7 +161,7 @@ fn main() -> Result<()> {
                     } else {
                         let path = store.save_pane(&pane)?;
                         println!(
-                            "captured pane '{}' from {} -> {}",
+                            "saved pane '{}' from {} -> {}",
                             pane.name,
                             backend.kind(),
                             path.display()
@@ -295,7 +295,9 @@ fn main() -> Result<()> {
         }
         Command::Nav(args) => {
             let backend = detect_backend(cli.backend.map(Into::into))?;
-            backend.smart_nav(args.direction.into(), &args.key)?;
+            let config = store.load_config()?;
+            let passthrough_pattern = backend::nav_passthrough_pattern(&config);
+            backend.smart_nav(args.direction.into(), &args.key, &passthrough_pattern)?;
         }
         Command::Stack(args) => match args.command {
             StackCommand::Create(args) => {
@@ -363,7 +365,7 @@ fn capture_current_workspace(
     Ok(workspace)
 }
 
-pub(crate) fn capture_current_workspace_to_store(
+pub(crate) fn save_current_workspace_to_store(
     store: &Store,
     requested_backend: Option<model::BackendKind>,
 ) -> Result<String> {
@@ -372,7 +374,7 @@ pub(crate) fn capture_current_workspace_to_store(
     let plan = plan_workspace_capture(store, &mut workspace, true)?;
     let files = save_planned_workspace_capture(store, &workspace, &plan)?;
     Ok(format!(
-        "captured workspace '{}' from {} -> {} files",
+        "saved workspace '{}' from {} -> {} files",
         workspace.workspace.name,
         backend.kind(),
         files
@@ -639,6 +641,39 @@ pub(crate) fn apply_saved_pane_metadata_to_live(
     ))
 }
 
+pub(crate) fn apply_saved_template_metadata_to_live(
+    store: &Store,
+    requested_backend: Option<model::BackendKind>,
+    kind: ItemKind,
+    name: &str,
+) -> Result<String> {
+    let backend = detect_backend(requested_backend)?;
+    match kind {
+        ItemKind::Workspace => {
+            let workspace = store.load_workspace(name)?;
+            backend.apply_workspace_metadata(&workspace, false)?;
+            Ok(format!(
+                "synced live workspace metadata '{}' via {}",
+                workspace.label_or_name(),
+                backend.kind()
+            ))
+        }
+        ItemKind::Tab => {
+            let tab = store.load_tab(name)?;
+            backend.apply_tab_metadata(&tab, false)?;
+            Ok(format!(
+                "synced live tab metadata '{}' via {}",
+                tab.label_or_name(),
+                backend.kind()
+            ))
+        }
+        ItemKind::Pane => apply_saved_pane_metadata_to_live(store, requested_backend, name),
+        ItemKind::Stack | ItemKind::Snapshot => {
+            bail!("{} metadata cannot be synced live", kind.singular_name())
+        }
+    }
+}
+
 fn current_workspace_template_name(
     requested_backend: Option<model::BackendKind>,
 ) -> Result<String> {
@@ -726,11 +761,11 @@ fn capture_snapshot<T: Serialize>(
     base_name: &str,
     payload: &T,
 ) -> Result<CaptureSnapshot> {
-    let captured_at = Utc::now();
+    let saved_at = Utc::now();
     let timestamp = format!(
         "{}{:09}Z",
-        captured_at.format("%Y%m%dT%H%M%S"),
-        captured_at.timestamp_subsec_nanos()
+        saved_at.format("%Y%m%dT%H%M%S"),
+        saved_at.timestamp_subsec_nanos()
     );
     let name = format!(
         "{}-{}-{}",
@@ -741,7 +776,7 @@ fn capture_snapshot<T: Serialize>(
     Ok(CaptureSnapshot {
         schema: "kitsune.snapshot.v1".into(),
         name,
-        captured_at,
+        saved_at,
         backend,
         scope,
         payload: serde_yaml::to_value(payload)?,

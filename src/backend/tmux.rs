@@ -1,5 +1,8 @@
-use super::{Backend, DoctorReport, nav_passthrough_pattern};
-use crate::model::{BackendKind, Direction, PaneTemplate, TabCapture, WorkspaceCapture};
+use super::{Backend, DoctorReport};
+use crate::model::{
+    BackendKind, Direction, PaneTemplate, TabCapture, TabTemplate, WorkspaceCapture,
+    WorkspaceTemplate,
+};
 use anyhow::{Context, Result, bail};
 use regex::Regex;
 use std::process::Command;
@@ -47,19 +50,19 @@ impl Backend for TmuxBackend {
     }
 
     fn capture_current_workspace(&self, _name: Option<String>) -> Result<WorkspaceCapture> {
-        bail!("tmux capture is not implemented yet; herdr is the first backend")
+        bail!("tmux save is not implemented yet; herdr is the first backend")
     }
 
     fn capture_all_workspaces(&self) -> Result<Vec<WorkspaceCapture>> {
-        bail!("tmux capture all is not implemented yet; herdr is the first backend")
+        bail!("tmux save all is not implemented yet; herdr is the first backend")
     }
 
     fn capture_current_tab(&self, _name: Option<String>) -> Result<TabCapture> {
-        bail!("tmux tab capture is not implemented yet; herdr is the first backend")
+        bail!("tmux tab save is not implemented yet; herdr is the first backend")
     }
 
     fn capture_current_pane(&self, _name: Option<String>) -> Result<PaneTemplate> {
-        bail!("tmux pane capture is not implemented yet; herdr is the first backend")
+        bail!("tmux pane save is not implemented yet; herdr is the first backend")
     }
 
     fn restore_workspace(
@@ -81,17 +84,28 @@ impl Backend for TmuxBackend {
         bail!("tmux apply tab is not implemented yet; herdr is the first backend")
     }
 
+    fn apply_workspace_metadata(
+        &self,
+        _workspace: &WorkspaceTemplate,
+        _dry_run: bool,
+    ) -> Result<()> {
+        bail!("tmux apply workspace metadata is not implemented yet; herdr is the first backend")
+    }
+
+    fn apply_tab_metadata(&self, _tab: &TabTemplate, _dry_run: bool) -> Result<()> {
+        bail!("tmux apply tab metadata is not implemented yet; herdr is the first backend")
+    }
+
     fn apply_pane_metadata(&self, _pane: &PaneTemplate, _dry_run: bool) -> Result<()> {
         bail!("tmux apply pane metadata is not implemented yet; herdr is the first backend")
     }
 
-    fn smart_nav(&self, direction: Direction, key: &str) -> Result<()> {
+    fn smart_nav(&self, direction: Direction, key: &str, passthrough_pattern: &str) -> Result<()> {
         let pane_current_command = Command::new("tmux")
             .args(["display-message", "-p", "#{pane_current_command}"])
             .output()?;
         let current = String::from_utf8_lossy(&pane_current_command.stdout);
-        let re = Regex::new(&nav_passthrough_pattern())
-            .context("invalid KITSUNE_NAV_PASSTHROUGH regex")?;
+        let re = Regex::new(passthrough_pattern).context("invalid nav passthrough regex")?;
         let passthrough = re.is_match(current.trim());
         if passthrough {
             Command::new("tmux").args(["send-keys", key]).status()?;

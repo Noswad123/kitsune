@@ -1,7 +1,10 @@
 use crate::fingerprint;
-use crate::model::{BackendKind, PaneTemplate, StackTemplate, TabTemplate, WorkspaceTemplate};
+use crate::model::{
+    BackendKind, KitsuneConfig, PaneTemplate, StackTemplate, TabTemplate, WorkspaceTemplate,
+};
 use crate::store::{ItemKind, Store};
 use anyhow::{Context, Result};
+use regex::Regex;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
@@ -111,6 +114,7 @@ pub fn validate_store(store: &Store) -> Result<ValidationReport> {
     }
 
     validate_workspace_templates(store, &mut report)?;
+    validate_config(store, &mut report)?;
     validate_stack_templates(store, &mut report)?;
     validate_tab_templates(store, &mut report)?;
     validate_pane_templates(store, &mut report)?;
@@ -118,6 +122,41 @@ pub fn validate_store(store: &Store) -> Result<ValidationReport> {
     validate_duplicate_fingerprints(store, &mut report)?;
 
     Ok(report)
+}
+
+fn validate_config(store: &Store, report: &mut ValidationReport) -> Result<()> {
+    let path = store.config_path();
+    if !path.exists() {
+        return Ok(());
+    }
+
+    let contents =
+        fs::read_to_string(&path).with_context(|| format!("reading config {}", path.display()))?;
+    match serde_yaml::from_str::<KitsuneConfig>(&contents) {
+        Ok(config) => {
+            if config.schema != "kitsune.config.v1" {
+                report.warning(
+                    "config-schema",
+                    Some(path.clone()),
+                    format!(
+                        "unexpected schema '{}'; expected kitsune.config.v1",
+                        config.schema
+                    ),
+                );
+            }
+            if let Some(pattern) = &config.nav.passthrough_regex {
+                if let Err(err) = Regex::new(pattern) {
+                    report.error(
+                        "config-nav-regex",
+                        Some(path),
+                        format!("invalid nav.passthrough_regex: {err}"),
+                    );
+                }
+            }
+        }
+        Err(err) => report.error("config", Some(path), format!("invalid config: {err}")),
+    }
+    Ok(())
 }
 
 fn validate_workspace_templates(store: &Store, report: &mut ValidationReport) -> Result<()> {

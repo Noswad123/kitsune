@@ -36,8 +36,8 @@ impl From<BackendArg> for BackendKind {
 pub enum Command {
     /// Detect the active multiplexer backend and report feature support.
     Doctor,
-    /// Capture the current backend state into a named reusable template.
-    Capture(CaptureArgs),
+    /// Save the current backend state into a named reusable template.
+    Save(SaveArgs),
     /// Restore a saved workspace template.
     Restore(RestoreArgs),
     /// Apply saved templates to the live multiplexer without editing YAML.
@@ -65,22 +65,22 @@ pub enum Command {
 }
 
 #[derive(Debug, Args)]
-pub struct CaptureArgs {
+pub struct SaveArgs {
     /// Scope (`workspace`, `tab`, `pane`) or workspace name shorthand.
     pub scope_or_name: Option<String>,
 
-    /// Logical name for the captured item when a scope is provided.
+    /// Logical name for the saved item when a scope is provided.
     pub name: Option<String>,
 
-    /// Explicit scope to capture. Preserves `kit capture <name>` as workspace shorthand.
+    /// Explicit scope to save.
     #[arg(long, value_enum)]
-    pub scope: Option<CaptureScope>,
+    pub scope: Option<SaveScope>,
 
-    /// Explicitly capture the currently focused workspace. Optional positional name overrides the saved name.
+    /// Explicitly save the currently focused workspace. Optional positional name overrides the saved name.
     #[arg(long)]
     pub current: bool,
 
-    /// Preview what would be captured/reused without writing files.
+    /// Preview what would be saved/reused without writing files.
     #[arg(long)]
     pub plan: bool,
 
@@ -94,51 +94,51 @@ pub struct CaptureArgs {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum CaptureScope {
+pub enum SaveScope {
     All,
     Workspace,
     Tab,
     Pane,
 }
 
-impl CaptureArgs {
-    pub fn resolve(&self) -> Result<(CaptureScope, Option<String>)> {
+impl SaveArgs {
+    pub fn resolve(&self) -> Result<(SaveScope, Option<String>)> {
         if self.current {
             if self.scope.is_some() {
-                bail!("capture --current cannot be combined with --scope");
+                bail!("save --current cannot be combined with --scope");
             }
             if self.name.is_some() {
-                bail!("capture --current takes at most one optional name");
+                bail!("save --current takes at most one optional name");
             }
             if self.scope_or_name.as_deref() == Some("all") {
-                bail!("capture --current cannot be combined with all");
+                bail!("save --current cannot be combined with all");
             }
-            return Ok((CaptureScope::Workspace, self.scope_or_name.clone()));
+            return Ok((SaveScope::Workspace, self.scope_or_name.clone()));
         }
 
         if let Some(scope) = self.scope {
             if self.name.is_some() {
-                bail!("capture name was provided twice");
+                bail!("save name was provided twice");
             }
             return Ok((scope, self.scope_or_name.clone()));
         }
 
         match self.scope_or_name.as_deref() {
-            None => Ok((CaptureScope::Workspace, None)),
+            None => Ok((SaveScope::Workspace, None)),
             Some("all") => {
                 if self.name.is_some() {
-                    bail!("capture all does not take a name");
+                    bail!("save all does not take a name");
                 }
-                Ok((CaptureScope::All, None))
+                Ok((SaveScope::All, None))
             }
-            Some("workspace" | "workspaces") => Ok((CaptureScope::Workspace, self.name.clone())),
-            Some("tab" | "tabs") => Ok((CaptureScope::Tab, self.name.clone())),
-            Some("pane" | "panes") => Ok((CaptureScope::Pane, self.name.clone())),
+            Some("workspace" | "workspaces") => Ok((SaveScope::Workspace, self.name.clone())),
+            Some("tab" | "tabs") => Ok((SaveScope::Tab, self.name.clone())),
+            Some("pane" | "panes") => Ok((SaveScope::Pane, self.name.clone())),
             Some(name) => {
                 if self.name.is_some() {
-                    bail!("unknown capture scope '{name}'; expected all, workspace, tab, or pane");
+                    bail!("unknown save scope '{name}'; expected all, workspace, tab, or pane");
                 }
-                Ok((CaptureScope::Workspace, Some(name.to_string())))
+                Ok((SaveScope::Workspace, Some(name.to_string())))
             }
         }
     }
@@ -149,8 +149,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn capture_current_resolves_to_workspace() {
-        let args = CaptureArgs {
+    fn save_current_resolves_to_workspace() {
+        let args = SaveArgs {
             scope_or_name: None,
             name: None,
             scope: None,
@@ -159,12 +159,12 @@ mod tests {
             no_reuse: false,
             append_snapshot: false,
         };
-        assert_eq!(args.resolve().unwrap().0, CaptureScope::Workspace);
+        assert_eq!(args.resolve().unwrap().0, SaveScope::Workspace);
     }
 
     #[test]
-    fn capture_current_accepts_optional_name() {
-        let args = CaptureArgs {
+    fn save_current_accepts_optional_name() {
+        let args = SaveArgs {
             scope_or_name: Some("darkness".into()),
             name: None,
             scope: None,
@@ -175,7 +175,7 @@ mod tests {
         };
         assert_eq!(
             args.resolve().unwrap(),
-            (CaptureScope::Workspace, Some("darkness".into()))
+            (SaveScope::Workspace, Some("darkness".into()))
         );
     }
 }

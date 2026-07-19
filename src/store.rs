@@ -1,13 +1,13 @@
 use crate::model::{
-    CaptureSnapshot, PaneTemplate, StackTemplate, TabCapture, TabTemplate, WorkspaceCapture,
-    WorkspaceTemplate,
+    CaptureSnapshot, KitsuneConfig, PaneTemplate, StackTemplate, TabCapture, TabTemplate,
+    WorkspaceCapture, WorkspaceTemplate,
 };
 use anyhow::{Context, Result};
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ItemKind {
     Workspace,
     Tab,
@@ -82,7 +82,33 @@ impl Store {
             fs::create_dir_all(self.root.join(kind.dir_name()))
                 .with_context(|| format!("creating {}", kind.dir_name()))?;
         }
+        if !self.config_path().exists() {
+            self.save_config(&KitsuneConfig::default())?;
+        }
         Ok(())
+    }
+
+    pub fn config_path(&self) -> PathBuf {
+        self.root.join("config.yaml")
+    }
+
+    pub fn load_config(&self) -> Result<KitsuneConfig> {
+        let path = self.config_path();
+        if !path.exists() {
+            return Ok(KitsuneConfig::default());
+        }
+        let contents = fs::read_to_string(&path)
+            .with_context(|| format!("reading config {}", path.display()))?;
+        Ok(serde_yaml::from_str(&contents)?)
+    }
+
+    pub fn save_config(&self, config: &KitsuneConfig) -> Result<PathBuf> {
+        fs::create_dir_all(&self.root)
+            .with_context(|| format!("creating {}", self.root.display()))?;
+        let path = self.config_path();
+        let yaml = serde_yaml::to_string(config)?;
+        fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
+        Ok(path)
     }
 
     pub fn list(&self, kind: ItemKind) -> Result<Vec<String>> {
