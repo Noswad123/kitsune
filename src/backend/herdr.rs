@@ -1,7 +1,7 @@
 use super::{Backend, DoctorReport, nav_passthrough_pattern};
 use crate::model::{
-    BackendKind, Direction, LayoutTemplate, PaneTemplate, Rect, SplitDirection, SplitTemplate,
-    TabCapture, TabTemplate, WorkspaceCapture, WorkspaceTemplate,
+    BackendKind, BackendRef, Direction, LayoutTemplate, PaneTemplate, Rect, SplitDirection,
+    SplitTemplate, TabCapture, TabTemplate, WorkspaceCapture, WorkspaceTemplate,
 };
 use crate::store::slug;
 use anyhow::{Context, Result, bail};
@@ -88,6 +88,7 @@ impl HerdrBackend {
         let workspace_label = workspace["label"].as_str().map(str::to_string);
         let template_name =
             name.unwrap_or_else(|| slug(workspace_label.as_deref().unwrap_or(workspace_id)));
+        let workspace_label = template_label(workspace_label, &template_name);
 
         let tab_list = self.json(&["tab", "list", "--workspace", workspace_id])?;
         let pane_list = self.json(&["pane", "list", "--workspace", workspace_id])?;
@@ -104,7 +105,7 @@ impl HerdrBackend {
             .context("missing result.tabs")?
         {
             let tab_id = tab["tab_id"].as_str().context("tab missing tab_id")?;
-            let tab_label = tab["label"].as_str().map(str::to_string);
+            let tab_label = non_empty_str(&tab["label"]).map(str::to_string);
             let tab_panes: Vec<&Value> = panes
                 .iter()
                 .filter(|p| p["tab_id"].as_str() == Some(tab_id))
@@ -126,14 +127,14 @@ impl HerdrBackend {
 
             let tab_base = slug(tab_label.as_deref().unwrap_or(tab_id));
             let tab_base = if prefix_components {
-                format!("{}-{}", template_name, tab_base)
+                prefixed_name(&template_name, &tab_base)
             } else {
                 tab_base
             };
             let tab_name = unique_name(&tab_base, &mut tab_names_seen);
 
             let mut pane_templates = Vec::new();
-            for pane in tab_panes {
+            for (pane_idx, pane) in tab_panes.into_iter().enumerate() {
                 let pane_id = pane["pane_id"].as_str().context("pane missing pane_id")?;
                 let process = self
                     .json(&["pane", "process-info", "--pane", pane_id])
@@ -146,13 +147,9 @@ impl HerdrBackend {
                 if workspace_cwd.is_none() {
                     workspace_cwd = cwd.clone();
                 }
-                let label = pane["label"].as_str().map(str::to_string);
-                let pane_base = slug(label.as_deref().unwrap_or(pane_id));
-                let pane_base = if prefix_components {
-                    format!("{}-{}", tab_name, pane_base)
-                } else {
-                    pane_base
-                };
+                let label = meaningful_pane_label(&pane["label"]).map(str::to_string);
+                let pane_base =
+                    pane_base_name(label.as_deref(), &tab_name, pane_idx, prefix_components);
                 let name = unique_name(&pane_base, &mut pane_names_seen);
                 let rect = layout_rect_for_pane(raw_layout.as_ref(), pane_id);
                 pane_templates.push(PaneTemplate {
@@ -168,20 +165,31 @@ impl HerdrBackend {
                     }),
                     agent: pane["agent"].as_str().map(str::to_string),
                     rect,
-                    raw: Some(pane.clone()),
+                    backend_ref: Some(BackendRef {
+                        workspace_id: Some(workspace_id.to_string()),
+                        tab_id: Some(tab_id.to_string()),
+                        pane_id: Some(pane_id.to_string()),
+                        focused: pane["focused"].as_bool().unwrap_or(false),
+                    }),
                 });
             }
 
             let tab_cwd = pane_templates.first().and_then(|p| p.cwd.clone());
+            let stored_tab_label = template_label(tab_label, &tab_name);
             tabs.push(TabCapture {
                 tab: TabTemplate {
                     name: tab_name,
-                    label: tab_label,
+                    label: stored_tab_label,
                     identity: None,
                     cwd: tab_cwd,
                     panes: vec![],
                     layout,
-                    raw: Some(tab.clone()),
+                    backend_ref: Some(BackendRef {
+                        workspace_id: Some(workspace_id.to_string()),
+                        tab_id: Some(tab_id.to_string()),
+                        pane_id: None,
+                        focused: tab["focused"].as_bool().unwrap_or(false),
+                    }),
                 },
                 panes: pane_templates,
             });
@@ -197,7 +205,12 @@ impl HerdrBackend {
                 cwd: workspace_cwd,
                 captured_at: Utc::now(),
                 tabs: vec![],
-                raw: Some(workspace.clone()),
+                backend_ref: Some(BackendRef {
+                    workspace_id: Some(workspace_id.to_string()),
+                    tab_id: None,
+                    pane_id: None,
+                    focused: workspace["focused"].as_bool().unwrap_or(false),
+                }),
             },
             tabs,
         })
@@ -312,14 +325,7 @@ impl Backend for HerdrBackend {
         let mut tab = workspace
             .tabs
             .into_iter()
-            .find(|tab| {
-                tab.tab
-                    .raw
-                    .as_ref()
-                    .and_then(|raw| raw.get("focused"))
-                    .and_then(Value::as_bool)
-                    == Some(true)
-            })
+            .find(|tab| tab.tab.backend_ref.as_ref().map(|ref_| ref_.focused) == Some(true))
             .context("no focused Herdr tab found")?;
 
         if let Some(name) = name {
@@ -334,13 +340,7 @@ impl Backend for HerdrBackend {
             .tabs
             .into_iter()
             .flat_map(|tab| tab.panes.into_iter())
-            .find(|pane| {
-                pane.raw
-                    .as_ref()
-                    .and_then(|raw| raw.get("focused"))
-                    .and_then(Value::as_bool)
-                    == Some(true)
-            })
+            .find(|pane| pane.backend_ref.as_ref().map(|ref_| ref_.focused) == Some(true))
             .context("no focused Herdr pane found")?;
 
         if let Some(name) = name {
@@ -464,6 +464,24 @@ impl Backend for HerdrBackend {
             .unwrap_or("dry-pane")
             .to_string();
         restore_tab(self, &tab.tab, &tab.panes, &root_pane, dry_run)
+    }
+
+    fn apply_pane_metadata(&self, pane: &PaneTemplate, dry_run: bool) -> Result<()> {
+        let pane_id = pane
+            .backend_ref
+            .as_ref()
+            .and_then(|ref_| ref_.pane_id.as_deref())
+            .context(
+                "saved pane has no Herdr pane_id; recapture or apply the parent tab/workspace",
+            )?;
+        let args = vec![
+            "pane".into(),
+            "rename".into(),
+            pane_id.into(),
+            pane.label_or_name().into(),
+        ];
+        self.run(&args, dry_run)?;
+        Ok(())
     }
 
     fn smart_nav(&self, direction: Direction, key: &str) -> Result<()> {
@@ -669,6 +687,63 @@ fn first_cmdline(process: &Value) -> Option<String> {
         .find_map(|proc_| proc_["cmdline"].as_str().map(str::to_string))
 }
 
+fn non_empty_str(value: &Value) -> Option<&str> {
+    value.as_str().filter(|value| !value.trim().is_empty())
+}
+
+fn template_label(label: Option<String>, name: &str) -> Option<String> {
+    label.filter(|label| label != name)
+}
+
+fn meaningful_pane_label(value: &Value) -> Option<&str> {
+    let label = non_empty_str(value)?;
+    if looks_like_generated_pane_label(label) {
+        None
+    } else {
+        Some(label)
+    }
+}
+
+fn looks_like_generated_pane_label(label: &str) -> bool {
+    let slugged = slug(label);
+    let mut parts = slugged.rsplitn(3, '-');
+    let Some(last) = parts.next() else {
+        return false;
+    };
+    let Some(previous) = parts.next() else {
+        return false;
+    };
+    last.len() > 1
+        && previous.len() > 1
+        && last.len() <= 3
+        && previous.len() <= 4
+        && last.starts_with('p')
+        && previous.starts_with('w')
+        && last[1..].chars().all(|ch| ch.is_ascii_alphanumeric())
+        && previous[1..].chars().all(|ch| ch.is_ascii_alphanumeric())
+}
+
+fn prefixed_name(parent: &str, child: &str) -> String {
+    if child == parent || child.starts_with(&format!("{parent}-")) {
+        child.to_string()
+    } else {
+        format!("{parent}-{child}")
+    }
+}
+
+fn pane_base_name(
+    label: Option<&str>,
+    tab_name: &str,
+    pane_idx: usize,
+    prefix_components: bool,
+) -> String {
+    match label {
+        Some(label) if prefix_components => prefixed_name(tab_name, &slug(label)),
+        Some(label) => slug(label),
+        None => format!("{tab_name}-pane-{}", pane_idx + 1),
+    }
+}
+
 fn unique_name(base: &str, seen: &mut HashMap<String, usize>) -> String {
     let count = seen.entry(base.to_string()).or_insert(0);
     *count += 1;
@@ -710,7 +785,10 @@ fn fake_pane_split(pane: &str) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::{foreground_matches_passthrough, split_rect};
+    use super::{
+        foreground_matches_passthrough, looks_like_generated_pane_label, pane_base_name,
+        prefixed_name, split_rect, template_label,
+    };
     use crate::model::{Rect, SplitDirection};
 
     #[test]
@@ -747,5 +825,52 @@ mod tests {
             ]}}
         });
         assert!(foreground_matches_passthrough(&value).unwrap());
+    }
+
+    #[test]
+    fn avoids_duplicate_prefixes_in_component_names() {
+        assert_eq!(prefixed_name("rustlings-1", "rustlings-1"), "rustlings-1");
+        assert_eq!(
+            prefixed_name("rustlings-1", "rustlings-1-main"),
+            "rustlings-1-main"
+        );
+        assert_eq!(prefixed_name("rustlings-1", "main"), "rustlings-1-main");
+    }
+
+    #[test]
+    fn unnamed_panes_use_compact_tab_scoped_names() {
+        assert_eq!(
+            pane_base_name(None, "rustlings-1", 0, false),
+            "rustlings-1-pane-1"
+        );
+        assert_eq!(
+            pane_base_name(None, "rustlings-1", 2, true),
+            "rustlings-1-pane-3"
+        );
+        assert_eq!(
+            pane_base_name(Some("agent"), "rustlings-1", 0, false),
+            "agent"
+        );
+        assert_eq!(
+            pane_base_name(Some("agent"), "rustlings-1", 0, true),
+            "rustlings-1-agent"
+        );
+    }
+
+    #[test]
+    fn generated_labels_are_not_template_intent() {
+        assert!(looks_like_generated_pane_label("rustlings-1-wy-p5"));
+        assert!(looks_like_generated_pane_label("darkness-1-w18-p2"));
+        assert!(!looks_like_generated_pane_label("server"));
+        assert!(!looks_like_generated_pane_label("work-pane"));
+    }
+
+    #[test]
+    fn labels_matching_names_are_omitted() {
+        assert_eq!(template_label(Some("agent".into()), "agent"), None);
+        assert_eq!(
+            template_label(Some("Agent Pane".into()), "agent-pane"),
+            Some("Agent Pane".into())
+        );
     }
 }

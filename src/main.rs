@@ -93,8 +93,7 @@ fn main() -> Result<()> {
                     }
                 }
                 CaptureScope::Workspace => {
-                    let mut workspace = backend.capture_current_workspace(name)?;
-                    fingerprint::annotate_workspace_capture(&mut workspace);
+                    let mut workspace = capture_current_workspace(backend.as_ref(), name)?;
                     maybe_save_capture_snapshot(
                         &store,
                         args.append_snapshot,
@@ -355,6 +354,31 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn capture_current_workspace(
+    backend: &dyn backend::Backend,
+    name: Option<String>,
+) -> Result<model::WorkspaceCapture> {
+    let mut workspace = backend.capture_current_workspace(name)?;
+    fingerprint::annotate_workspace_capture(&mut workspace);
+    Ok(workspace)
+}
+
+pub(crate) fn capture_current_workspace_to_store(
+    store: &Store,
+    requested_backend: Option<model::BackendKind>,
+) -> Result<String> {
+    let backend = detect_backend(requested_backend)?;
+    let mut workspace = capture_current_workspace(backend.as_ref(), None)?;
+    let plan = plan_workspace_capture(store, &mut workspace, true)?;
+    let files = save_planned_workspace_capture(store, &workspace, &plan)?;
+    Ok(format!(
+        "captured workspace '{}' from {} -> {} files",
+        workspace.workspace.name,
+        backend.kind(),
+        files
+    ))
+}
+
 fn restore_workspace_by_name(
     store: &Store,
     requested_backend: Option<model::BackendKind>,
@@ -570,6 +594,49 @@ fn apply_tab_by_name(
     let tab = store.load_tab_capture(name)?;
     let backend = detect_backend(requested_backend)?;
     backend.apply_tab(&tab, workspace, dry_run, force)
+}
+
+pub(crate) fn restore_saved_template_to_live(
+    store: &Store,
+    requested_backend: Option<model::BackendKind>,
+    kind: ItemKind,
+    name: &str,
+) -> Result<String> {
+    match kind {
+        ItemKind::Workspace => {
+            restore_workspace_by_name(store, requested_backend, name, false, false)?;
+            Ok(format!("restored workspace '{name}'"))
+        }
+        ItemKind::Stack => {
+            apply_stack_by_name(store, requested_backend, name, false, false)?;
+            Ok(format!("restored stack '{name}'"))
+        }
+        ItemKind::Tab => {
+            apply_tab_by_name(store, requested_backend, name, None, false, false)?;
+            Ok(format!("applied tab '{name}' to focused workspace"))
+        }
+        ItemKind::Pane | ItemKind::Snapshot => {
+            bail!(
+                "{} templates cannot be restored directly",
+                kind.singular_name()
+            )
+        }
+    }
+}
+
+pub(crate) fn apply_saved_pane_metadata_to_live(
+    store: &Store,
+    requested_backend: Option<model::BackendKind>,
+    name: &str,
+) -> Result<String> {
+    let pane = store.load_pane(name)?;
+    let backend = detect_backend(requested_backend)?;
+    backend.apply_pane_metadata(&pane, false)?;
+    Ok(format!(
+        "synced live pane metadata '{}' via {}",
+        pane.label_or_name(),
+        backend.kind()
+    ))
 }
 
 fn current_workspace_template_name(

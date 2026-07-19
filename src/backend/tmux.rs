@@ -81,6 +81,10 @@ impl Backend for TmuxBackend {
         bail!("tmux apply tab is not implemented yet; herdr is the first backend")
     }
 
+    fn apply_pane_metadata(&self, _pane: &PaneTemplate, _dry_run: bool) -> Result<()> {
+        bail!("tmux apply pane metadata is not implemented yet; herdr is the first backend")
+    }
+
     fn smart_nav(&self, direction: Direction, key: &str) -> Result<()> {
         let pane_current_command = Command::new("tmux")
             .args(["display-message", "-p", "#{pane_current_command}"])

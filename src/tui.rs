@@ -1,7 +1,9 @@
 use crate::backend::detect_backend;
-use crate::model::{BackendKind, WorkspaceCapture};
+use crate::model::{
+    BackendKind, PaneTemplate, StackTemplate, TabTemplate, WorkspaceCapture, WorkspaceTemplate,
+};
 use crate::store::{ItemKind, Store};
-use anyhow::Result;
+use anyhow::{Result, bail};
 use crossterm::event::{self, Event, KeyCode};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -12,8 +14,10 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs};
+use std::fs;
 use std::io;
-use std::time::Duration;
+use std::process::Command;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn run(store: &Store, requested_backend: Option<BackendKind>) -> Result<()> {
     enable_raw_mode()?;
@@ -75,7 +79,10 @@ fn run_app(
             frame.render_widget(details, columns[1]);
 
             let help = Paragraph::new(
-                "q/Esc quit    r refresh    Tab switch Live/Templates\nh/l focus list/metadata    ↑/↓ or j/k select or scroll\n\nMetadata scrolls when the right pane is focused.",
+                format!(
+                    "q/Esc quit    r refresh    c capture    Enter restore/apply\ne open/edit temp metadata    y/n confirm save    Tab switch Live/Templates\nh/l focus    ↑/↓ or j/k select or scroll\n\n{}",
+                    app.status
+                ),
             )
             .block(Block::default().title("Help").borders(Borders::ALL))
             .style(Style::default().add_modifier(Modifier::DIM));
@@ -87,6 +94,15 @@ fn run_app(
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => break,
                     KeyCode::Char('r') => app = TuiSnapshot::load(store, requested_backend),
+                    KeyCode::Char('c') => {
+                        match crate::capture_current_workspace_to_store(store, requested_backend) {
+                            Ok(message) => {
+                                app = TuiSnapshot::load(store, requested_backend);
+                                app.status = message;
+                            }
+                            Err(err) => app.status = format!("capture failed: {err}"),
+                        }
+                    }
                     KeyCode::Tab => app.select_next_tab(),
                     KeyCode::BackTab => app.select_previous_tab(),
                     KeyCode::Char('h') | KeyCode::Left => app.focus_browser(),
@@ -95,6 +111,10 @@ fn run_app(
                     KeyCode::Up | KeyCode::Char('k') => app.move_up(),
                     KeyCode::PageDown => app.scroll_detail_down(10),
                     KeyCode::PageUp => app.scroll_detail_up(10),
+                    KeyCode::Enter => app.restore_selected_template(store, requested_backend),
+                    KeyCode::Char('e') => app.edit_current_metadata(terminal, store)?,
+                    KeyCode::Char('y') => app.confirm_pending_edit(store, requested_backend),
+                    KeyCode::Char('n') => app.discard_pending_edit(),
                     _ => {}
                 }
             }
@@ -103,27 +123,152 @@ fn run_app(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy)]
+enum TempEditOutcome {
+    Unchanged,
+    Changed,
+}
+
+fn edit_contents_in_nvim(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    original: &str,
+) -> Result<(TempEditOutcome, String)> {
+    let temp_path = temp_metadata_path();
+    fs::write(&temp_path, original)?;
+
+    let edit_result = run_nvim_for_path(terminal, &temp_path);
+    if let Err(err) = edit_result {
+        let _ = fs::remove_file(&temp_path);
+        return Err(err);
+    }
+
+    let edited = fs::read_to_string(&temp_path)?;
+    let _ = fs::remove_file(&temp_path);
+
+    if edited == original {
+        Ok((TempEditOutcome::Unchanged, edited))
+    } else {
+        Ok((TempEditOutcome::Changed, edited))
+    }
+}
+
+fn persist_saved_edit(store: &Store, edit: &PendingEdit) -> Result<()> {
+    let path = store.path(edit.item.kind, &edit.item.name);
+    validate_yaml_for_kind(edit.item.kind, &edit.edited)?;
+    fs::write(&path, &edit.edited)?;
+
+    let report = crate::validate::validate_store(store)?;
+    if report.passes(false) {
+        return Ok(());
+    }
+
+    fs::write(&path, &edit.original)?;
+    bail!(
+        "validation failed; restored original. {}",
+        validation_error_summary(&report)
+    );
+}
+
+fn validate_yaml_for_kind(kind: ItemKind, contents: &str) -> Result<()> {
+    match kind {
+        ItemKind::Workspace => {
+            serde_yaml::from_str::<WorkspaceTemplate>(contents)?;
+        }
+        ItemKind::Tab => {
+            serde_yaml::from_str::<TabTemplate>(contents)?;
+        }
+        ItemKind::Pane => {
+            serde_yaml::from_str::<PaneTemplate>(contents)?;
+        }
+        ItemKind::Stack => {
+            serde_yaml::from_str::<StackTemplate>(contents)?;
+        }
+        ItemKind::Snapshot => {
+            serde_yaml::from_str::<serde_yaml::Value>(contents)?;
+        }
+    }
+    Ok(())
+}
+
+fn validation_error_summary(report: &crate::validate::ValidationReport) -> String {
+    let errors: Vec<String> = report
+        .issues
+        .iter()
+        .filter(|issue| issue.severity == crate::validate::Severity::Error)
+        .take(3)
+        .map(|issue| issue.message.clone())
+        .collect();
+    if errors.is_empty() {
+        "no error details available".into()
+    } else {
+        errors.join("; ")
+    }
+}
+
+fn run_nvim_for_path(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    path: &std::path::Path,
+) -> Result<()> {
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+
+    let mut command = Command::new("nvim");
+    command.arg("+setlocal noswapfile filetype=yaml");
+    let status = command.arg(path).status();
+
+    enable_raw_mode()?;
+    execute!(terminal.backend_mut(), EnterAlternateScreen)?;
+    terminal.clear()?;
+
+    let status = status?;
+    if !status.success() {
+        bail!("nvim exited with status {status}");
+    }
+    Ok(())
+}
+
+fn temp_metadata_path() -> std::path::PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    std::env::temp_dir().join(format!(
+        "kitsune-metadata-{}-{nanos}.yaml",
+        std::process::id()
+    ))
+}
+
 #[derive(Debug, Clone)]
 struct TuiSnapshot {
     active_tab: ActiveTab,
     active_pane: ActivePane,
+    live_workspaces: Vec<WorkspaceCapture>,
     live_items: Vec<LiveItem>,
     selected_live: usize,
     saved_items: Vec<SavedTemplateItem>,
     selected_saved: usize,
     detail_scroll: u16,
+    status: String,
+    pending_restore: Option<(ItemKind, String)>,
+    pending_edit: Option<PendingEdit>,
 }
 
 impl TuiSnapshot {
     fn load(store: &Store, requested_backend: Option<BackendKind>) -> Self {
+        let (live_workspaces, live_items) = live_state_items(requested_backend);
         Self {
             active_tab: ActiveTab::Live,
             active_pane: ActivePane::Browser,
-            live_items: live_state_items(requested_backend),
+            live_workspaces,
+            live_items,
             selected_live: 0,
             saved_items: saved_template_items(store),
             selected_saved: 0,
             detail_scroll: 0,
+            status: "Metadata scrolls when the right pane is focused.".into(),
+            pending_restore: None,
+            pending_edit: None,
         }
     }
 
@@ -189,11 +334,15 @@ impl TuiSnapshot {
     fn select_next_tab(&mut self) {
         self.active_tab = self.active_tab.next();
         self.detail_scroll = 0;
+        self.pending_restore = None;
+        self.pending_edit = None;
     }
 
     fn select_previous_tab(&mut self) {
         self.active_tab = self.active_tab.previous();
         self.detail_scroll = 0;
+        self.pending_restore = None;
+        self.pending_edit = None;
     }
 
     fn focus_browser(&mut self) {
@@ -223,10 +372,14 @@ impl TuiSnapshot {
             ActiveTab::Live if !self.live_items.is_empty() => {
                 self.selected_live = (self.selected_live + 1) % self.live_items.len();
                 self.detail_scroll = 0;
+                self.pending_restore = None;
+                self.pending_edit = None;
             }
             ActiveTab::Templates if !self.saved_items.is_empty() => {
                 self.selected_saved = (self.selected_saved + 1) % self.saved_items.len();
                 self.detail_scroll = 0;
+                self.pending_restore = None;
+                self.pending_edit = None;
             }
             _ => {}
         }
@@ -241,6 +394,8 @@ impl TuiSnapshot {
                     self.selected_live - 1
                 };
                 self.detail_scroll = 0;
+                self.pending_restore = None;
+                self.pending_edit = None;
             }
             ActiveTab::Templates if !self.saved_items.is_empty() => {
                 self.selected_saved = if self.selected_saved == 0 {
@@ -249,6 +404,8 @@ impl TuiSnapshot {
                     self.selected_saved - 1
                 };
                 self.detail_scroll = 0;
+                self.pending_restore = None;
+                self.pending_edit = None;
             }
             _ => {}
         };
@@ -262,12 +419,139 @@ impl TuiSnapshot {
         self.detail_scroll = self.detail_scroll.saturating_sub(amount);
     }
 
+    fn restore_selected_template(&mut self, store: &Store, requested_backend: Option<BackendKind>) {
+        if self.active_tab != ActiveTab::Templates {
+            self.status =
+                "Switch to Templates and select a workspace, tab, or stack to restore.".into();
+            return;
+        }
+
+        let Some(item) = self.saved_items.get(self.selected_saved).cloned() else {
+            self.status = "No saved template selected.".into();
+            return;
+        };
+
+        if !matches!(
+            item.kind,
+            ItemKind::Workspace | ItemKind::Tab | ItemKind::Stack
+        ) {
+            self.status = format!(
+                "{} templates cannot be restored directly.",
+                item.kind.singular_name()
+            );
+            self.pending_restore = None;
+            return;
+        }
+
+        let pending = (item.kind, item.name.clone());
+        if self.pending_restore.as_ref() != Some(&pending) {
+            self.pending_restore = Some(pending);
+            self.status = format!(
+                "Press Enter again to restore/apply {} '{}'.",
+                item.kind.singular_name(),
+                item.name
+            );
+            return;
+        }
+
+        match crate::restore_saved_template_to_live(store, requested_backend, item.kind, &item.name)
+        {
+            Ok(message) => self.status = message,
+            Err(err) => self.status = format!("restore failed: {err}"),
+        }
+        self.pending_restore = None;
+    }
+
+    fn edit_current_metadata(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+        store: &Store,
+    ) -> Result<()> {
+        let original = self.detail_text(store);
+        let outcome = edit_contents_in_nvim(terminal, &original);
+        let (outcome, edited) = match outcome {
+            Ok(outcome) => outcome,
+            Err(err) => {
+                self.status = format!("edit failed: {err}");
+                return Ok(());
+            }
+        };
+
+        if matches!(outcome, TempEditOutcome::Unchanged) {
+            self.status = "unchanged".into();
+            self.pending_edit = None;
+            return Ok(());
+        }
+
+        if self.active_tab != ActiveTab::Templates {
+            self.status = "changed live metadata is temporary only; not persisted".into();
+            self.pending_edit = None;
+            return Ok(());
+        }
+
+        let Some(item) = self.saved_items.get(self.selected_saved).cloned() else {
+            self.status = "changed metadata has no saved template target; not persisted".into();
+            self.pending_edit = None;
+            return Ok(());
+        };
+
+        self.pending_edit = Some(PendingEdit {
+            item: item.clone(),
+            original,
+            edited,
+        });
+        self.status = format!(
+            "Changes detected for {}. Press y to save after validation, n to discard.",
+            item.display
+        );
+        Ok(())
+    }
+
+    fn confirm_pending_edit(&mut self, store: &Store, requested_backend: Option<BackendKind>) {
+        let Some(edit) = self.pending_edit.take() else {
+            self.status = "No pending edit to save.".into();
+            return;
+        };
+
+        match persist_saved_edit(store, &edit) {
+            Ok(()) => {
+                self.saved_items = saved_template_items(store);
+                if !self.saved_items.is_empty() {
+                    self.selected_saved = self.selected_saved.min(self.saved_items.len() - 1);
+                }
+                self.detail_scroll = 0;
+                self.status = format!("saved and validated: {}", edit.item.display);
+                if edit.item.kind == ItemKind::Pane {
+                    match crate::apply_saved_pane_metadata_to_live(
+                        store,
+                        requested_backend,
+                        &edit.item.name,
+                    ) {
+                        Ok(message) => self.status = format!("{}; {message}", self.status),
+                        Err(err) => {
+                            self.status = format!("{}; live pane sync failed: {err}", self.status)
+                        }
+                    }
+                }
+            }
+            Err(err) => self.status = format!("edit failed: {err}"),
+        }
+    }
+
+    fn discard_pending_edit(&mut self) {
+        if self.pending_edit.take().is_some() {
+            self.status = "discarded pending edit".into();
+        } else {
+            self.status = "No pending edit to discard.".into();
+        }
+    }
+
     fn detail_text(&self, store: &Store) -> String {
         match self.active_tab {
             ActiveTab::Live => self
                 .live_items
                 .get(self.selected_live)
-                .map(|item| item.detail.clone())
+                .map(|item| item.detail_text(&self.live_workspaces))
                 .unwrap_or_else(|| "No live backend state available.".into()),
             ActiveTab::Templates => {
                 let Some(item) = self.saved_items.get(self.selected_saved) else {
@@ -281,7 +565,7 @@ impl TuiSnapshot {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ActiveTab {
     Live,
     Templates,
@@ -321,55 +605,107 @@ struct SavedTemplateItem {
 }
 
 #[derive(Debug, Clone)]
-struct LiveItem {
-    display: String,
-    detail: String,
+struct PendingEdit {
+    item: SavedTemplateItem,
+    original: String,
+    edited: String,
 }
 
-fn live_state_items(requested_backend: Option<BackendKind>) -> Vec<LiveItem> {
+#[derive(Debug, Clone)]
+struct LiveItem {
+    display: String,
+    target: LiveTarget,
+}
+
+#[derive(Debug, Clone)]
+enum LiveTarget {
+    Workspace(usize),
+    Tab(usize, usize),
+    Pane(usize, usize, usize),
+    Message(String),
+}
+
+impl LiveItem {
+    fn detail_text(&self, workspaces: &[WorkspaceCapture]) -> String {
+        match &self.target {
+            LiveTarget::Workspace(workspace_idx) => workspaces
+                .get(*workspace_idx)
+                .map(to_yaml)
+                .unwrap_or_else(|| "live workspace no longer available".into()),
+            LiveTarget::Tab(workspace_idx, tab_idx) => workspaces
+                .get(*workspace_idx)
+                .and_then(|workspace| workspace.tabs.get(*tab_idx))
+                .map(to_yaml)
+                .unwrap_or_else(|| "live tab no longer available".into()),
+            LiveTarget::Pane(workspace_idx, tab_idx, pane_idx) => workspaces
+                .get(*workspace_idx)
+                .and_then(|workspace| workspace.tabs.get(*tab_idx))
+                .and_then(|tab| tab.panes.get(*pane_idx))
+                .map(to_yaml)
+                .unwrap_or_else(|| "live pane no longer available".into()),
+            LiveTarget::Message(message) => message.clone(),
+        }
+    }
+}
+
+fn live_state_items(
+    requested_backend: Option<BackendKind>,
+) -> (Vec<WorkspaceCapture>, Vec<LiveItem>) {
     let backend = match detect_backend(requested_backend) {
         Ok(backend) => backend,
         Err(err) => {
-            return vec![LiveItem {
-                display: "backend unavailable".into(),
-                detail: format!("backend unavailable: {err}"),
-            }];
+            return (
+                vec![],
+                vec![LiveItem {
+                    display: "backend unavailable".into(),
+                    target: LiveTarget::Message(format!("backend unavailable: {err}")),
+                }],
+            );
         }
     };
 
     match backend.capture_all_workspaces() {
-        Ok(workspaces) => summarize_workspaces(&workspaces),
-        Err(err) => vec![LiveItem {
-            display: format!("{} live capture failed", backend.kind()),
-            detail: format!("{} live capture failed: {err}", backend.kind()),
-        }],
+        Ok(workspaces) => {
+            let items = summarize_workspaces(&workspaces);
+            (workspaces, items)
+        }
+        Err(err) => (
+            vec![],
+            vec![LiveItem {
+                display: format!("{} live capture failed", backend.kind()),
+                target: LiveTarget::Message(format!(
+                    "{} live capture failed: {err}",
+                    backend.kind()
+                )),
+            }],
+        ),
     }
 }
 
 fn summarize_workspaces(workspaces: &[WorkspaceCapture]) -> Vec<LiveItem> {
     let mut items = vec![];
-    for workspace in workspaces {
+    for (workspace_idx, workspace) in workspaces.iter().enumerate() {
         items.push(LiveItem {
             display: format!(
                 "workspace {} [{}]",
                 workspace.workspace.label_or_name(),
                 count_label(workspace.tabs.len(), "tab")
             ),
-            detail: to_yaml(workspace),
+            target: LiveTarget::Workspace(workspace_idx),
         });
-        for tab in &workspace.tabs {
+        for (tab_idx, tab) in workspace.tabs.iter().enumerate() {
             items.push(LiveItem {
                 display: format!(
                     "  tab {} [{}]",
                     tab.tab.label_or_name(),
                     count_label(tab.panes.len(), "pane")
                 ),
-                detail: to_yaml(tab),
+                target: LiveTarget::Tab(workspace_idx, tab_idx),
             });
-            for pane in &tab.panes {
+            for (pane_idx, pane) in tab.panes.iter().enumerate() {
                 items.push(LiveItem {
                     display: format!("    pane {}", pane.label_or_name()),
-                    detail: to_yaml(pane),
+                    target: LiveTarget::Pane(workspace_idx, tab_idx, pane_idx),
                 });
             }
         }

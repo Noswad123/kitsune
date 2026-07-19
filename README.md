@@ -83,8 +83,15 @@ export KITSUNE_NAV_PASSTHROUGH='(^|/)(g?view|l?n?vim?x?|fzf|hx|helix|lazygit)(di
 `kit tui` opens a read-only split view with full-width top tabs for live backend
 state and saved Kitsune templates. Use Tab to switch tabs, `h`/`l` to focus the
 list or metadata pane, ↑/↓ or `j`/`k` to select rows or scroll metadata, `r` to
-refresh, or `q`/Esc to quit. The selected live component or saved template
-edit actions are planned next.
+refresh, `c` to capture the currently focused workspace, Enter twice to
+restore/apply a selected workspace, tab, or stack template, `e` to open the
+current metadata in a Neovim temp buffer, or `q`/Esc to quit. If temp-buffer
+contents changed for a saved template, Kitsune asks for `y`/`n` confirmation and
+persists only after validation passes. The selected live component or saved
+template automatically previews full YAML metadata on the right. Confirmed pane
+template edits also attempt to rename the live Herdr pane via the captured raw
+`pane_id`; if that live pane no longer exists, the saved edit remains and the TUI
+reports the live-sync failure.
 
 ## Storage
 
@@ -226,6 +233,20 @@ behavior. This avoids rerunning whatever command happened to be focused at
 capture time. Kitsune does not support command execution during restore/apply at
 this time; it restores topology only: workspaces, tabs, panes, labels, cwd, and
 layout.
+
+## Template metadata vs backend metadata
+
+Saved templates keep editable intent separate from live backend state. Normal
+captures do not serialize full Herdr `raw` blobs into workspace/tab/pane files.
+Instead, Kitsune stores a compact `backend_ref` with only the IDs needed for
+focus detection and live pane sync. Optional fields such as `label` are omitted
+when absent, and labels matching `name` are not duplicated.
+
+Herdr-generated pane labels that look like runtime fallback names, for example
+`rustlings-1-wy-p5`, are treated as unnamed panes during capture. New captures
+use compact tab-scoped fallback names such as `rustlings-1-pane-1`. Existing
+saved templates with old names remain valid; use `--no-reuse` or edit/migrate
+them if you want fresh clean component filenames.
 
 ## Current status
 

@@ -73,11 +73,11 @@ features land or priorities change.
 - [ ] Build the TUI around live state vs saved kits.
   - [x] live backend state pane
   - [x] saved Kitsune templates pane
-  - [ ] capture action
-  - [ ] restore action
+  - [x] capture action
+  - [x] restore action
   - [x] view action
   - [ ] diff action
-  - [ ] edit action
+  - [x] edit action
   - [ ] multi-select
 
 ## Restore safety

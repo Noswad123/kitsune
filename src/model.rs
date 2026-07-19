@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,19 +48,22 @@ impl Direction {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct WorkspaceTemplate {
     pub schema: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<WorkspaceIdentity>,
     pub backend: BackendKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<PathBuf>,
     pub captured_at: DateTime<Utc>,
     #[serde(default)]
     pub tabs: Vec<ComponentRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw: Option<Value>,
+    pub backend_ref: Option<BackendRef>,
 }
 
 impl WorkspaceTemplate {
@@ -71,17 +73,20 @@ impl WorkspaceTemplate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TabTemplate {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<TabIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<PathBuf>,
     #[serde(default)]
     pub panes: Vec<ComponentRef>,
     pub layout: LayoutTemplate,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw: Option<Value>,
+    pub backend_ref: Option<BackendRef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -111,20 +116,41 @@ impl TabTemplate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PaneTemplate {
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<PaneIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observed: Option<ObservedState>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rect: Option<Rect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub raw: Option<Value>,
+    pub backend_ref: Option<BackendRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackendRef {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pane_id: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub focused: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

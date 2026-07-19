@@ -35,6 +35,7 @@ pub trait Backend {
         dry_run: bool,
         force: bool,
     ) -> Result<()>;
+    fn apply_pane_metadata(&self, pane: &PaneTemplate, dry_run: bool) -> Result<()>;
     fn smart_nav(&self, direction: Direction, key: &str) -> Result<()>;
 }
 

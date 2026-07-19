@@ -203,7 +203,7 @@ mod tests {
             observed: None,
             agent: Some("opencode".into()),
             rect: None,
-            raw: None,
+            backend_ref: None,
         };
         let mut second = PaneTemplate {
             command: Some("cargo test".into()),
