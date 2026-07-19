@@ -1,4 +1,4 @@
-use super::{Backend, DoctorReport};
+use super::{Backend, DoctorReport, nav_passthrough_pattern};
 use crate::model::{
     BackendKind, Direction, LayoutTemplate, PaneTemplate, Rect, SplitDirection, SplitTemplate,
     TabCapture, TabTemplate, WorkspaceCapture, WorkspaceTemplate,
@@ -234,6 +234,28 @@ impl HerdrBackend {
             .context("workspace missing workspace_id")?
             .to_string())
     }
+
+    fn workspace_label_exists(&self, label: &str) -> Result<bool> {
+        let normalized = slug(label);
+        let workspace_list = self.workspace_list()?;
+        let workspaces = workspace_list["result"]["workspaces"]
+            .as_array()
+            .context("missing result.workspaces")?;
+        Ok(workspaces
+            .iter()
+            .any(|workspace| workspace["label"].as_str().map(slug) == Some(normalized.clone())))
+    }
+
+    fn tab_label_exists(&self, workspace_id: &str, label: &str) -> Result<bool> {
+        let normalized = slug(label);
+        let tab_list = self.json(&["tab", "list", "--workspace", workspace_id])?;
+        let tabs = tab_list["result"]["tabs"]
+            .as_array()
+            .context("missing result.tabs")?;
+        Ok(tabs
+            .iter()
+            .any(|tab| tab["label"].as_str().map(slug) == Some(normalized.clone())))
+    }
 }
 
 impl Backend for HerdrBackend {
@@ -327,11 +349,23 @@ impl Backend for HerdrBackend {
         Ok(pane)
     }
 
-    fn restore_workspace(&self, workspace: &WorkspaceCapture, dry_run: bool) -> Result<()> {
+    fn restore_workspace(
+        &self,
+        workspace: &WorkspaceCapture,
+        dry_run: bool,
+        force: bool,
+    ) -> Result<()> {
         if workspace.workspace.backend != BackendKind::Herdr {
             bail!(
                 "workspace was captured for {}, not herdr",
                 workspace.workspace.backend
+            );
+        }
+
+        if !force && self.workspace_label_exists(workspace.workspace.label_or_name())? {
+            bail!(
+                "live Herdr workspace '{}' already exists; use --force to create another",
+                workspace.workspace.label_or_name()
             );
         }
 
@@ -397,8 +431,20 @@ impl Backend for HerdrBackend {
         Ok(())
     }
 
-    fn apply_tab(&self, tab: &TabCapture, workspace: Option<&str>, dry_run: bool) -> Result<()> {
+    fn apply_tab(
+        &self,
+        tab: &TabCapture,
+        workspace: Option<&str>,
+        dry_run: bool,
+        force: bool,
+    ) -> Result<()> {
         let workspace_id = self.resolve_workspace_id(workspace)?;
+        if !force && self.tab_label_exists(&workspace_id, tab.tab.label_or_name())? {
+            bail!(
+                "live Herdr workspace already has tab '{}'; use --force to create another",
+                tab.tab.label_or_name()
+            );
+        }
         let mut tab_args = vec![
             "tab".into(),
             "create".into(),
@@ -634,8 +680,7 @@ fn unique_name(base: &str, seen: &mut HashMap<String, usize>) -> String {
 }
 
 fn foreground_matches_passthrough(process: &Value) -> Result<bool> {
-    let pattern = std::env::var("KITSUNE_NAV_PASSTHROUGH")
-        .unwrap_or_else(|_| "(^|/)(g?view|l?n?vim?x?|fzf)(diff)?$".into());
+    let pattern = nav_passthrough_pattern();
     let re = Regex::new(&pattern).context("invalid KITSUNE_NAV_PASSTHROUGH regex")?;
     let Some(processes) = process["result"]["process_info"]["foreground_processes"].as_array()
     else {
@@ -689,6 +734,17 @@ mod tests {
     fn detects_nvim_passthrough() {
         let value = serde_json::json!({
             "result": {"process_info": {"foreground_processes": [{"name": "nvim", "argv0": "nvim"}]}}
+        });
+        assert!(foreground_matches_passthrough(&value).unwrap());
+    }
+
+    #[test]
+    fn detects_helix_and_lazygit_passthrough() {
+        let value = serde_json::json!({
+            "result": {"process_info": {"foreground_processes": [
+                {"name": "hx", "argv0": "hx"},
+                {"name": "lazygit", "argv0": "lazygit"}
+            ]}}
         });
         assert!(foreground_matches_passthrough(&value).unwrap());
     }

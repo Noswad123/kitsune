@@ -1,5 +1,6 @@
 use crate::model::{
-    PaneTemplate, StackTemplate, TabCapture, TabTemplate, WorkspaceCapture, WorkspaceTemplate,
+    CaptureSnapshot, PaneTemplate, StackTemplate, TabCapture, TabTemplate, WorkspaceCapture,
+    WorkspaceTemplate,
 };
 use anyhow::{Context, Result};
 use serde::Serialize;
@@ -138,6 +139,14 @@ impl Store {
         self.ensure()?;
         let path = self.path(ItemKind::Stack, &stack.name);
         let yaml = serde_yaml::to_string(stack)?;
+        fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
+        Ok(path)
+    }
+
+    pub fn save_snapshot(&self, snapshot: &CaptureSnapshot) -> Result<PathBuf> {
+        self.ensure()?;
+        let path = self.path(ItemKind::Snapshot, &snapshot.name);
+        let yaml = serde_yaml::to_string(snapshot)?;
         fs::write(&path, yaml).with_context(|| format!("writing {}", path.display()))?;
         Ok(path)
     }

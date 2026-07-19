@@ -7,6 +7,14 @@ pub use tmux::TmuxBackend;
 use crate::model::{BackendKind, Direction, PaneTemplate, TabCapture, WorkspaceCapture};
 use anyhow::{Result, bail};
 
+pub const DEFAULT_NAV_PASSTHROUGH_REGEX: &str =
+    "(^|/)(g?view|l?n?vim?x?|fzf|hx|helix|lazygit)(diff)?$";
+
+pub fn nav_passthrough_pattern() -> String {
+    std::env::var("KITSUNE_NAV_PASSTHROUGH")
+        .unwrap_or_else(|_| DEFAULT_NAV_PASSTHROUGH_REGEX.into())
+}
+
 pub trait Backend {
     fn kind(&self) -> BackendKind;
     fn doctor(&self) -> Result<DoctorReport>;
@@ -14,8 +22,19 @@ pub trait Backend {
     fn capture_current_workspace(&self, name: Option<String>) -> Result<WorkspaceCapture>;
     fn capture_current_tab(&self, name: Option<String>) -> Result<TabCapture>;
     fn capture_current_pane(&self, name: Option<String>) -> Result<PaneTemplate>;
-    fn restore_workspace(&self, workspace: &WorkspaceCapture, dry_run: bool) -> Result<()>;
-    fn apply_tab(&self, tab: &TabCapture, workspace: Option<&str>, dry_run: bool) -> Result<()>;
+    fn restore_workspace(
+        &self,
+        workspace: &WorkspaceCapture,
+        dry_run: bool,
+        force: bool,
+    ) -> Result<()>;
+    fn apply_tab(
+        &self,
+        tab: &TabCapture,
+        workspace: Option<&str>,
+        dry_run: bool,
+        force: bool,
+    ) -> Result<()>;
     fn smart_nav(&self, direction: Direction, key: &str) -> Result<()>;
 }
 

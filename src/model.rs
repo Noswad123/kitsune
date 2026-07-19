@@ -92,13 +92,13 @@ pub struct ComponentRef {
     pub fingerprint: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkspaceCapture {
     pub workspace: WorkspaceTemplate,
     pub tabs: Vec<TabCapture>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TabCapture {
     pub tab: TabTemplate,
     pub panes: Vec<PaneTemplate>,
@@ -217,4 +217,34 @@ pub struct StackTemplate {
     pub name: String,
     #[serde(default)]
     pub workspaces: Vec<ComponentRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaptureSnapshot {
+    pub schema: String,
+    pub name: String,
+    pub captured_at: DateTime<Utc>,
+    pub backend: BackendKind,
+    pub scope: SnapshotScope,
+    pub payload: serde_yaml::Value,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SnapshotScope {
+    All,
+    Workspace,
+    Tab,
+    Pane,
+}
+
+impl SnapshotScope {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SnapshotScope::All => "all",
+            SnapshotScope::Workspace => "workspace",
+            SnapshotScope::Tab => "tab",
+            SnapshotScope::Pane => "pane",
+        }
+    }
 }

@@ -1,6 +1,7 @@
-use super::{Backend, DoctorReport};
+use super::{Backend, DoctorReport, nav_passthrough_pattern};
 use crate::model::{BackendKind, Direction, PaneTemplate, TabCapture, WorkspaceCapture};
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use regex::Regex;
 use std::process::Command;
 
 #[derive(Debug, Clone)]
@@ -61,11 +62,22 @@ impl Backend for TmuxBackend {
         bail!("tmux pane capture is not implemented yet; herdr is the first backend")
     }
 
-    fn restore_workspace(&self, _workspace: &WorkspaceCapture, _dry_run: bool) -> Result<()> {
+    fn restore_workspace(
+        &self,
+        _workspace: &WorkspaceCapture,
+        _dry_run: bool,
+        _force: bool,
+    ) -> Result<()> {
         bail!("tmux restore is not implemented yet; herdr is the first backend")
     }
 
-    fn apply_tab(&self, _tab: &TabCapture, _workspace: Option<&str>, _dry_run: bool) -> Result<()> {
+    fn apply_tab(
+        &self,
+        _tab: &TabCapture,
+        _workspace: Option<&str>,
+        _dry_run: bool,
+        _force: bool,
+    ) -> Result<()> {
         bail!("tmux apply tab is not implemented yet; herdr is the first backend")
     }
 
@@ -74,9 +86,9 @@ impl Backend for TmuxBackend {
             .args(["display-message", "-p", "#{pane_current_command}"])
             .output()?;
         let current = String::from_utf8_lossy(&pane_current_command.stdout);
-        let passthrough = ["vim", "nvim", "view", "fzf"]
-            .iter()
-            .any(|name| current.trim().ends_with(name));
+        let re = Regex::new(&nav_passthrough_pattern())
+            .context("invalid KITSUNE_NAV_PASSTHROUGH regex")?;
+        let passthrough = re.is_match(current.trim());
         if passthrough {
             Command::new("tmux").args(["send-keys", key]).status()?;
         } else {

@@ -8,12 +8,14 @@ mod validate;
 
 use anyhow::{Result, bail};
 use backend::detect_backend;
+use chrono::Utc;
 use clap::Parser;
 use cli::{
     AddCommand, ApplyCommand, CaptureScope, Cli, Command, KindArg, RestoreTarget, StackCommand,
     StoreCommand,
 };
-use model::{ComponentRef, StackTemplate};
+use model::{CaptureSnapshot, ComponentRef, SnapshotScope, StackTemplate};
+use serde::Serialize;
 use std::collections::HashSet;
 use std::io::{self, Write};
 use store::{ItemKind, Store};
@@ -45,10 +47,21 @@ fn main() -> Result<()> {
             match scope {
                 CaptureScope::All => {
                     let mut captures = backend.capture_all_workspaces()?;
+                    for capture in &mut captures {
+                        fingerprint::annotate_workspace_capture(capture);
+                    }
+                    maybe_save_capture_snapshot(
+                        &store,
+                        args.append_snapshot,
+                        args.plan,
+                        backend.kind(),
+                        SnapshotScope::All,
+                        "all",
+                        &captures,
+                    )?;
                     let mut files_written = 0usize;
                     let mut total_plan = CapturePlan::default();
                     for capture in &mut captures {
-                        fingerprint::annotate_workspace_capture(capture);
                         let plan = plan_workspace_capture(&store, capture, reuse)?;
                         total_plan.extend(plan.clone());
                         if args.plan {
@@ -82,6 +95,15 @@ fn main() -> Result<()> {
                 CaptureScope::Workspace => {
                     let mut workspace = backend.capture_current_workspace(name)?;
                     fingerprint::annotate_workspace_capture(&mut workspace);
+                    maybe_save_capture_snapshot(
+                        &store,
+                        args.append_snapshot,
+                        args.plan,
+                        backend.kind(),
+                        SnapshotScope::Workspace,
+                        &workspace.workspace.name,
+                        &workspace,
+                    )?;
                     let plan = plan_workspace_capture(&store, &mut workspace, reuse)?;
                     if args.plan {
                         print_capture_plan(&plan);
@@ -98,6 +120,15 @@ fn main() -> Result<()> {
                 CaptureScope::Tab => {
                     let mut tab = backend.capture_current_tab(name)?;
                     fingerprint::annotate_tab_capture(&mut tab);
+                    maybe_save_capture_snapshot(
+                        &store,
+                        args.append_snapshot,
+                        args.plan,
+                        backend.kind(),
+                        SnapshotScope::Tab,
+                        &tab.tab.name,
+                        &tab,
+                    )?;
                     let mut plan = plan_tab_capture(&store, &mut tab, reuse)?;
                     plan.new_files = files_for_tab_capture(&tab, &plan);
                     if args.plan {
@@ -115,6 +146,15 @@ fn main() -> Result<()> {
                 CaptureScope::Pane => {
                     let mut pane = backend.capture_current_pane(name)?;
                     fingerprint::annotate_pane(&mut pane);
+                    maybe_save_capture_snapshot(
+                        &store,
+                        args.append_snapshot,
+                        args.plan,
+                        backend.kind(),
+                        SnapshotScope::Pane,
+                        &pane.name,
+                        &pane,
+                    )?;
                     let mut plan = plan_pane_capture(&store, &pane)?;
                     plan.new_files = 1;
                     if args.plan {
@@ -145,6 +185,7 @@ fn main() -> Result<()> {
                         cli.backend.map(Into::into),
                         &name,
                         args.dry_run,
+                        args.force,
                     )?;
                 }
                 RestoreTarget::Stack => {
@@ -160,6 +201,7 @@ fn main() -> Result<()> {
                             cli.backend.map(Into::into),
                             &workspace.name,
                             args.dry_run,
+                            args.force,
                         )?;
                     }
                 }
@@ -178,6 +220,7 @@ fn main() -> Result<()> {
                     &args.name,
                     args.to.as_deref(),
                     args.dry_run,
+                    args.force,
                 )?;
             }
             ApplyCommand::Workspace(args) => {
@@ -191,6 +234,7 @@ fn main() -> Result<()> {
                     cli.backend.map(Into::into),
                     &args.name,
                     args.dry_run,
+                    args.force,
                 )?;
             }
             ApplyCommand::Stack(args) => {
@@ -204,6 +248,7 @@ fn main() -> Result<()> {
                     cli.backend.map(Into::into),
                     &args.name,
                     args.dry_run,
+                    args.force,
                 )?;
             }
         },
@@ -227,6 +272,7 @@ fn main() -> Result<()> {
                         &args.name,
                         live_workspace_selector.as_deref(),
                         args.dry_run,
+                        args.force,
                     )?;
                 }
             }
@@ -303,7 +349,7 @@ fn main() -> Result<()> {
         },
         Command::Tui => {
             store.ensure()?;
-            tui::run(&store)?;
+            tui::run(&store, cli.backend.map(Into::into))?;
         }
     }
     Ok(())
@@ -314,11 +360,12 @@ fn restore_workspace_by_name(
     requested_backend: Option<model::BackendKind>,
     name: &str,
     dry_run: bool,
+    force: bool,
 ) -> Result<()> {
     let workspace = store.load_workspace_capture(name)?;
     let backend_kind = requested_backend.or(Some(workspace.workspace.backend));
     let backend = detect_backend(backend_kind)?;
-    backend.restore_workspace(&workspace, dry_run)
+    backend.restore_workspace(&workspace, dry_run, force)
 }
 
 fn print_tree(store: &Store, kind: ItemKind, name: &str) -> Result<()> {
@@ -503,10 +550,11 @@ fn apply_stack_by_name(
     requested_backend: Option<model::BackendKind>,
     name: &str,
     dry_run: bool,
+    force: bool,
 ) -> Result<()> {
     let stack = store.load_stack(name)?;
     for workspace in &stack.workspaces {
-        restore_workspace_by_name(store, requested_backend, &workspace.name, dry_run)?;
+        restore_workspace_by_name(store, requested_backend, &workspace.name, dry_run, force)?;
     }
     Ok(())
 }
@@ -517,10 +565,11 @@ fn apply_tab_by_name(
     name: &str,
     workspace: Option<&str>,
     dry_run: bool,
+    force: bool,
 ) -> Result<()> {
     let tab = store.load_tab_capture(name)?;
     let backend = detect_backend(requested_backend)?;
-    backend.apply_tab(&tab, workspace, dry_run)
+    backend.apply_tab(&tab, workspace, dry_run, force)
 }
 
 fn current_workspace_template_name(
@@ -570,6 +619,66 @@ fn add_tab_to_workspace(store: &Store, tab_name: &str, workspace_name: &str) -> 
         path.display()
     );
     Ok(())
+}
+
+fn maybe_save_capture_snapshot<T: Serialize>(
+    store: &Store,
+    append_snapshot: bool,
+    plan_only: bool,
+    backend: model::BackendKind,
+    scope: SnapshotScope,
+    base_name: &str,
+    payload: &T,
+) -> Result<()> {
+    if !append_snapshot {
+        return Ok(());
+    }
+
+    let snapshot = capture_snapshot(backend, scope, base_name, payload)?;
+    if plan_only {
+        println!(
+            "snapshot: would append {} -> snapshots/{}.yaml",
+            scope.as_str(),
+            snapshot.name
+        );
+        return Ok(());
+    }
+
+    let path = store.save_snapshot(&snapshot)?;
+    println!(
+        "snapshot: appended {} -> {}",
+        scope.as_str(),
+        path.display()
+    );
+    Ok(())
+}
+
+fn capture_snapshot<T: Serialize>(
+    backend: model::BackendKind,
+    scope: SnapshotScope,
+    base_name: &str,
+    payload: &T,
+) -> Result<CaptureSnapshot> {
+    let captured_at = Utc::now();
+    let timestamp = format!(
+        "{}{:09}Z",
+        captured_at.format("%Y%m%dT%H%M%S"),
+        captured_at.timestamp_subsec_nanos()
+    );
+    let name = format!(
+        "{}-{}-{}",
+        scope.as_str(),
+        store::slug(base_name),
+        timestamp
+    );
+    Ok(CaptureSnapshot {
+        schema: "kitsune.snapshot.v1".into(),
+        name,
+        captured_at,
+        backend,
+        scope,
+        payload: serde_yaml::to_value(payload)?,
+    })
 }
 
 fn workspace_tab_fingerprints(

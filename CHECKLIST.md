@@ -28,9 +28,9 @@ features land or priorities change.
   - [x] `kit capture tab <name>`
   - [x] `kit capture pane <name>`
 - [ ] Add broader capture modes.
-  - [ ] `kit capture --current`
+  - [x] `kit capture --current`
   - [x] `kit capture all`
-  - [ ] `kit capture --append-snapshot`
+  - [x] `kit capture --append-snapshot`
 
 ## Composable templates
 
@@ -71,8 +71,8 @@ features land or priorities change.
 ## TUI
 
 - [ ] Build the TUI around live state vs saved kits.
-  - [ ] live backend state pane
-  - [ ] saved Kitsune templates pane
+  - [x] live backend state pane
+  - [x] saved Kitsune templates pane
   - [ ] capture action
   - [ ] restore action
   - [ ] view action
@@ -84,10 +84,11 @@ features land or priorities change.
 
 - [ ] Harden restore flows.
   - [x] `--dry-run`
-  - [x] `--skip-commands`
   - [x] `--confirm`
-  - [x] separate observed foreground commands from explicit restore commands
-  - [ ] better layout conflict handling
+  - [x] captured/observed commands are inert and never run during restore/apply
+  - [x] better layout conflict handling
+    - [x] prevent duplicate live Herdr workspace/tab labels by default
+    - [x] `--force` escape hatch for intentional duplicate labels
   - [x] clearer summaries before execution
 
 ## Navigation
@@ -95,14 +96,5 @@ features land or priorities change.
 - [ ] Replace `herdr-smart-nav` with `kit nav` once trusted.
 - [ ] Move nav passthrough settings into Kitsune config.
   - [ ] Vim/Neovim/view/fzf defaults
-  - [ ] Helix support
-  - [ ] lazygit support
-
-## Backends
-
-- [ ] Complete tmux backend.
-  - [ ] session-as-workspace capture
-  - [ ] window-as-tab capture
-  - [ ] pane capture
-  - [ ] layout restore
-- [ ] Explore future Zellij backend.
+  - [x] Helix support
+  - [x] lazygit support

@@ -76,6 +76,10 @@ pub struct CaptureArgs {
     #[arg(long, value_enum)]
     pub scope: Option<CaptureScope>,
 
+    /// Explicitly capture the currently focused workspace. Optional positional name overrides the saved name.
+    #[arg(long)]
+    pub current: bool,
+
     /// Preview what would be captured/reused without writing files.
     #[arg(long)]
     pub plan: bool,
@@ -83,9 +87,13 @@ pub struct CaptureArgs {
     /// Do not reuse existing components with matching fingerprints.
     #[arg(long)]
     pub no_reuse: bool,
+
+    /// Also write a timestamped point-in-time snapshot under snapshots/.
+    #[arg(long)]
+    pub append_snapshot: bool,
 }
 
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum CaptureScope {
     All,
     Workspace,
@@ -95,6 +103,19 @@ pub enum CaptureScope {
 
 impl CaptureArgs {
     pub fn resolve(&self) -> Result<(CaptureScope, Option<String>)> {
+        if self.current {
+            if self.scope.is_some() {
+                bail!("capture --current cannot be combined with --scope");
+            }
+            if self.name.is_some() {
+                bail!("capture --current takes at most one optional name");
+            }
+            if self.scope_or_name.as_deref() == Some("all") {
+                bail!("capture --current cannot be combined with all");
+            }
+            return Ok((CaptureScope::Workspace, self.scope_or_name.clone()));
+        }
+
         if let Some(scope) = self.scope {
             if self.name.is_some() {
                 bail!("capture name was provided twice");
@@ -123,6 +144,42 @@ impl CaptureArgs {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_current_resolves_to_workspace() {
+        let args = CaptureArgs {
+            scope_or_name: None,
+            name: None,
+            scope: None,
+            current: true,
+            plan: false,
+            no_reuse: false,
+            append_snapshot: false,
+        };
+        assert_eq!(args.resolve().unwrap().0, CaptureScope::Workspace);
+    }
+
+    #[test]
+    fn capture_current_accepts_optional_name() {
+        let args = CaptureArgs {
+            scope_or_name: Some("darkness".into()),
+            name: None,
+            scope: None,
+            current: true,
+            plan: false,
+            no_reuse: false,
+            append_snapshot: false,
+        };
+        assert_eq!(
+            args.resolve().unwrap(),
+            (CaptureScope::Workspace, Some("darkness".into()))
+        );
+    }
+}
+
 #[derive(Debug, Args)]
 pub struct RestoreArgs {
     /// Template kind (`workspace` or `stack`) or workspace name shorthand.
@@ -138,6 +195,10 @@ pub struct RestoreArgs {
     /// Prompt before applying live restore changes.
     #[arg(long)]
     pub confirm: bool,
+
+    /// Allow creating duplicate live workspace/tab labels.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -172,6 +233,10 @@ pub struct AddTabArgs {
     /// Prompt before applying live changes.
     #[arg(long)]
     pub confirm: bool,
+
+    /// Allow creating duplicate live tab labels.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -205,6 +270,10 @@ pub struct ApplyTabArgs {
     /// Prompt before applying live changes.
     #[arg(long)]
     pub confirm: bool,
+
+    /// Allow creating duplicate live tab labels.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -217,6 +286,10 @@ pub struct ApplyWorkspaceArgs {
     /// Prompt before applying live changes.
     #[arg(long)]
     pub confirm: bool,
+
+    /// Allow creating duplicate live workspace labels.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Args)]
@@ -229,6 +302,10 @@ pub struct ApplyStackArgs {
     /// Prompt before applying live changes.
     #[arg(long)]
     pub confirm: bool,
+
+    /// Allow creating duplicate live workspace labels.
+    #[arg(long)]
+    pub force: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
