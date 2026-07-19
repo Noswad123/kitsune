@@ -56,9 +56,12 @@ kit run start rustlings --dry-run
 - [Templates](docs/templates.md): schema concepts, refs, fingerprints, observed state
 - [Actions](docs/actions.md): explicit runnable actions and fan-out behavior
 - [Navigation](docs/navigation.md): `kit nav` / `kit herdr-nav` setup
+- [Stable snapshot](docs/stable-snapshot.md): current stable baseline and known limits
 - [Planning](docs/planning.md): design topics that are not implementation-ready
 
 ## Current status
+
+Current baseline: [stable snapshot, 2026-07-19](docs/stable-snapshot.md).
 
 - Herdr: doctor, save, restore/apply topology, duplicate-label safety, actions,
   smart navigation, TUI metadata flows.

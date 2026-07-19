@@ -36,4 +36,13 @@ without a live pane ref run locally.
 Use `--dry-run` to preview the command plan. Use `--confirm` when you want an
 extra prompt before execution.
 
+Diagnose configured actions and live Herdr pane targeting with:
+
+```bash
+kit doctor actions
+```
+
+The report shows configured actions, whether pane actions resolve to current live
+Herdr panes, and warnings for unresolved live pane targets.
+
 Observed foreground commands remain inert and are not action config.

@@ -12,6 +12,7 @@ This installs the daily command as `kit`.
 
 ```bash
 kit doctor
+kit doctor actions
 kit init
 kit store path
 kit store doctor

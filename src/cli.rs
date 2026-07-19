@@ -35,7 +35,7 @@ impl From<BackendArg> for BackendKind {
 #[derive(Debug, Subcommand)]
 pub enum Command {
     /// Detect the active multiplexer backend and report feature support.
-    Doctor,
+    Doctor(DoctorArgs),
     /// Save the current backend state into a named reusable template.
     Save(SaveArgs),
     /// Restore a saved workspace template.
@@ -64,6 +64,18 @@ pub enum Command {
     Tui,
     /// Print store path and create expected directories.
     Init,
+}
+
+#[derive(Debug, Args)]
+pub struct DoctorArgs {
+    #[command(subcommand)]
+    pub command: Option<DoctorCommand>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DoctorCommand {
+    /// Inspect configured actions and live pane resolution.
+    Actions,
 }
 
 #[derive(Debug, Args)]

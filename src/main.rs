@@ -11,8 +11,8 @@ use backend::{Backend, detect_backend};
 use chrono::Utc;
 use clap::Parser;
 use cli::{
-    AddCommand, ApplyCommand, Cli, Command, KindArg, RestoreTarget, SaveScope, StackCommand,
-    StoreCommand,
+    AddCommand, ApplyCommand, Cli, Command, DoctorCommand, KindArg, RestoreTarget, SaveScope,
+    StackCommand, StoreCommand,
 };
 use model::{ActionTemplate, CaptureSnapshot, ComponentRef, SnapshotScope, StackTemplate};
 use serde::Serialize;
@@ -35,17 +35,20 @@ fn main() -> Result<()> {
             store.ensure()?;
             println!("{}", store.root().display());
         }
-        Command::Doctor => {
-            let backend = detect_backend(cli.backend.map(Into::into))?;
-            let report = backend.doctor()?;
-            println!("backend: {}", report.backend);
-            println!("detected: {}", report.detected);
-            println!("detail: {}", report.detail);
-            println!("features:");
-            for (name, supported) in report.features {
-                println!("  {name}: {}", if supported { "yes" } else { "no" });
+        Command::Doctor(args) => match args.command {
+            Some(DoctorCommand::Actions) => doctor_actions(&store)?,
+            None => {
+                let backend = detect_backend(cli.backend.map(Into::into))?;
+                let report = backend.doctor()?;
+                println!("backend: {}", report.backend);
+                println!("detected: {}", report.detected);
+                println!("detail: {}", report.detail);
+                println!("features:");
+                for (name, supported) in report.features {
+                    println!("  {name}: {}", if supported { "yes" } else { "no" });
+                }
             }
-        }
+        },
         Command::Save(args) => {
             let backend = detect_backend(cli.backend.map(Into::into))?;
             let (scope, name) = args.resolve()?;
@@ -744,6 +747,162 @@ struct ActionStep {
     pane_fingerprint: Option<String>,
 }
 
+#[derive(Debug, Default)]
+struct LiveHerdrPaneLookup {
+    by_name: HashMap<String, String>,
+    by_fingerprint: HashMap<String, Vec<String>>,
+}
+
+#[derive(Debug)]
+struct ActionDoctorEntry {
+    kind: ItemKind,
+    owner: String,
+    action: String,
+    command: Option<String>,
+    saved_pane_id: Option<String>,
+    live_pane_id: Option<String>,
+}
+
+fn doctor_actions(store: &Store) -> Result<()> {
+    let mut entries = collect_action_doctor_entries(store)?;
+    let live_lookup = live_herdr_pane_lookup().ok();
+    if let Some(lookup) = &live_lookup {
+        for entry in entries
+            .iter_mut()
+            .filter(|entry| entry.kind == ItemKind::Pane)
+        {
+            entry.live_pane_id = lookup.by_name.get(&entry.owner).cloned();
+            if entry.live_pane_id.is_none() {
+                entry.live_pane_id = entry
+                    .saved_pane_id
+                    .as_ref()
+                    .filter(|pane_id| lookup.by_name.values().any(|live| live == *pane_id))
+                    .cloned();
+            }
+        }
+    }
+
+    println!("actions: {} configured", entries.len());
+    println!(
+        "live herdr pane lookup: {}",
+        if live_lookup.is_some() {
+            "ok"
+        } else {
+            "unavailable"
+        }
+    );
+    if entries.is_empty() {
+        println!("status: ok (no configured actions)");
+        return Ok(());
+    }
+
+    let mut warnings = 0usize;
+    for entry in &entries {
+        let command = entry.command.as_deref().unwrap_or("(fanout/no command)");
+        match entry.kind {
+            ItemKind::Pane => {
+                let target = match (&entry.live_pane_id, &entry.saved_pane_id) {
+                    (Some(live), Some(saved)) if live != saved => {
+                        format!("live-pane={live} saved-pane={saved} remapped")
+                    }
+                    (Some(live), _) => format!("live-pane={live}"),
+                    (None, Some(saved)) => {
+                        warnings += 1;
+                        format!("saved-pane={saved} unresolved-live")
+                    }
+                    (None, None) => {
+                        warnings += 1;
+                        "no-pane-ref unresolved-live".into()
+                    }
+                };
+                println!(
+                    "  {} '{}' action '{}' [{}]: {}",
+                    entry.kind.singular_name(),
+                    entry.owner,
+                    entry.action,
+                    target,
+                    command
+                );
+            }
+            ItemKind::Workspace | ItemKind::Tab => println!(
+                "  {} '{}' action '{}' [local/fanout]: {}",
+                entry.kind.singular_name(),
+                entry.owner,
+                entry.action,
+                command
+            ),
+            ItemKind::Stack | ItemKind::Snapshot => {}
+        }
+    }
+    println!(
+        "status: {}",
+        if warnings == 0 {
+            "ok".into()
+        } else {
+            format!(
+                "warning ({warnings} unresolved live pane action{})",
+                if warnings == 1 { "" } else { "s" }
+            )
+        }
+    );
+    Ok(())
+}
+
+fn collect_action_doctor_entries(store: &Store) -> Result<Vec<ActionDoctorEntry>> {
+    let mut entries = vec![];
+    for name in store.list(ItemKind::Workspace)? {
+        let workspace = store.load_workspace(&name)?;
+        for (action, template) in workspace.actions {
+            entries.push(ActionDoctorEntry {
+                kind: ItemKind::Workspace,
+                owner: workspace.name.clone(),
+                action,
+                command: template.command,
+                saved_pane_id: None,
+                live_pane_id: None,
+            });
+        }
+    }
+    for name in store.list(ItemKind::Tab)? {
+        let tab = store.load_tab(&name)?;
+        for (action, template) in tab.actions {
+            entries.push(ActionDoctorEntry {
+                kind: ItemKind::Tab,
+                owner: tab.name.clone(),
+                action,
+                command: template.command,
+                saved_pane_id: None,
+                live_pane_id: None,
+            });
+        }
+    }
+    for name in store.list(ItemKind::Pane)? {
+        let pane = store.load_pane(&name)?;
+        let saved_pane_id = pane
+            .backend_ref
+            .as_ref()
+            .and_then(|ref_| ref_.pane_id.clone());
+        for (action, template) in pane.actions {
+            entries.push(ActionDoctorEntry {
+                kind: ItemKind::Pane,
+                owner: pane.name.clone(),
+                action,
+                command: template.command,
+                saved_pane_id: saved_pane_id.clone(),
+                live_pane_id: None,
+            });
+        }
+    }
+    entries.sort_by(|a, b| {
+        a.kind
+            .dir_name()
+            .cmp(b.kind.dir_name())
+            .then(a.owner.cmp(&b.owner))
+            .then(a.action.cmp(&b.action))
+    });
+    Ok(entries)
+}
+
 fn run_saved_action(
     store: &Store,
     action: &str,
@@ -944,13 +1103,31 @@ fn resolve_live_herdr_action_panes(steps: &mut [ActionStep]) {
         return;
     }
 
-    let backend = backend::HerdrBackend::new();
-    let Ok(mut workspaces) = backend.capture_all_workspaces() else {
+    let Ok(lookup) = live_herdr_pane_lookup() else {
         return;
     };
 
-    let mut by_name = HashMap::<String, String>::new();
-    let mut by_fingerprint = HashMap::<String, Vec<String>>::new();
+    for step in steps.iter_mut().filter(|step| step.kind == ItemKind::Pane) {
+        if let Some(pane_id) = lookup.by_name.get(&step.owner) {
+            step.herdr_pane_id = Some(pane_id.clone());
+            continue;
+        }
+        if let Some(pane_id) = step
+            .pane_fingerprint
+            .as_ref()
+            .and_then(|fingerprint| lookup.by_fingerprint.get(fingerprint))
+            .and_then(|matches| (matches.len() == 1).then(|| matches[0].clone()))
+        {
+            step.herdr_pane_id = Some(pane_id);
+        }
+    }
+}
+
+fn live_herdr_pane_lookup() -> Result<LiveHerdrPaneLookup> {
+    let backend = backend::HerdrBackend::new();
+    let mut workspaces = backend.capture_all_workspaces()?;
+
+    let mut lookup = LiveHerdrPaneLookup::default();
     for workspace in &mut workspaces {
         fingerprint::annotate_workspace_capture(workspace);
         for tab in &workspace.tabs {
@@ -962,11 +1139,15 @@ fn resolve_live_herdr_action_panes(steps: &mut [ActionStep]) {
                 else {
                     continue;
                 };
-                by_name.entry(pane.name.clone()).or_insert(pane_id.clone());
+                lookup
+                    .by_name
+                    .entry(pane.name.clone())
+                    .or_insert(pane_id.clone());
                 if let Some(fingerprint) =
                     pane.identity.as_ref().map(|identity| &identity.fingerprint)
                 {
-                    by_fingerprint
+                    lookup
+                        .by_fingerprint
                         .entry(fingerprint.clone())
                         .or_default()
                         .push(pane_id.clone());
@@ -974,21 +1155,7 @@ fn resolve_live_herdr_action_panes(steps: &mut [ActionStep]) {
             }
         }
     }
-
-    for step in steps.iter_mut().filter(|step| step.kind == ItemKind::Pane) {
-        if let Some(pane_id) = by_name.get(&step.owner) {
-            step.herdr_pane_id = Some(pane_id.clone());
-            continue;
-        }
-        if let Some(pane_id) = step
-            .pane_fingerprint
-            .as_ref()
-            .and_then(|fingerprint| by_fingerprint.get(fingerprint))
-            .and_then(|matches| (matches.len() == 1).then(|| matches[0].clone()))
-        {
-            step.herdr_pane_id = Some(pane_id);
-        }
-    }
+    Ok(lookup)
 }
 
 fn print_action_step(step: &ActionStep, dry_run: bool) {
