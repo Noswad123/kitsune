@@ -86,6 +86,7 @@ features land or priorities change.
   - [x] `--dry-run`
   - [x] `--skip-commands`
   - [x] `--confirm`
+  - [x] separate observed foreground commands from explicit restore commands
   - [ ] better layout conflict handling
   - [x] clearer summaries before execution
 

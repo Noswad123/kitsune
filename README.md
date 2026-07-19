@@ -175,6 +175,20 @@ Force fresh component writes with:
 kit capture all --no-reuse
 ```
 
+## Observed vs restore commands
+
+Captured foreground commands are stored as observed runtime state, not restore
+behavior. This avoids rerunning whatever command happened to be focused at
+capture time. Panes only run commands during restore/apply when an explicit
+`restore.command` is set in the pane template.
+
+Use `--skip-commands` to suppress explicit restore commands:
+
+```bash
+kit restore darkness --skip-commands
+kit apply tab logs --skip-commands
+```
+
 ## Current status
 
 - Herdr backend: doctor, capture current workspace, restore workspace, smart nav.

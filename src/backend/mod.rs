@@ -14,19 +14,8 @@ pub trait Backend {
     fn capture_current_workspace(&self, name: Option<String>) -> Result<WorkspaceCapture>;
     fn capture_current_tab(&self, name: Option<String>) -> Result<TabCapture>;
     fn capture_current_pane(&self, name: Option<String>) -> Result<PaneTemplate>;
-    fn restore_workspace(
-        &self,
-        workspace: &WorkspaceCapture,
-        dry_run: bool,
-        skip_commands: bool,
-    ) -> Result<()>;
-    fn apply_tab(
-        &self,
-        tab: &TabCapture,
-        workspace: Option<&str>,
-        dry_run: bool,
-        skip_commands: bool,
-    ) -> Result<()>;
+    fn restore_workspace(&self, workspace: &WorkspaceCapture, dry_run: bool) -> Result<()>;
+    fn apply_tab(&self, tab: &TabCapture, workspace: Option<&str>, dry_run: bool) -> Result<()>;
     fn smart_nav(&self, direction: Direction, key: &str) -> Result<()>;
 }
 

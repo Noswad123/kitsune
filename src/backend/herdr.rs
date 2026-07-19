@@ -138,7 +138,7 @@ impl HerdrBackend {
                 let process = self
                     .json(&["pane", "process-info", "--pane", pane_id])
                     .unwrap_or(Value::Null);
-                let command = first_cmdline(&process);
+                let observed_command = first_cmdline(&process);
                 let cwd = pane["foreground_cwd"]
                     .as_str()
                     .or_else(|| pane["cwd"].as_str())
@@ -160,7 +160,12 @@ impl HerdrBackend {
                     label,
                     identity: None,
                     cwd,
-                    command,
+                    command: None,
+                    observed: observed_command.map(|foreground_command| {
+                        crate::model::ObservedState {
+                            foreground_command: Some(foreground_command),
+                        }
+                    }),
                     agent: pane["agent"].as_str().map(str::to_string),
                     rect,
                     raw: Some(pane.clone()),
@@ -322,12 +327,7 @@ impl Backend for HerdrBackend {
         Ok(pane)
     }
 
-    fn restore_workspace(
-        &self,
-        workspace: &WorkspaceCapture,
-        dry_run: bool,
-        skip_commands: bool,
-    ) -> Result<()> {
+    fn restore_workspace(&self, workspace: &WorkspaceCapture, dry_run: bool) -> Result<()> {
         if workspace.workspace.backend != BackendKind::Herdr {
             bail!(
                 "workspace was captured for {}, not herdr",
@@ -391,26 +391,13 @@ impl Backend for HerdrBackend {
                     .to_string();
             }
 
-            restore_tab(
-                self,
-                tab,
-                &tab_capture.panes,
-                &current_root_pane,
-                dry_run,
-                skip_commands,
-            )
-            .with_context(|| format!("restoring tab {} ({})", idx + 1, tab.label_or_name()))?;
+            restore_tab(self, tab, &tab_capture.panes, &current_root_pane, dry_run)
+                .with_context(|| format!("restoring tab {} ({})", idx + 1, tab.label_or_name()))?;
         }
         Ok(())
     }
 
-    fn apply_tab(
-        &self,
-        tab: &TabCapture,
-        workspace: Option<&str>,
-        dry_run: bool,
-        skip_commands: bool,
-    ) -> Result<()> {
+    fn apply_tab(&self, tab: &TabCapture, workspace: Option<&str>, dry_run: bool) -> Result<()> {
         let workspace_id = self.resolve_workspace_id(workspace)?;
         let mut tab_args = vec![
             "tab".into(),
@@ -430,14 +417,7 @@ impl Backend for HerdrBackend {
             .as_str()
             .unwrap_or("dry-pane")
             .to_string();
-        restore_tab(
-            self,
-            &tab.tab,
-            &tab.panes,
-            &root_pane,
-            dry_run,
-            skip_commands,
-        )
+        restore_tab(self, &tab.tab, &tab.panes, &root_pane, dry_run)
     }
 
     fn smart_nav(&self, direction: Direction, key: &str) -> Result<()> {
@@ -478,7 +458,6 @@ fn restore_tab(
     panes: &[PaneTemplate],
     root_pane: &str,
     dry_run: bool,
-    skip_commands: bool,
 ) -> Result<()> {
     let mut leaves = vec![Leaf {
         pane_id: root_pane.to_string(),
@@ -544,12 +523,6 @@ fn restore_tab(
                 pane.label_or_name().into(),
             ];
             backend.run(&args, dry_run)?;
-        }
-        if !skip_commands {
-            if let Some(command) = &pane.command {
-                let args = vec!["pane".into(), "run".into(), pane_id, command.clone()];
-                backend.run(&args, dry_run)?;
-            }
         }
     }
     Ok(())

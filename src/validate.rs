@@ -257,6 +257,13 @@ fn validate_pane_templates(store: &Store, report: &mut ValidationReport) -> Resu
                 if pane.name.trim().is_empty() {
                     report.error("pane-name", Some(path.clone()), "pane name is empty");
                 }
+                if pane.command.is_some() {
+                    report.warning(
+                        "legacy-pane-command",
+                        Some(path.clone()),
+                        "legacy pane command is treated as observed runtime state and is not run during restore/apply",
+                    );
+                }
                 if let Some(cwd) = pane.cwd {
                     if !cwd.exists() {
                         report.warning(

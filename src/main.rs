@@ -145,7 +145,6 @@ fn main() -> Result<()> {
                         cli.backend.map(Into::into),
                         &name,
                         args.dry_run,
-                        args.skip_commands,
                     )?;
                 }
                 RestoreTarget::Stack => {
@@ -161,7 +160,6 @@ fn main() -> Result<()> {
                             cli.backend.map(Into::into),
                             &workspace.name,
                             args.dry_run,
-                            args.skip_commands,
                         )?;
                     }
                 }
@@ -180,7 +178,6 @@ fn main() -> Result<()> {
                     &args.name,
                     args.to.as_deref(),
                     args.dry_run,
-                    args.skip_commands,
                 )?;
             }
             ApplyCommand::Workspace(args) => {
@@ -194,7 +191,6 @@ fn main() -> Result<()> {
                     cli.backend.map(Into::into),
                     &args.name,
                     args.dry_run,
-                    args.skip_commands,
                 )?;
             }
             ApplyCommand::Stack(args) => {
@@ -208,7 +204,6 @@ fn main() -> Result<()> {
                     cli.backend.map(Into::into),
                     &args.name,
                     args.dry_run,
-                    args.skip_commands,
                 )?;
             }
         },
@@ -232,7 +227,6 @@ fn main() -> Result<()> {
                         &args.name,
                         live_workspace_selector.as_deref(),
                         args.dry_run,
-                        args.skip_commands,
                     )?;
                 }
             }
@@ -320,12 +314,11 @@ fn restore_workspace_by_name(
     requested_backend: Option<model::BackendKind>,
     name: &str,
     dry_run: bool,
-    skip_commands: bool,
 ) -> Result<()> {
     let workspace = store.load_workspace_capture(name)?;
     let backend_kind = requested_backend.or(Some(workspace.workspace.backend));
     let backend = detect_backend(backend_kind)?;
-    backend.restore_workspace(&workspace, dry_run, skip_commands)
+    backend.restore_workspace(&workspace, dry_run)
 }
 
 fn print_tree(store: &Store, kind: ItemKind, name: &str) -> Result<()> {
@@ -510,17 +503,10 @@ fn apply_stack_by_name(
     requested_backend: Option<model::BackendKind>,
     name: &str,
     dry_run: bool,
-    skip_commands: bool,
 ) -> Result<()> {
     let stack = store.load_stack(name)?;
     for workspace in &stack.workspaces {
-        restore_workspace_by_name(
-            store,
-            requested_backend,
-            &workspace.name,
-            dry_run,
-            skip_commands,
-        )?;
+        restore_workspace_by_name(store, requested_backend, &workspace.name, dry_run)?;
     }
     Ok(())
 }
@@ -531,11 +517,10 @@ fn apply_tab_by_name(
     name: &str,
     workspace: Option<&str>,
     dry_run: bool,
-    skip_commands: bool,
 ) -> Result<()> {
     let tab = store.load_tab_capture(name)?;
     let backend = detect_backend(requested_backend)?;
-    backend.apply_tab(&tab, workspace, dry_run, skip_commands)
+    backend.apply_tab(&tab, workspace, dry_run)
 }
 
 fn current_workspace_template_name(

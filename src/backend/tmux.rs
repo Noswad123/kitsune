@@ -61,22 +61,11 @@ impl Backend for TmuxBackend {
         bail!("tmux pane capture is not implemented yet; herdr is the first backend")
     }
 
-    fn restore_workspace(
-        &self,
-        _workspace: &WorkspaceCapture,
-        _dry_run: bool,
-        _skip_commands: bool,
-    ) -> Result<()> {
+    fn restore_workspace(&self, _workspace: &WorkspaceCapture, _dry_run: bool) -> Result<()> {
         bail!("tmux restore is not implemented yet; herdr is the first backend")
     }
 
-    fn apply_tab(
-        &self,
-        _tab: &TabCapture,
-        _workspace: Option<&str>,
-        _dry_run: bool,
-        _skip_commands: bool,
-    ) -> Result<()> {
+    fn apply_tab(&self, _tab: &TabCapture, _workspace: Option<&str>, _dry_run: bool) -> Result<()> {
         bail!("tmux apply tab is not implemented yet; herdr is the first backend")
     }
 

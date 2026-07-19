@@ -117,11 +117,20 @@ pub struct PaneTemplate {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<PaneIdentity>,
     pub cwd: Option<PathBuf>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed: Option<ObservedState>,
     pub agent: Option<String>,
     pub rect: Option<Rect>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub raw: Option<Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObservedState {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub foreground_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

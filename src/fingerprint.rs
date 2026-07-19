@@ -200,6 +200,7 @@ mod tests {
             identity: None,
             cwd: Some(PathBuf::from("/tmp")),
             command: Some("vim src/main.rs".into()),
+            observed: None,
             agent: Some("opencode".into()),
             rect: None,
             raw: None,

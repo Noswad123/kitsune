@@ -135,10 +135,6 @@ pub struct RestoreArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Recreate panes/layout but do not rerun captured commands.
-    #[arg(long)]
-    pub skip_commands: bool,
-
     /// Prompt before applying live restore changes.
     #[arg(long)]
     pub confirm: bool,
@@ -173,10 +169,6 @@ pub struct AddTabArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Apply layout but do not rerun captured commands.
-    #[arg(long)]
-    pub skip_commands: bool,
-
     /// Prompt before applying live changes.
     #[arg(long)]
     pub confirm: bool,
@@ -210,10 +202,6 @@ pub struct ApplyTabArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    /// Apply layout but do not rerun captured commands.
-    #[arg(long)]
-    pub skip_commands: bool,
-
     /// Prompt before applying live changes.
     #[arg(long)]
     pub confirm: bool,
@@ -226,9 +214,6 @@ pub struct ApplyWorkspaceArgs {
     #[arg(long)]
     pub dry_run: bool,
 
-    #[arg(long)]
-    pub skip_commands: bool,
-
     /// Prompt before applying live changes.
     #[arg(long)]
     pub confirm: bool,
@@ -240,9 +225,6 @@ pub struct ApplyStackArgs {
 
     #[arg(long)]
     pub dry_run: bool,
-
-    #[arg(long)]
-    pub skip_commands: bool,
 
     /// Prompt before applying live changes.
     #[arg(long)]
