@@ -46,6 +46,8 @@ kit apply tab logs --dry-run
 kit apply tab logs --force
 kit apply workspace darkness --dry-run
 kit apply stack morning --dry-run
+kit run start rustlings
+kit run start rustlings --dry-run
 kit restore stack morning --confirm
 kit restore stack morning --dry-run
 kit list
@@ -186,6 +188,35 @@ kit apply tab logs --force
 kit restore workspace darkness --force
 kit apply stack morning --force
 ```
+
+## Actions
+
+Workspace, tab, and pane templates can define explicit named actions. Actions are
+never inferred from observed foreground commands.
+
+```yaml
+actions:
+  start:
+    description: Start the dev server
+    command: cargo run
+    cwd: ~/Projects/example
+```
+
+Run actions with:
+
+```bash
+kit run start rustlings
+kit run start rustlings --dry-run
+kit run test rustlings-1 --kind tab --dry-run
+```
+
+Workspace actions fan out to matching tab and pane actions. Tab actions fan out
+to matching pane actions. Pane actions with a live Herdr `backend_ref.pane_id`
+send their configured command plus Enter into that pane; pane actions without a
+live pane ref run locally. By default, target lookup prefers workspace, then tab,
+then pane, so `kit run start rustlings` fans out from the `rustlings` workspace
+when it exists. Use `--dry-run` to preview the command plan or `--confirm` when
+you want an extra prompt before execution.
 
 ## Fingerprints
 

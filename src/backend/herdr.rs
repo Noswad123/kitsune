@@ -165,6 +165,7 @@ impl HerdrBackend {
                     }),
                     agent: pane["agent"].as_str().map(str::to_string),
                     rect,
+                    actions: Default::default(),
                     backend_ref: Some(BackendRef {
                         workspace_id: Some(workspace_id.to_string()),
                         tab_id: Some(tab_id.to_string()),
@@ -184,6 +185,7 @@ impl HerdrBackend {
                     cwd: tab_cwd,
                     panes: vec![],
                     layout,
+                    actions: Default::default(),
                     backend_ref: Some(BackendRef {
                         workspace_id: Some(workspace_id.to_string()),
                         tab_id: Some(tab_id.to_string()),
@@ -205,6 +207,7 @@ impl HerdrBackend {
                 cwd: workspace_cwd,
                 saved_at: Utc::now(),
                 tabs: vec![],
+                actions: Default::default(),
                 backend_ref: Some(BackendRef {
                     workspace_id: Some(workspace_id.to_string()),
                     tab_id: None,

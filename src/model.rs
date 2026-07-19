@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -62,6 +63,8 @@ pub struct WorkspaceTemplate {
     pub saved_at: DateTime<Utc>,
     #[serde(default)]
     pub tabs: Vec<ComponentRef>,
+    #[serde(default, skip_serializing_if = "is_empty_map")]
+    pub actions: BTreeMap<String, ActionTemplate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_ref: Option<BackendRef>,
 }
@@ -85,6 +88,8 @@ pub struct TabTemplate {
     #[serde(default)]
     pub panes: Vec<ComponentRef>,
     pub layout: LayoutTemplate,
+    #[serde(default, skip_serializing_if = "is_empty_map")]
+    pub actions: BTreeMap<String, ActionTemplate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_ref: Option<BackendRef>,
 }
@@ -133,8 +138,21 @@ pub struct PaneTemplate {
     pub agent: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rect: Option<Rect>,
+    #[serde(default, skip_serializing_if = "is_empty_map")]
+    pub actions: BTreeMap<String, ActionTemplate>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub backend_ref: Option<BackendRef>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ActionTemplate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +169,10 @@ pub struct BackendRef {
 
 fn is_false(value: &bool) -> bool {
     !*value
+}
+
+fn is_empty_map<K, V>(value: &BTreeMap<K, V>) -> bool {
+    value.is_empty()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

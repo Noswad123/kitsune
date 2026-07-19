@@ -203,6 +203,7 @@ mod tests {
             observed: None,
             agent: Some("opencode".into()),
             rect: None,
+            actions: Default::default(),
             backend_ref: None,
         };
         let mut second = PaneTemplate {

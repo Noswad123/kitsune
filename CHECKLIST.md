@@ -27,7 +27,7 @@ features land or priorities change.
   - [x] `kit save workspace <name>`
   - [x] `kit save tab <name>`
   - [x] `kit save pane <name>`
-- [ ] Add broader save modes.
+- [x] Add broader save modes.
   - [x] `kit save --current`
   - [x] `kit save all`
   - [x] `kit save --append-snapshot`
@@ -57,7 +57,7 @@ features land or priorities change.
   - [x] workspace references tabs
   - [x] tab references panes
   - [x] stack references workspaces
-- [ ] Add composition commands.
+- [x] Add composition commands.
   - [x] `kit restore workspace <name>`
   - [x] `kit add tab <name> --to <workspace>`
   - [x] `kit add tab <name>` defaults to current workspace
@@ -70,7 +70,7 @@ features land or priorities change.
 
 ## TUI
 
-- [ ] Build the TUI around live state vs saved kits.
+- [x] Build the TUI around live state vs saved kits.
   - [x] live backend state pane
   - [x] saved Kitsune templates pane
   - [x] save action
@@ -82,7 +82,7 @@ features land or priorities change.
 
 ## Restore safety
 
-- [ ] Harden restore flows.
+- [x] Harden restore flows.
   - [x] `--dry-run`
   - [x] `--confirm`
   - [x] saved/observed commands are inert and never run during restore/apply
@@ -93,15 +93,15 @@ features land or priorities change.
 
 ## Actions
 
-- [ ] Add action config for workspaces, tabs, and panes.
-  - [ ] support named actions such as `start`, `stop`, `test`, or `dev`
-  - [ ] add command shape like `kit run <action> <target>`
-  - [ ] allow workspace-level actions to fan out to tab/pane actions
-  - [ ] allow tab-level actions to fan out to pane actions
-  - [ ] allow pane-level actions to run configured commands
-  - [ ] example: `kit run start rustlings-workspace`
-  - [ ] preserve restore/apply safety: actions must be explicit config, not observed commands
-  - [ ] design confirmation/dry-run behavior before execution
+- [x] Add action config for workspaces, tabs, and panes.
+  - [x] support named actions such as `start`, `stop`, `test`, or `dev`
+  - [x] add command shape like `kit run <action> <target>`
+  - [x] allow workspace-level actions to fan out to tab/pane actions
+  - [x] allow tab-level actions to fan out to pane actions
+  - [x] allow pane-level actions to run configured commands
+  - [x] example: `kit run start rustlings-workspace`
+  - [x] preserve restore/apply safety: actions must be explicit config, not observed commands
+  - [x] design confirmation/dry-run behavior before execution
 
 ## Navigation
 

@@ -42,6 +42,8 @@ pub enum Command {
     Restore(RestoreArgs),
     /// Apply saved templates to the live multiplexer without editing YAML.
     Apply(ApplyArgs),
+    /// Run an explicitly configured saved action.
+    Run(RunArgs),
     /// Compose templates by adding refs between components.
     Add(AddArgs),
     /// List saved templates.
@@ -306,6 +308,44 @@ pub struct ApplyStackArgs {
     /// Allow creating duplicate live workspace labels.
     #[arg(long)]
     pub force: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct RunArgs {
+    /// Named action to run, such as start, stop, test, or dev.
+    pub action: String,
+
+    /// Workspace/tab/pane template name. Lookup prefers workspace, then tab, then pane.
+    pub target: String,
+
+    /// Restrict target lookup to one template kind.
+    #[arg(long, value_enum)]
+    pub kind: Option<RunKind>,
+
+    /// Print commands without executing them.
+    #[arg(long)]
+    pub dry_run: bool,
+
+    /// Prompt before executing commands.
+    #[arg(long)]
+    pub confirm: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum RunKind {
+    Workspace,
+    Tab,
+    Pane,
+}
+
+impl From<RunKind> for ItemKind {
+    fn from(value: RunKind) -> Self {
+        match value {
+            RunKind::Workspace => ItemKind::Workspace,
+            RunKind::Tab => ItemKind::Tab,
+            RunKind::Pane => ItemKind::Pane,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

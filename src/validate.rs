@@ -212,6 +212,7 @@ fn validate_workspace(
             "tmux workspace restore is not implemented yet",
         );
     }
+    validate_actions(path, &workspace.actions, report);
 
     for tab in &workspace.tabs {
         if tab.name.trim().is_empty() {
@@ -257,6 +258,7 @@ fn validate_tab_templates(store: &Store, report: &mut ValidationReport) -> Resul
                 if tab.name.trim().is_empty() {
                     report.error("tab-name", Some(path.clone()), "tab name is empty");
                 }
+                validate_actions(&path, &tab.actions, report);
                 if tab.panes.is_empty() {
                     report.warning("tab-panes", Some(path.clone()), "tab has no pane refs");
                 }
@@ -296,6 +298,7 @@ fn validate_pane_templates(store: &Store, report: &mut ValidationReport) -> Resu
                 if pane.name.trim().is_empty() {
                     report.error("pane-name", Some(path.clone()), "pane name is empty");
                 }
+                validate_actions(&path, &pane.actions, report);
                 if pane.command.is_some() {
                     report.warning(
                         "legacy-pane-command",
@@ -368,6 +371,40 @@ fn validate_stack(
                 Some(path.to_path_buf()),
                 format!("stack references missing workspace '{}'", workspace.name),
             );
+        }
+    }
+}
+
+fn validate_actions(
+    path: &Path,
+    actions: &std::collections::BTreeMap<String, crate::model::ActionTemplate>,
+    report: &mut ValidationReport,
+) {
+    for (name, action) in actions {
+        if name.trim().is_empty() {
+            report.error(
+                "action-name",
+                Some(path.to_path_buf()),
+                "action name is empty",
+            );
+        }
+        if let Some(command) = &action.command {
+            if command.trim().is_empty() {
+                report.error(
+                    "action-command",
+                    Some(path.to_path_buf()),
+                    format!("action '{name}' has an empty command"),
+                );
+            }
+        }
+        if let Some(cwd) = &action.cwd {
+            if !cwd.exists() {
+                report.warning(
+                    "action-cwd",
+                    Some(path.to_path_buf()),
+                    format!("action '{name}' cwd does not exist: {}", cwd.display()),
+                );
+            }
         }
     }
 }

@@ -14,10 +14,12 @@ use cli::{
     AddCommand, ApplyCommand, Cli, Command, KindArg, RestoreTarget, SaveScope, StackCommand,
     StoreCommand,
 };
-use model::{CaptureSnapshot, ComponentRef, SnapshotScope, StackTemplate};
+use model::{ActionTemplate, CaptureSnapshot, ComponentRef, SnapshotScope, StackTemplate};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::io::{self, Write};
+use std::path::PathBuf;
+use std::process::Command as ProcessCommand;
 use store::{ItemKind, Store};
 
 fn main() -> Result<()> {
@@ -255,6 +257,16 @@ fn main() -> Result<()> {
                 )?;
             }
         },
+        Command::Run(args) => {
+            run_saved_action(
+                &store,
+                &args.action,
+                &args.target,
+                args.kind.map(Into::into),
+                args.dry_run,
+                args.confirm,
+            )?;
+        }
         Command::Add(args) => match args.command {
             AddCommand::Tab(args) => {
                 let live_workspace_selector = args.to.clone();
@@ -720,6 +732,272 @@ pub(crate) fn apply_saved_template_metadata_to_live(
             bail!("{} metadata cannot be synced live", kind.singular_name())
         }
     }
+}
+
+#[derive(Debug, Clone)]
+struct ActionStep {
+    kind: ItemKind,
+    owner: String,
+    command: String,
+    cwd: Option<PathBuf>,
+    herdr_pane_id: Option<String>,
+}
+
+fn run_saved_action(
+    store: &Store,
+    action: &str,
+    target: &str,
+    kind: Option<ItemKind>,
+    dry_run: bool,
+    confirm: bool,
+) -> Result<()> {
+    let kind = resolve_action_target_kind(store, target, kind)?;
+    let steps = collect_action_steps(store, kind, target, action)?;
+    if steps.is_empty() {
+        bail!(
+            "no commands configured for action '{action}' on {} '{target}' or its children",
+            kind.singular_name()
+        );
+    }
+
+    println!(
+        "action '{action}' on {} '{target}': {} command{}",
+        kind.singular_name(),
+        steps.len(),
+        if steps.len() == 1 { "" } else { "s" }
+    );
+    for step in &steps {
+        print_action_step(step, dry_run);
+    }
+
+    confirm_live_change(
+        confirm,
+        dry_run,
+        &format!(
+            "run action '{action}' on {} '{target}'",
+            kind.singular_name()
+        ),
+    )?;
+
+    if dry_run {
+        return Ok(());
+    }
+
+    for step in &steps {
+        execute_action_step(step)?;
+    }
+    Ok(())
+}
+
+fn resolve_action_target_kind(
+    store: &Store,
+    target: &str,
+    requested: Option<ItemKind>,
+) -> Result<ItemKind> {
+    if let Some(kind) = requested {
+        ensure_action_target_exists(store, kind, target)?;
+        return Ok(kind);
+    }
+
+    for kind in [ItemKind::Workspace, ItemKind::Tab, ItemKind::Pane] {
+        if store.list(kind)?.iter().any(|name| name == target) {
+            return Ok(kind);
+        }
+    }
+    bail!("no workspace, tab, or pane template named '{target}'")
+}
+
+fn ensure_action_target_exists(store: &Store, kind: ItemKind, target: &str) -> Result<()> {
+    match kind {
+        ItemKind::Workspace => {
+            store.load_workspace(target)?;
+            Ok(())
+        }
+        ItemKind::Tab => {
+            store.load_tab(target)?;
+            Ok(())
+        }
+        ItemKind::Pane => {
+            store.load_pane(target)?;
+            Ok(())
+        }
+        ItemKind::Stack | ItemKind::Snapshot => {
+            bail!("{} templates do not support actions", kind.singular_name())
+        }
+    }
+}
+
+fn collect_action_steps(
+    store: &Store,
+    kind: ItemKind,
+    target: &str,
+    action: &str,
+) -> Result<Vec<ActionStep>> {
+    match kind {
+        ItemKind::Workspace => {
+            let capture = store.load_workspace_capture(target)?;
+            let mut steps = vec![];
+            maybe_push_action(
+                &mut steps,
+                ItemKind::Workspace,
+                &capture.workspace.name,
+                capture.workspace.actions.get(action),
+                capture.workspace.cwd.clone(),
+                None,
+            );
+            for tab in &capture.tabs {
+                collect_tab_action_steps(&mut steps, tab, action);
+            }
+            Ok(steps)
+        }
+        ItemKind::Tab => {
+            let capture = store.load_tab_capture(target)?;
+            let mut steps = vec![];
+            collect_tab_action_steps(&mut steps, &capture, action);
+            Ok(steps)
+        }
+        ItemKind::Pane => {
+            let pane = store.load_pane(target)?;
+            let mut steps = vec![];
+            maybe_push_action(
+                &mut steps,
+                ItemKind::Pane,
+                &pane.name,
+                pane.actions.get(action),
+                pane.cwd.clone(),
+                pane.backend_ref
+                    .as_ref()
+                    .and_then(|ref_| ref_.pane_id.clone()),
+            );
+            Ok(steps)
+        }
+        ItemKind::Stack | ItemKind::Snapshot => {
+            bail!("{} templates do not support actions", kind.singular_name())
+        }
+    }
+}
+
+fn collect_tab_action_steps(steps: &mut Vec<ActionStep>, tab: &model::TabCapture, action: &str) {
+    maybe_push_action(
+        steps,
+        ItemKind::Tab,
+        &tab.tab.name,
+        tab.tab.actions.get(action),
+        tab.tab.cwd.clone(),
+        None,
+    );
+    for pane in &tab.panes {
+        maybe_push_action(
+            steps,
+            ItemKind::Pane,
+            &pane.name,
+            pane.actions.get(action),
+            pane.cwd.clone(),
+            pane.backend_ref
+                .as_ref()
+                .and_then(|ref_| ref_.pane_id.clone()),
+        );
+    }
+}
+
+fn maybe_push_action(
+    steps: &mut Vec<ActionStep>,
+    kind: ItemKind,
+    owner: &str,
+    action: Option<&ActionTemplate>,
+    fallback_cwd: Option<PathBuf>,
+    herdr_pane_id: Option<String>,
+) {
+    let Some(action) = action else {
+        return;
+    };
+    let Some(command) = action
+        .command
+        .as_ref()
+        .filter(|command| !command.trim().is_empty())
+    else {
+        return;
+    };
+    steps.push(ActionStep {
+        kind,
+        owner: owner.into(),
+        command: command.clone(),
+        cwd: action.cwd.clone().or(fallback_cwd),
+        herdr_pane_id,
+    });
+}
+
+fn print_action_step(step: &ActionStep, dry_run: bool) {
+    let prefix = if dry_run { "dry-run" } else { "run" };
+    let cwd = step
+        .cwd
+        .as_ref()
+        .filter(|_| step.herdr_pane_id.is_none())
+        .map(|cwd| format!(" cwd={}", compact_path(cwd)))
+        .unwrap_or_default();
+    let target = step
+        .herdr_pane_id
+        .as_ref()
+        .map(|pane_id| format!(" pane={pane_id}"))
+        .unwrap_or_default();
+    println!(
+        "  {prefix} {} '{}'{}{}: {}",
+        step.kind.singular_name(),
+        step.owner,
+        target,
+        cwd,
+        step.command
+    );
+}
+
+fn execute_action_step(step: &ActionStep) -> Result<()> {
+    if let Some(pane_id) = &step.herdr_pane_id {
+        return send_action_to_herdr_pane(step, pane_id);
+    }
+
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());
+    let mut command = ProcessCommand::new(shell);
+    command.arg("-lc").arg(&step.command);
+    if let Some(cwd) = &step.cwd {
+        command.current_dir(cwd);
+    }
+    let status = command.status().map_err(|err| {
+        anyhow::anyhow!(
+            "running action on {} '{}': {err}",
+            step.kind.singular_name(),
+            step.owner
+        )
+    })?;
+    if !status.success() {
+        bail!(
+            "action failed on {} '{}' with status {status}",
+            step.kind.singular_name(),
+            step.owner
+        );
+    }
+    Ok(())
+}
+
+fn send_action_to_herdr_pane(step: &ActionStep, pane_id: &str) -> Result<()> {
+    let herdr_bin = std::env::var("HERDR_BIN_PATH").unwrap_or_else(|_| "herdr".into());
+    let status = ProcessCommand::new(&herdr_bin)
+        .args(["pane", "send-keys", pane_id, &step.command, "enter"])
+        .status()
+        .map_err(|err| {
+            anyhow::anyhow!(
+                "sending action to Herdr pane for {} '{}': {err}",
+                step.kind.singular_name(),
+                step.owner
+            )
+        })?;
+    if !status.success() {
+        bail!(
+            "sending action to Herdr pane for {} '{}' failed with status {status}",
+            step.kind.singular_name(),
+            step.owner
+        );
+    }
+    Ok(())
 }
 
 fn current_workspace_template_name(
