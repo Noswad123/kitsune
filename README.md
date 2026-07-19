@@ -301,5 +301,7 @@ them if you want fresh clean component filenames.
 
 - Herdr backend: doctor, save workspaces/tabs/panes, restore/apply topology,
   duplicate-label safety, smart nav.
-- Tmux backend: doctor and smart nav foundation; save/restore pending.
-- TUI: initial browser shell; richer selection/edit/compose flows pending.
+- Tmux backend: doctor, smart nav, and metadata save for sessions/windows/panes;
+  restore/layout restore pending.
+- TUI: live/template browser with save, restore/apply, compare, edit, and
+  multi-select flows.
