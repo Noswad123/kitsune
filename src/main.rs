@@ -16,7 +16,7 @@ use cli::{
 };
 use model::{ActionTemplate, CaptureSnapshot, ComponentRef, SnapshotScope, StackTemplate};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::process::Command as ProcessCommand;
@@ -741,6 +741,7 @@ struct ActionStep {
     command: String,
     cwd: Option<PathBuf>,
     herdr_pane_id: Option<String>,
+    pane_fingerprint: Option<String>,
 }
 
 fn run_saved_action(
@@ -752,7 +753,8 @@ fn run_saved_action(
     confirm: bool,
 ) -> Result<()> {
     let kind = resolve_action_target_kind(store, target, kind)?;
-    let steps = collect_action_steps(store, kind, target, action)?;
+    let mut steps = collect_action_steps(store, kind, target, action)?;
+    resolve_live_herdr_action_panes(&mut steps);
     if steps.is_empty() {
         bail!(
             "no commands configured for action '{action}' on {} '{target}' or its children",
@@ -844,6 +846,7 @@ fn collect_action_steps(
                 capture.workspace.actions.get(action),
                 capture.workspace.cwd.clone(),
                 None,
+                None,
             );
             for tab in &capture.tabs {
                 collect_tab_action_steps(&mut steps, tab, action);
@@ -868,6 +871,9 @@ fn collect_action_steps(
                 pane.backend_ref
                     .as_ref()
                     .and_then(|ref_| ref_.pane_id.clone()),
+                pane.identity
+                    .as_ref()
+                    .map(|identity| identity.fingerprint.clone()),
             );
             Ok(steps)
         }
@@ -885,6 +891,7 @@ fn collect_tab_action_steps(steps: &mut Vec<ActionStep>, tab: &model::TabCapture
         tab.tab.actions.get(action),
         tab.tab.cwd.clone(),
         None,
+        None,
     );
     for pane in &tab.panes {
         maybe_push_action(
@@ -896,6 +903,9 @@ fn collect_tab_action_steps(steps: &mut Vec<ActionStep>, tab: &model::TabCapture
             pane.backend_ref
                 .as_ref()
                 .and_then(|ref_| ref_.pane_id.clone()),
+            pane.identity
+                .as_ref()
+                .map(|identity| identity.fingerprint.clone()),
         );
     }
 }
@@ -907,6 +917,7 @@ fn maybe_push_action(
     action: Option<&ActionTemplate>,
     fallback_cwd: Option<PathBuf>,
     herdr_pane_id: Option<String>,
+    pane_fingerprint: Option<String>,
 ) {
     let Some(action) = action else {
         return;
@@ -924,7 +935,60 @@ fn maybe_push_action(
         command: command.clone(),
         cwd: action.cwd.clone().or(fallback_cwd),
         herdr_pane_id,
+        pane_fingerprint,
     });
+}
+
+fn resolve_live_herdr_action_panes(steps: &mut [ActionStep]) {
+    if !steps.iter().any(|step| step.kind == ItemKind::Pane) {
+        return;
+    }
+
+    let backend = backend::HerdrBackend::new();
+    let Ok(mut workspaces) = backend.capture_all_workspaces() else {
+        return;
+    };
+
+    let mut by_name = HashMap::<String, String>::new();
+    let mut by_fingerprint = HashMap::<String, Vec<String>>::new();
+    for workspace in &mut workspaces {
+        fingerprint::annotate_workspace_capture(workspace);
+        for tab in &workspace.tabs {
+            for pane in &tab.panes {
+                let Some(pane_id) = pane
+                    .backend_ref
+                    .as_ref()
+                    .and_then(|ref_| ref_.pane_id.as_ref())
+                else {
+                    continue;
+                };
+                by_name.entry(pane.name.clone()).or_insert(pane_id.clone());
+                if let Some(fingerprint) =
+                    pane.identity.as_ref().map(|identity| &identity.fingerprint)
+                {
+                    by_fingerprint
+                        .entry(fingerprint.clone())
+                        .or_default()
+                        .push(pane_id.clone());
+                }
+            }
+        }
+    }
+
+    for step in steps.iter_mut().filter(|step| step.kind == ItemKind::Pane) {
+        if let Some(pane_id) = by_name.get(&step.owner) {
+            step.herdr_pane_id = Some(pane_id.clone());
+            continue;
+        }
+        if let Some(pane_id) = step
+            .pane_fingerprint
+            .as_ref()
+            .and_then(|fingerprint| by_fingerprint.get(fingerprint))
+            .and_then(|matches| (matches.len() == 1).then(|| matches[0].clone()))
+        {
+            step.herdr_pane_id = Some(pane_id);
+        }
+    }
 }
 
 fn print_action_step(step: &ActionStep, dry_run: bool) {
@@ -980,19 +1044,37 @@ fn execute_action_step(step: &ActionStep) -> Result<()> {
 
 fn send_action_to_herdr_pane(step: &ActionStep, pane_id: &str) -> Result<()> {
     let herdr_bin = std::env::var("HERDR_BIN_PATH").unwrap_or_else(|_| "herdr".into());
-    let status = ProcessCommand::new(&herdr_bin)
-        .args(["pane", "send-keys", pane_id, &step.command, "enter"])
+    let send_text = ProcessCommand::new(&herdr_bin)
+        .args(["pane", "send-text", pane_id, &step.command])
         .status()
         .map_err(|err| {
             anyhow::anyhow!(
-                "sending action to Herdr pane for {} '{}': {err}",
+                "sending action text to Herdr pane for {} '{}': {err}",
                 step.kind.singular_name(),
                 step.owner
             )
         })?;
-    if !status.success() {
+    if !send_text.success() {
         bail!(
-            "sending action to Herdr pane for {} '{}' failed with status {status}",
+            "sending action text to Herdr pane for {} '{}' failed with status {send_text}",
+            step.kind.singular_name(),
+            step.owner
+        );
+    }
+
+    let enter = ProcessCommand::new(&herdr_bin)
+        .args(["pane", "send-keys", pane_id, "enter"])
+        .status()
+        .map_err(|err| {
+            anyhow::anyhow!(
+                "sending Enter to Herdr pane for {} '{}': {err}",
+                step.kind.singular_name(),
+                step.owner
+            )
+        })?;
+    if !enter.success() {
+        bail!(
+            "sending Enter to Herdr pane for {} '{}' failed with status {enter}",
             step.kind.singular_name(),
             step.owner
         );
