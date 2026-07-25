@@ -125,11 +125,11 @@ fn tab_create(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_get(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: herdr tab get <tab_id>");
+        eprintln!("{}", crate::product::usage("tab get <tab_id>"));
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr tab get <tab_id>");
+        eprintln!("{}", crate::product::usage("tab get <tab_id>"));
         return Ok(2);
     }
 
@@ -138,11 +138,11 @@ fn tab_get(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_focus(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: herdr tab focus <tab_id>");
+        eprintln!("{}", crate::product::usage("tab focus <tab_id>"));
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr tab focus <tab_id>");
+        eprintln!("{}", crate::product::usage("tab focus <tab_id>"));
         return Ok(2);
     }
 
@@ -151,7 +151,7 @@ fn tab_focus(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_rename(args: &[String]) -> std::io::Result<i32> {
     if args.len() < 2 {
-        eprintln!("usage: herdr tab rename <tab_id> <label>");
+        eprintln!("{}", crate::product::usage("tab rename <tab_id> <label>"));
         return Ok(2);
     }
 
@@ -163,11 +163,11 @@ fn tab_rename(args: &[String]) -> std::io::Result<i32> {
 
 fn tab_close(args: &[String]) -> std::io::Result<i32> {
     let Some(raw_tab_id) = args.first() else {
-        eprintln!("usage: herdr tab close <tab_id>");
+        eprintln!("{}", crate::product::usage("tab close <tab_id>"));
         return Ok(2);
     };
     if args.len() != 1 {
-        eprintln!("usage: herdr tab close <tab_id>");
+        eprintln!("{}", crate::product::usage("tab close <tab_id>"));
         return Ok(2);
     }
 
@@ -175,13 +175,20 @@ fn tab_close(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_tab_help() {
-    eprintln!("herdr tab commands:");
-    eprintln!("  herdr tab list [--workspace <workspace_id>]");
+    eprintln!("{} tab commands:", crate::product::CLI_NAME);
     eprintln!(
-        "  herdr tab create [--workspace <workspace_id>] [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]"
+        "  {}",
+        crate::product::command("tab list [--workspace <workspace_id>]")
     );
-    eprintln!("  herdr tab get <tab_id>");
-    eprintln!("  herdr tab focus <tab_id>");
-    eprintln!("  herdr tab rename <tab_id> <label>");
-    eprintln!("  herdr tab close <tab_id>");
+    eprintln!(
+        "  {}",
+        crate::product::command("tab create [--workspace <workspace_id>] [--cwd PATH] [--label TEXT] [--env KEY=VALUE] [--focus] [--no-focus]")
+    );
+    eprintln!("  {}", crate::product::command("tab get <tab_id>"));
+    eprintln!("  {}", crate::product::command("tab focus <tab_id>"));
+    eprintln!(
+        "  {}",
+        crate::product::command("tab rename <tab_id> <label>")
+    );
+    eprintln!("  {}", crate::product::command("tab close <tab_id>"));
 }

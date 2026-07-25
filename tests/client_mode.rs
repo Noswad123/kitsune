@@ -457,7 +457,7 @@ fn server_unreachable_shows_clear_error() {
         "stderr should mention connection failure: {stderr}"
     );
     assert!(
-        stderr.contains("Is herdr server running?"),
+        stderr.contains("Is Kitsune server running?"),
         "stderr should include actionable guidance: {stderr}"
     );
     assert!(

@@ -1148,7 +1148,8 @@ mod tests {
             for option in options {
                 assert!(
                     option_arg(&cmd, option).is_required_set(),
-                    "herdr {} --{option} should be required",
+                    "{} {} --{option} should be required",
+                    crate::product::CLI_NAME,
                     path.join(" ")
                 );
             }
@@ -1159,7 +1160,13 @@ mod tests {
     fn agent_prompt_until_requires_wait() {
         let error = super::command()
             .try_get_matches_from([
-                "herdr", "agent", "prompt", "reviewer", "hello", "--until", "idle",
+                crate::product::CLI_NAME,
+                "agent",
+                "prompt",
+                "reviewer",
+                "hello",
+                "--until",
+                "idle",
             ])
             .unwrap_err();
         assert_eq!(
@@ -1171,14 +1178,33 @@ mod tests {
     #[test]
     fn agent_rename_requires_exactly_one_name_or_clear() {
         for valid in [
-            &["herdr", "agent", "rename", "reviewer", "worker"][..],
-            &["herdr", "agent", "rename", "reviewer", "--clear"][..],
+            &[
+                crate::product::CLI_NAME,
+                "agent",
+                "rename",
+                "reviewer",
+                "worker",
+            ][..],
+            &[
+                crate::product::CLI_NAME,
+                "agent",
+                "rename",
+                "reviewer",
+                "--clear",
+            ][..],
         ] {
             assert!(super::command().try_get_matches_from(valid).is_ok());
         }
         for invalid in [
-            &["herdr", "agent", "rename", "reviewer"][..],
-            &["herdr", "agent", "rename", "reviewer", "worker", "--clear"][..],
+            &[crate::product::CLI_NAME, "agent", "rename", "reviewer"][..],
+            &[
+                crate::product::CLI_NAME,
+                "agent",
+                "rename",
+                "reviewer",
+                "worker",
+                "--clear",
+            ][..],
         ] {
             assert!(super::command().try_get_matches_from(invalid).is_err());
         }
@@ -1293,7 +1319,7 @@ mod tests {
         ] {
             let mut cmd = super::command();
             let mut output = Vec::new();
-            clap_complete::generate(shell, &mut cmd, "herdr", &mut output);
+            clap_complete::generate(shell, &mut cmd, crate::product::CLI_NAME, &mut output);
             assert!(!output.is_empty(), "empty {shell:?} completion output");
         }
     }

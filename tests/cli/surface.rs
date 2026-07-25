@@ -341,8 +341,8 @@ fn removed_wait_and_agent_send_commands_are_rejected() {
         .unwrap();
     assert_eq!(send.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&send.stderr);
-    assert!(stderr.contains("herdr agent send-keys"));
-    assert!(!stderr.contains("herdr agent send <"));
+    assert!(stderr.contains("kitsune agent send-keys"));
+    assert!(!stderr.contains("kitsune agent send <"));
 }
 
 #[test]
