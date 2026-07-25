@@ -8,9 +8,7 @@ use crossterm::event::{
 use crossterm::event::{PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags};
 use crossterm::execute;
 
-pub(crate) const HERDR_ENV_VAR: &str = "HERDR_ENV";
-pub(crate) const HERDR_ENV_VALUE: &str = "1";
-const NESTED_HERDR_MESSAGES: [&str; 6] = [
+const NESTED_KITSUNE_MESSAGES: [&str; 6] = [
     "inception detected. we need to go deeper... said no one ever.",
     "recursion is a pathway to many abilities some consider to be... unnatural.",
     "you were so preoccupied with whether you could, you didn't stop to think if you should. — dr. malcolm",
@@ -81,6 +79,7 @@ mod platform;
 mod plugin_command;
 mod plugin_paths;
 mod popup_size;
+mod product;
 mod product_announcements;
 mod protocol;
 mod pty;
@@ -102,11 +101,11 @@ mod workspace;
 mod worktree;
 
 fn init_logging() {
-    crate::logging::init_file_logging("herdr.log");
+    crate::logging::init_file_logging(crate::product::LOG_FILE_NAME);
 }
 
-const DEFAULT_CONFIG: &str = r##"# herdr configuration
-# Place this file at ~/.config/herdr/config.toml
+const DEFAULT_CONFIG: &str = r##"# kitsune configuration
+# Place this file at ~/.config/kitsune/config.toml
 
 # Show first-run notification setup on startup.
 # Missing also shows onboarding; set false after you've chosen.
@@ -118,7 +117,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 #                  vesper
 # name = "catppuccin"
 
-# Follow host terminal light/dark appearance and switch Herdr UI themes.
+# Follow host terminal light/dark appearance and switch Kitsune UI themes.
 # Existing manual behavior is unchanged unless this is true.
 # auto_switch = false
 # dark_name = "catppuccin"
@@ -147,12 +146,12 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # new_cwd = "follow"
 
 [update]
-# Update channel used by background version checks and `herdr update`.
+# Update channel used by background version checks and `kitsune update`.
 # Defaults to "stable" on Linux/macOS and "preview" on Windows.
 # Set explicitly to choose stable releases or opt-in preview builds.
 # channel = "stable"
 
-# Check herdr.dev for new Herdr versions in the background.
+# Check for new Kitsune versions in the background.
 # version_check = true
 
 # Check herdr.dev for remote agent-detection manifest updates in the background.
@@ -242,7 +241,7 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # agents = ""     # e.g. "alt" makes alt+1..9 focus agent rows directly
 
 # [worktrees]
-# directory = "~/.herdr/worktrees"
+# directory = "~/.kitsune/worktrees"
 
 [ui]
 # Sidebar width (auto-scaled based on workspace names, this sets the default)
@@ -425,11 +424,16 @@ pane_history = false
 "##;
 
 fn should_block_nested(config: &config::Config) -> bool {
-    should_block_nested_for_env(config, std::env::var(HERDR_ENV_VAR).ok().as_deref())
+    should_block_nested_for_env(
+        config,
+        std::env::var(crate::product::RUNTIME_ENV_VAR)
+            .ok()
+            .as_deref(),
+    )
 }
 
-fn should_block_nested_for_env(config: &config::Config, herdr_env: Option<&str>) -> bool {
-    !config.experimental.allow_nested && herdr_env == Some(HERDR_ENV_VALUE)
+fn should_block_nested_for_env(config: &config::Config, kitsune_env: Option<&str>) -> bool {
+    !config.experimental.allow_nested && kitsune_env == Some(crate::product::RUNTIME_ENV_VALUE)
 }
 
 fn random_nested_message() -> &'static str {
@@ -439,13 +443,13 @@ fn random_nested_message() -> &'static str {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.subsec_nanos() as usize)
         .unwrap_or(0);
-    let index = (nanos ^ (std::process::id() as usize)) % NESTED_HERDR_MESSAGES.len();
-    NESTED_HERDR_MESSAGES[index]
+    let index = (nanos ^ (std::process::id() as usize)) % NESTED_KITSUNE_MESSAGES.len();
+    NESTED_KITSUNE_MESSAGES[index]
 }
 
 fn exit_if_nested_disabled(config: &config::Config) {
     if should_block_nested(config) {
-        eprintln!("\x1b[1merror:\x1b[0m nested herdr is disabled by default.");
+        eprintln!("\x1b[1merror:\x1b[0m nested kitsune is disabled by default.");
         eprintln!("see configuration if you want to enable it.");
         eprintln!();
         eprintln!("\x1b[2m\"{}\"\x1b[0m", random_nested_message());
@@ -459,7 +463,7 @@ fn main() -> io::Result<()> {
         Ok(args) => args,
         Err(err) => {
             eprintln!("error: {err}");
-            eprintln!("run 'herdr --help' for usage");
+            eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
             std::process::exit(2);
         }
     };
@@ -467,7 +471,7 @@ fn main() -> io::Result<()> {
         Ok(parsed) => parsed,
         Err(err) => {
             eprintln!("error: {err}");
-            eprintln!("run 'herdr --help' for usage");
+            eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
             std::process::exit(2);
         }
     };
@@ -482,7 +486,7 @@ fn main() -> io::Result<()> {
         })
     {
         eprintln!("error: --remote can only be used with the default launch command");
-        eprintln!("run 'herdr --help' for usage");
+        eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
         std::process::exit(2);
     }
 
@@ -518,7 +522,7 @@ fn main() -> io::Result<()> {
             }
             Err(err) => {
                 eprintln!("{err}");
-                eprintln!("usage: herdr update [--handoff]");
+                eprintln!("usage: {} update [--handoff]", crate::product::CLI_NAME);
                 std::process::exit(2);
             }
         };
@@ -536,90 +540,130 @@ fn main() -> io::Result<()> {
     }
 
     if args.iter().any(|a| a == "--help" || a == "-h") {
-        println!("herdr — terminal workspace manager for AI coding agents");
+        println!("{} — {}", crate::product::NAME, crate::product::DESCRIPTION);
         println!();
-        println!("Usage: herdr [options]");
-        println!("       herdr --session <name> [options]");
-        println!("       herdr --remote <ssh-target> [--session <name>]");
-        println!("       herdr session attach <name>");
-        println!("       herdr completion zsh");
-        println!("       herdr update [--handoff]");
-        println!("       herdr channel set <stable|preview>");
-        println!("       herdr server stop");
-        println!("       herdr server reload-config");
-        println!("       herdr api <subcommand> ...");
-        println!("       herdr completion <shell>");
-        println!("       herdr config <subcommand> ...");
-        println!("       herdr channel <subcommand> ...");
-        println!("       herdr workspace <subcommand> ...");
-        println!("       herdr worktree <subcommand> ...");
-        println!("       herdr tab <subcommand> ...");
-        println!("       herdr notification <subcommand> ...");
-        println!("       herdr agent <subcommand> ...");
-        println!("       herdr pane <subcommand> ...");
-        println!("       herdr session <subcommand> ...");
-        println!("       herdr integration <subcommand> ...");
+        println!("Usage: {} [options]", crate::product::CLI_NAME);
+        println!("       {} [options]", crate::product::SHORT_CLI_NAME);
+        println!(
+            "       {} --session <name> [options]",
+            crate::product::CLI_NAME
+        );
+        println!(
+            "       {} --remote <ssh-target> [--session <name>]",
+            crate::product::CLI_NAME
+        );
+        println!("       {} session attach <name>", crate::product::CLI_NAME);
+        println!("       {} completion zsh", crate::product::CLI_NAME);
+        println!("       {} update [--handoff]", crate::product::CLI_NAME);
+        println!(
+            "       {} channel set <stable|preview>",
+            crate::product::CLI_NAME
+        );
+        println!("       {} server stop", crate::product::CLI_NAME);
+        println!("       {} server reload-config", crate::product::CLI_NAME);
+        println!("       {} api <subcommand> ...", crate::product::CLI_NAME);
+        println!("       {} completion <shell>", crate::product::CLI_NAME);
+        println!(
+            "       {} config <subcommand> ...",
+            crate::product::CLI_NAME
+        );
+        println!(
+            "       {} channel <subcommand> ...",
+            crate::product::CLI_NAME
+        );
+        println!(
+            "       {} workspace <subcommand> ...",
+            crate::product::CLI_NAME
+        );
+        println!(
+            "       {} worktree <subcommand> ...",
+            crate::product::CLI_NAME
+        );
+        println!("       {} tab <subcommand> ...", crate::product::CLI_NAME);
+        println!(
+            "       {} notification <subcommand> ...",
+            crate::product::CLI_NAME
+        );
+        println!("       {} agent <subcommand> ...", crate::product::CLI_NAME);
+        println!("       {} pane <subcommand> ...", crate::product::CLI_NAME);
+        println!(
+            "       {} session <subcommand> ...",
+            crate::product::CLI_NAME
+        );
+        println!(
+            "       {} integration <subcommand> ...",
+            crate::product::CLI_NAME
+        );
         println!();
         println!("Common commands:");
         for (command, description) in [
-            ("herdr", "Launch or attach to the persistent session"),
             (
-                "herdr status [server|client]",
+                crate::product::CLI_NAME,
+                "Launch or attach to the persistent session",
+            ),
+            (
+                "kitsune status [server|client]",
                 "Show local client and running server status",
             ),
-            ("herdr update", "Download and install the latest version"),
-            ("herdr completion zsh", "Generate shell completions for zsh"),
+            ("kitsune update", "Download and install the latest version"),
             (
-                "herdr server stop",
+                "kitsune completion zsh",
+                "Generate shell completions for zsh",
+            ),
+            (
+                "kitsune server stop",
                 "Stop the running server via the API socket",
             ),
             (
-                "herdr channel set <stable|preview>",
+                "kitsune channel set <stable|preview>",
                 "Choose the stable or preview update channel",
             ),
             (
-                "herdr server reload-config",
+                "kitsune server reload-config",
                 "Reload config.toml in the running server",
             ),
             (
-                "herdr config reset-keys",
+                "kitsune config reset-keys",
                 "Back up config.toml and remove custom keybindings",
             ),
             (
-                "herdr channel <subcommand>",
+                "kitsune channel <subcommand>",
                 "Manage the stable or preview update channel",
             ),
             (
-                "herdr api <subcommand>",
+                "kitsune api <subcommand>",
                 "Inspect socket API metadata and live runtime state",
             ),
             (
-                "herdr workspace <subcommand>",
+                "kitsune workspace <subcommand>",
                 "Workspace helpers over the socket API",
             ),
             (
-                "herdr worktree <subcommand>",
+                "kitsune worktree <subcommand>",
                 "Git worktree helpers over the socket API",
             ),
-            ("herdr tab <subcommand>", "Tab helpers over the socket API"),
             (
-                "herdr notification <subcommand>",
+                "kitsune tab <subcommand>",
+                "Tab helpers over the socket API",
+            ),
+            (
+                "kitsune notification <subcommand>",
                 "Notification helpers over the socket API",
             ),
             (
-                "herdr agent <subcommand>",
+                "kitsune agent <subcommand>",
                 "Agent/terminal helpers over the socket API",
             ),
             (
-                "herdr pane <subcommand>",
+                "kitsune pane <subcommand>",
                 "Pane control helpers over the socket API",
             ),
             (
-                "herdr session <subcommand>",
+                "kitsune session <subcommand>",
                 "Manage named persistent sessions",
             ),
             (
-                "herdr integration <subcommand>",
+                "kitsune integration <subcommand>",
                 "Manage built-in agent integrations",
             ),
         ] {
@@ -627,12 +671,12 @@ fn main() -> io::Result<()> {
         }
         println!();
         println!("Advanced commands:");
-        println!("  {:<32} Run as headless server", "herdr server");
+        println!("  {:<32} Run as headless server", "kitsune server");
         println!();
         println!("Options:");
         println!("  --no-session        Run monolithically (no server/client, escape hatch)");
         println!("  --session <name>    Use or create a named persistent session");
-        println!("  --remote <target>   Attach through SSH to a remote Herdr server");
+        println!("  --remote <target>   Attach through SSH to a remote Kitsune server");
         println!("  --remote-keybindings <local|server>");
         println!("                      Keybindings for --remote app attach (default: local)");
         println!("  --handoff           Opt into live handoff for update or remote attach");
@@ -642,13 +686,19 @@ fn main() -> io::Result<()> {
         println!();
         println!("Config: {}", config::config_path().display());
         println!("Logs:   {}", logging::help_log_paths_summary());
-        println!("Env:    HERDR_CONFIG_PATH overrides config file path");
-        println!("Home:   https://herdr.dev");
+        println!(
+            "Env:    {} overrides config file path",
+            crate::config::CONFIG_PATH_ENV_VAR
+        );
         return Ok(());
     }
 
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("herdr {}", crate::build_info::version());
+        println!(
+            "{} {}",
+            crate::product::CLI_NAME,
+            crate::build_info::version()
+        );
         return Ok(());
     }
 
@@ -673,7 +723,7 @@ fn main() -> io::Result<()> {
         let arg_name = arg.split_once('=').map(|(name, _)| name).unwrap_or(arg);
         if arg.starts_with('-') && !known_flags.contains(&arg_name) {
             eprintln!("unknown option: {arg}");
-            eprintln!("run 'herdr --help' for usage");
+            eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
             std::process::exit(2);
         }
         if !arg.starts_with('-')
@@ -694,7 +744,7 @@ fn main() -> io::Result<()> {
             .contains(&arg.as_str())
         {
             eprintln!("unknown command: {arg}");
-            eprintln!("run 'herdr --help' for usage");
+            eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
             std::process::exit(2);
         }
     }
@@ -718,7 +768,7 @@ fn main() -> io::Result<()> {
     // Check if a server is running, spawn one if needed, then attach as client.
     if !no_session {
         if let Err(err) = server::autodetect::auto_detect_launch() {
-            eprintln!("herdr: {err}");
+            eprintln!("{}: {err}", crate::product::CLI_NAME);
             std::process::exit(1);
         }
         return Ok(());
@@ -734,7 +784,7 @@ fn main() -> io::Result<()> {
     let _api_server = match api::start_server_with_capabilities(api_tx, event_hub.clone(), None) {
         Ok(server) => server,
         Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-            eprintln!("error: herdr is already running");
+            eprintln!("error: kitsune is already running");
             eprintln!("socket: {}", api::socket_path().display());
             std::process::exit(1);
         }
@@ -850,14 +900,20 @@ mod tests {
     #[test]
     fn nested_herdr_blocks_when_env_is_set() {
         let config = config::Config::default();
-        assert!(should_block_nested_for_env(&config, Some(HERDR_ENV_VALUE)));
+        assert!(should_block_nested_for_env(
+            &config,
+            Some(crate::product::RUNTIME_ENV_VALUE)
+        ));
     }
 
     #[test]
     fn nested_herdr_does_not_block_when_allowed() {
         let config: config::Config =
             toml::from_str("[experimental]\nallow_nested = true\n").unwrap();
-        assert!(!should_block_nested_for_env(&config, Some(HERDR_ENV_VALUE)));
+        assert!(!should_block_nested_for_env(
+            &config,
+            Some(crate::product::RUNTIME_ENV_VALUE)
+        ));
     }
 
     #[test]
@@ -869,12 +925,12 @@ mod tests {
     #[test]
     fn random_nested_message_comes_from_known_set() {
         let message = random_nested_message();
-        assert!(NESTED_HERDR_MESSAGES.contains(&message));
+        assert!(NESTED_KITSUNE_MESSAGES.contains(&message));
     }
 
     #[test]
     fn nested_message_strings_no_longer_repeat_herdr_prefix() {
-        assert!(NESTED_HERDR_MESSAGES
+        assert!(NESTED_KITSUNE_MESSAGES
             .iter()
             .all(|message| !message.starts_with("herdr:")));
     }

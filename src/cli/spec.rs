@@ -3,14 +3,14 @@ use std::io::Write;
 use clap::{Arg, ArgAction, ArgGroup, Command, ValueHint};
 
 pub(super) fn command() -> Command {
-    let command = Command::new("herdr")
-        .about("terminal workspace manager for AI coding agents")
+    let command = Command::new(crate::product::CLI_NAME)
+        .about(crate::product::DESCRIPTION)
         .disable_help_flag(true)
         .disable_version_flag(true)
         .arg(help_flag())
         .arg(flag("no-session").help("Run monolithically without server/client session mode"))
         .arg(option("session", "NAME").help("Use or create a named persistent session"))
-        .arg(option("remote", "TARGET").help("Attach through SSH to a remote Herdr server"))
+        .arg(option("remote", "TARGET").help("Attach through SSH to a remote Kitsune server"))
         .arg(
             option("remote-keybindings", "MODE")
                 .value_parser(["local", "server"])
@@ -78,7 +78,7 @@ fn write_requested_help(args: &[String], output: &mut impl Write) -> std::io::Re
     let mut root = command();
     root.build();
     let mut selected = &mut root;
-    let mut path = vec!["herdr".to_string()];
+    let mut path = vec![crate::product::CLI_NAME.to_string()];
     for segment in &args[1..help_index] {
         if selected.find_subcommand(segment).is_none() {
             break;
