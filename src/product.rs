@@ -1,6 +1,5 @@
 pub(crate) const NAME: &str = "Kitsune";
 pub(crate) const CLI_NAME: &str = "kitsune";
-pub(crate) const SHORT_CLI_NAME: &str = "kit";
 pub(crate) const DESCRIPTION: &str = "terminal workspace manager for AI coding agents";
 pub(crate) const CONFIG_DIR_NAME: &str = "kitsune";
 pub(crate) const DEV_CONFIG_DIR_NAME: &str = "kitsune-dev";

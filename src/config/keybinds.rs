@@ -320,6 +320,7 @@ pub struct Keybinds {
     pub rename_workspace: ActionKeybinds,
     pub close_workspace: ActionKeybinds,
     pub workspace_picker: ActionKeybinds,
+    pub session_recall: ActionKeybinds,
     pub goto: ActionKeybinds,
     pub detach: ActionKeybinds,
     pub reload_config: ActionKeybinds,
@@ -482,6 +483,7 @@ impl Config {
             rename_workspace: empty_action!(),
             close_workspace: empty_action!(),
             workspace_picker: empty_action!(),
+            session_recall: empty_action!(),
             goto: empty_action!(),
             detach: empty_action!(),
             reload_config: empty_action!(),
@@ -604,6 +606,7 @@ impl Config {
             apply_action!(keybinds.rename_workspace, rename_workspace, source);
             apply_action!(keybinds.close_workspace, close_workspace, source);
             apply_action!(keybinds.workspace_picker, workspace_picker, source);
+            apply_action!(keybinds.session_recall, session_recall, source);
             apply_action!(keybinds.goto, goto, source);
             apply_action!(keybinds.detach, detach, source);
             apply_action!(keybinds.reload_config, reload_config, source);
@@ -1573,6 +1576,18 @@ next_tab = "prefix+n"
             vec![BindingTrigger::Prefix((
                 KeyCode::Char('g'),
                 KeyModifiers::empty()
+            ))]
+        );
+    }
+
+    #[test]
+    fn session_recall_defaults_to_prefix_shift_s() {
+        let kb = Config::default().keybinds();
+        assert_eq!(
+            binding_triggers(&kb.session_recall),
+            vec![BindingTrigger::Prefix((
+                KeyCode::Char('s'),
+                KeyModifiers::SHIFT
             ))]
         );
     }

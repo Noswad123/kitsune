@@ -256,6 +256,12 @@ impl App {
                 self.state.mobile_switcher_scroll = 0;
                 self.state.mode = Mode::Navigate;
             }
+            NavigateAction::SessionRecall => {
+                self.launch_session_recall_popup();
+                if context == ActionContext::Navigate {
+                    leave_navigate_mode(&mut self.state);
+                }
+            }
             NavigateAction::PreviousWorkspace => {
                 if let Some(ws_idx) = self.relative_visible_workspace(-1) {
                     self.focus_workspace_idx_via_api(ws_idx);
@@ -848,6 +854,50 @@ impl App {
         (env, cwd)
     }
 
+    fn launch_session_recall_popup(&mut self) {
+        let previous_toast = self.state.toast.clone();
+        let (mut env, cwd) = self.custom_command_env();
+        // The current standalone Kitsune recall helper still talks to Herdr's
+        // backend name. Mirror the Kitsune socket into Herdr's legacy override
+        // so it controls this forked session instead of any installed Herdr.
+        env.push((
+            "HERDR_SOCKET_PATH".to_string(),
+            crate::api::socket_path().display().to_string(),
+        ));
+        env.push((
+            "HERDR_CLIENT_SOCKET_PATH".to_string(),
+            crate::server::socket_paths::client_socket_path()
+                .display()
+                .to_string(),
+        ));
+
+        let argv = vec![
+            "kit".to_string(),
+            "tui".to_string(),
+            "--backend".to_string(),
+            "herdr".to_string(),
+        ];
+        let result = self.spawn_popup_argv_command(
+            &argv,
+            cwd,
+            env,
+            crate::app::popup::PopupGeometry {
+                width: Some(crate::popup_size::PopupSize::Percent(85)),
+                height: Some(crate::popup_size::PopupSize::Percent(85)),
+            },
+        );
+        if let Err(err) = result {
+            self.state.toast = Some(crate::app::state::ToastNotification {
+                kind: crate::app::state::ToastKind::NeedsAttention,
+                title: "session recall failed".to_string(),
+                context: err.to_string(),
+                position: None,
+                target: None,
+            });
+            self.sync_toast_deadline(previous_toast);
+        }
+    }
+
     fn spawn_custom_command(
         &mut self,
         binding: &crate::config::CustomCommandKeybind,
@@ -1294,6 +1344,7 @@ pub(crate) enum NavigateAction {
     SwitchTab(usize),
     FocusAgent(usize),
     WorkspacePicker,
+    SessionRecall,
     PreviousWorkspace,
     NextWorkspace,
     PreviousAgent,
@@ -1421,6 +1472,7 @@ fn non_indexed_action_for_key(
         (&kb.help, NavigateAction::Help),
         (&kb.settings, NavigateAction::Settings),
         (&kb.workspace_picker, NavigateAction::WorkspacePicker),
+        (&kb.session_recall, NavigateAction::SessionRecall),
         (&kb.new_workspace, NavigateAction::NewWorkspace),
         (&kb.new_worktree, NavigateAction::NewWorktree),
         (&kb.open_worktree, NavigateAction::OpenWorktree),
@@ -1597,6 +1649,7 @@ pub(super) fn execute_navigate_action_in_context(
             state.mobile_switcher_scroll = 0;
             state.mode = Mode::Navigate;
         }
+        NavigateAction::SessionRecall => leave_navigate_mode(state),
         NavigateAction::PreviousWorkspace => {
             state.previous_workspace();
             leave_navigate_mode(state);
@@ -2519,6 +2572,29 @@ navigate_pane_right = "ctrl+l"
         );
 
         assert_eq!(action, Some(NavigateAction::LastPane));
+    }
+
+    #[test]
+    fn prefix_session_recall_shortcut_maps_to_navigation_action() {
+        let state = state_with_workspaces(&["test"]);
+
+        let action = action_for_key(
+            &state,
+            TerminalKey::new(KeyCode::Char('S'), KeyModifiers::SHIFT),
+            BindingDispatch::Prefix,
+        );
+
+        assert_eq!(action, Some(NavigateAction::SessionRecall));
+    }
+
+    #[test]
+    fn session_recall_consumes_navigate_mode() {
+        let mut state = state_with_workspaces(&["test"]);
+        state.mode = Mode::Navigate;
+
+        execute_navigate_action(&mut state, NavigateAction::SessionRecall);
+
+        assert_eq!(state.mode, Mode::Terminal);
     }
 
     #[test]

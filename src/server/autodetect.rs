@@ -150,7 +150,8 @@ fn client_protocol_accepts_hello(socket_path: &Path) -> io::Result<bool> {
 fn validate_running_server_compatibility() -> io::Result<()> {
     let Some(status) = read_server_status()? else {
         return Err(io::Error::other(format!(
-            "a herdr server is listening, but its status API is unavailable.\n\n{}\nIf that fails, stop the old server process manually.",
+            "a {} server is listening, but its status API is unavailable.\n\n{}\nIf that fails, stop the old server process manually.",
+            crate::product::NAME,
             crate::session::active_restart_after_update_guidance()
         )));
     };
@@ -160,7 +161,8 @@ fn validate_running_server_compatibility() -> io::Result<()> {
     }
 
     Err(io::Error::other(format!(
-        "Herdr was updated, but this session is still running the old server.\n\nserver: v{} protocol {}\nclient: v{} protocol {}\n\n{}",
+        "{} was updated, but this session is still running the old server.\n\nserver: v{} protocol {}\nclient: v{} protocol {}\n\n{}",
+        crate::product::NAME,
         status.version.as_deref().unwrap_or("unknown"),
         status
             .protocol
@@ -574,11 +576,17 @@ test "$sid" = "$$"
             "unexpected error: {message}"
         );
         assert!(
-            message.contains("Run `herdr session stop work`"),
+            message.contains(&format!(
+                "Run `{} session stop work`",
+                crate::product::CLI_NAME
+            )),
             "unexpected error: {message}"
         );
         assert!(
-            message.contains("then run `herdr session attach work` again"),
+            message.contains(&format!(
+                "then run `{} session attach work` again",
+                crate::product::CLI_NAME
+            )),
             "unexpected error: {message}"
         );
         std::env::remove_var("XDG_CONFIG_HOME");

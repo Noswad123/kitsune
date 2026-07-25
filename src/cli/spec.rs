@@ -320,7 +320,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("read")
                 .about("Read agent terminal output")
-                .override_usage("herdr agent read <TARGET> [OPTIONS]")
+                .override_usage(crate::product::command("agent read <TARGET> [OPTIONS]"))
                 .arg(required("target", "TARGET"))
                 .arg(read_source_option(true))
                 .arg(option("lines", "N"))
@@ -337,7 +337,9 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("prompt")
                 .about("Submit a prompt to an agent")
-                .override_usage("herdr agent prompt <TARGET> <TEXT> [OPTIONS]")
+                .override_usage(crate::product::command(
+                    "agent prompt <TARGET> <TEXT> [OPTIONS]",
+                ))
                 .arg(required("target", "TARGET"))
                 .arg(required("text", "TEXT"))
                 .arg(
@@ -363,7 +365,9 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("rename")
                 .about("Rename an agent")
-                .override_usage("herdr agent rename <TARGET> <NAME>|--clear")
+                .override_usage(crate::product::command(
+                    "agent rename <TARGET> <NAME>|--clear",
+                ))
                 .arg(required("target", "TARGET"))
                 .arg(Arg::new("name").value_name("NAME"))
                 .arg(flag("clear"))
@@ -377,7 +381,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("wait")
                 .about("Wait until an agent reaches one of the requested states")
-                .override_usage("herdr agent wait <TARGET> [OPTIONS]")
+                .override_usage(crate::product::command("agent wait <TARGET> [OPTIONS]"))
                 .arg(required("target", "TARGET"))
                 .arg(
                     option("until", "STATUS")
@@ -393,7 +397,7 @@ fn agent_command() -> Command {
         .subcommand(
             Command::new("attach")
                 .about("Attach directly to an agent terminal")
-                .override_usage("herdr agent attach <TARGET> [OPTIONS]")
+                .override_usage(crate::product::command("agent attach <TARGET> [OPTIONS]"))
                 .arg(required("target", "TARGET"))
                 .arg(flag("takeover")),
         )
@@ -401,7 +405,9 @@ fn agent_command() -> Command {
             Command::new("start")
                 .about("Start a supported interactive agent in an existing pane")
                 .override_usage(
-                    "herdr agent start <NAME> --kind <KIND> --pane <ID> [OPTIONS] [-- [AGENT_ARG]...]",
+                    crate::product::command(
+                        "agent start <NAME> --kind <KIND> --pane <ID> [OPTIONS] [-- [AGENT_ARG]...]",
+                    ),
                 )
                 .arg(required("name", "NAME"))
                 .arg(
@@ -1061,19 +1067,25 @@ mod tests {
 
         for path in paths {
             for flag in ["-h", "--help"] {
-                let mut args = vec!["herdr".to_string()];
+                let mut args = vec![crate::product::CLI_NAME.to_string()];
                 args.extend(path.iter().cloned());
                 args.push(flag.to_string());
                 let mut output = Vec::new();
                 assert!(
                     super::write_requested_help(&args, &mut output).unwrap(),
-                    "help was not handled for herdr {} {flag}",
+                    "help was not handled for {} {} {flag}",
+                    crate::product::CLI_NAME,
                     path.join(" ")
                 );
                 let output = String::from_utf8(output).unwrap();
                 assert!(
-                    output.contains(&format!("Usage: herdr {}", path.join(" "))),
-                    "unexpected help for herdr {}: {output}",
+                    output.contains(&format!(
+                        "Usage: {} {}",
+                        crate::product::CLI_NAME,
+                        path.join(" ")
+                    )),
+                    "unexpected help for {} {}: {output}",
+                    crate::product::CLI_NAME,
                     path.join(" ")
                 );
             }
@@ -1174,7 +1186,7 @@ mod tests {
         let mut help = Vec::new();
         super::write_requested_help(
             &[
-                "herdr".to_string(),
+                crate::product::CLI_NAME.to_string(),
                 "agent".to_string(),
                 "rename".to_string(),
                 "--help".to_string(),
@@ -1182,9 +1194,10 @@ mod tests {
             &mut help,
         )
         .unwrap();
-        assert!(String::from_utf8(help)
-            .unwrap()
-            .contains("Usage: herdr agent rename <TARGET> <NAME>|--clear"));
+        assert!(String::from_utf8(help).unwrap().contains(&format!(
+            "Usage: {} agent rename <TARGET> <NAME>|--clear",
+            crate::product::CLI_NAME
+        )));
     }
 
     #[test]

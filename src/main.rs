@@ -182,6 +182,7 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # remove_worktree = ""  # optional, unset by default; opens confirmation
 # rename_workspace = "prefix+shift+w"
 # close_workspace = "prefix+shift+d"
+# session_recall = "prefix+shift+s"
 # previous_workspace = "" # optional, unset by default
 # next_workspace = ""     # optional, unset by default
 # previous_agent = ""     # optional, unset by default
@@ -543,7 +544,6 @@ fn main() -> io::Result<()> {
         println!("{} — {}", crate::product::NAME, crate::product::DESCRIPTION);
         println!();
         println!("Usage: {} [options]", crate::product::CLI_NAME);
-        println!("       {} [options]", crate::product::SHORT_CLI_NAME);
         println!(
             "       {} --session <name> [options]",
             crate::product::CLI_NAME

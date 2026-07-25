@@ -7,10 +7,11 @@ working while Kitsune takes ownership of the user-facing product identity.
 ## Product goal
 
 Kitsune should provide the same core functionality Herdr provides today, but
-users should interact with it through `kitsune` and/or `kit` instead of `herdr`.
-After that baseline is stable, Kitsune can add its existing session recall flow
-as a native keybinding and gradually add or remove capabilities until it becomes
-its own product.
+users should interact with it through `kitsune` instead of `herdr` during the
+initial fork phase. The shorter `kit` command is reserved for later, once it is
+safe to overwrite the existing local `kit` tool. After that baseline is stable,
+Kitsune can add its existing session recall flow as a native keybinding and
+gradually add or remove capabilities until it becomes its own product.
 
 ## Architecture principles
 
@@ -24,12 +25,12 @@ its own product.
 
 ## Phase 1: Kitsune-branded Herdr baseline
 
-Goal: users can build and run the fork as `kitsune` and `kit` while retaining
-Herdr's current feature set.
+Goal: users can build and run the fork as `kitsune` while retaining Herdr's
+current feature set.
 
 Initial scope:
 
-- Add `kitsune` and `kit` binary targets.
+- Add a `kitsune` binary target.
 - Update primary CLI help/version output to say Kitsune.
 - Move default config, session, socket, and log locations away from Herdr names.
 - Use `KITSUNE_*` environment variables for Kitsune-owned runtime controls.
@@ -41,11 +42,12 @@ Out of scope for this phase:
 - Website/release channel replacement.
 - New session recall behavior.
 - Removing Herdr-specific features.
+- Claiming the global `kit` command before the existing local `kit` tool is
+  intentionally replaced.
 
 Acceptance criteria:
 
 - `cargo build --bin kitsune` succeeds.
-- `cargo build --bin kit` succeeds.
 - `kitsune --help` and `kitsune --version` show Kitsune-facing output.
 - A normal Kitsune session uses Kitsune config/socket/log paths rather than
   clashing with an installed Herdr session.

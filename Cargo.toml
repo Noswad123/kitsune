@@ -26,10 +26,6 @@ path = "src/main.rs"
 name = "kitsune"
 path = "src/main.rs"
 
-[[bin]]
-name = "kit"
-path = "src/main.rs"
-
 [dependencies]
 base64 = "0.22.1"
 bincode = { version = "2", features = ["serde"] }

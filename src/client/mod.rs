@@ -290,7 +290,11 @@ impl std::fmt::Display for ClientError {
             ClientError::ConnectionLost(err) => {
                 if let Ok(reattach_command) = std::env::var(crate::remote::REATTACH_COMMAND_ENV_VAR)
                 {
-                    write!(f, "lost connection to remote Herdr: {err}")?;
+                    write!(
+                        f,
+                        "lost connection to remote {}: {err}",
+                        crate::product::NAME
+                    )?;
                     write!(f, "\nIf the remote server survived the SSH or network drop, its panes may still be running.")?;
                     write!(f, "\nRun `{reattach_command}` to reattach")
                 } else {
@@ -2681,7 +2685,7 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("Run `herdr` to reattach"),
+            msg.contains(&format!("Run `{}` to reattach", crate::product::CLI_NAME)),
             "should suggest default reattach command: {msg}"
         );
     }
@@ -2696,7 +2700,10 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("Run `herdr session attach work` to reattach"),
+            msg.contains(&format!(
+                "Run `{} session attach work` to reattach",
+                crate::product::CLI_NAME
+            )),
             "should suggest named session reattach command: {msg}"
         );
     }
@@ -2743,7 +2750,10 @@ mod tests {
             ClientError::ConnectionLost(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
         let msg = err.to_string();
         assert!(
-            msg.contains("lost connection to remote Herdr"),
+            msg.contains(&format!(
+                "lost connection to remote {}",
+                crate::product::NAME
+            )),
             "should mention remote connection loss: {msg}"
         );
         assert!(

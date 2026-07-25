@@ -834,27 +834,33 @@ fn plan_running_server_updates(
         )
         .map_err(|err| {
             format!(
-                "failed to read status for herdr target {} at {}: {err}. stop it with `{}` and run `herdr update` again",
+                "failed to read status for {} target {} at {}: {err}. stop it with `{}` and run `{}` again",
+                crate::product::CLI_NAME,
                 target.label,
                 target.socket_path.display(),
-                target.stop_command
+                target.stop_command,
+                crate::product::command("update")
             )
         })? {
             Some(server) => server,
             None if target.must_be_running => {
                 return Err(format!(
-                        "herdr target {} looked running, but its status API did not respond at {}. stop it with `{}` and run `herdr update` again",
+                        "{} target {} looked running, but its status API did not respond at {}. stop it with `{}` and run `{}` again",
+                    crate::product::CLI_NAME,
                     target.label,
                     target.socket_path.display(),
-                    target.stop_command
+                    target.stop_command,
+                    crate::product::command("update")
                 ));
             }
             None if client_protocol_server_is_running_at(&target.client_socket_path) => {
                 return Err(format!(
-                    "herdr target {} has a client socket, but its status API did not respond at {}. stop it with `{}` and run `herdr update` again",
+                    "{} target {} has a client socket, but its status API did not respond at {}. stop it with `{}` and run `{}` again",
+                    crate::product::CLI_NAME,
                     target.label,
                     target.socket_path.display(),
-                    target.stop_command
+                    target.stop_command,
+                    crate::product::command("update")
                 ));
             }
             None => continue,
@@ -869,8 +875,10 @@ fn plan_running_server_updates(
 
     if plans.is_empty() && target_client_protocol_server_is_running()? {
         return Err(format!(
-            "a herdr server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `herdr update` again",
-            crate::session::local_stop_command()
+            "a {} server is listening, but its status API is unavailable; try `{}`, or stop the old server process manually, then run `{}` again",
+            crate::product::NAME,
+            crate::session::local_stop_command(),
+            crate::product::command("update")
         ));
     }
 
@@ -2732,8 +2740,8 @@ mod tests {
             target: RunningUpdateTarget {
                 name: Some("work".to_string()),
                 label: "work".to_string(),
-                stop_command: "herdr session stop work".to_string(),
-                attach_command: Some("herdr session attach work".to_string()),
+                stop_command: crate::product::command("session stop work"),
+                attach_command: Some(crate::product::command("session attach work")),
                 socket_path: crate::session::api_socket_path_for(Some("work")),
                 client_socket_path: crate::session::client_socket_path_for(Some("work")),
                 must_be_running: true,
@@ -2801,7 +2809,7 @@ mod tests {
         std::env::remove_var(crate::session::SESSION_ENV_VAR);
         crate::session::clear_explicit_session_for_test();
         let args = vec![
-            "herdr".to_string(),
+            crate::product::CLI_NAME.to_string(),
             "--session".to_string(),
             "work".to_string(),
             "update".to_string(),
@@ -2871,7 +2879,7 @@ mod tests {
             "unexpected error: {err}"
         );
         assert!(
-            err.contains("herdr session stop work"),
+            err.contains(&crate::product::command("session stop work")),
             "unexpected error: {err}"
         );
     }
@@ -2947,8 +2955,8 @@ mod tests {
             target: RunningUpdateTarget {
                 name: Some("work".to_string()),
                 label: "work".to_string(),
-                stop_command: "herdr session stop work".to_string(),
-                attach_command: Some("herdr session attach work".to_string()),
+                stop_command: crate::product::command("session stop work"),
+                attach_command: Some(crate::product::command("session attach work")),
                 socket_path: crate::session::api_socket_path_for(Some("work")),
                 client_socket_path: crate::session::client_socket_path_for(Some("work")),
                 must_be_running: true,
