@@ -296,7 +296,7 @@ fn tab_command() -> Command {
 
 fn notification_command() -> Command {
     Command::new("notification")
-        .about("Show Herdr notifications")
+        .about(format!("Show {} notifications", crate::product::NAME))
         .subcommand(
             Command::new("show")
                 .about("Show a notification")

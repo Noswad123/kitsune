@@ -1,7 +1,7 @@
 //! Self-update mechanism.
 //!
 //! Checks the hosted herdr.dev update manifest for newer versions.
-//! Manual `herdr update` downloads and installs the binary.
+//! Manual product update command downloads and installs the binary.
 //! Background checks only surface availability and release notes.
 //! Uses `curl` as a subprocess for HTTP — no additional Rust HTTP dependencies.
 //! JSON parsing uses serde_json (already in deps for persistence).
@@ -26,7 +26,6 @@ use serde::{Deserialize, Deserializer};
 const STABLE_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/latest.json";
 const PREVIEW_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/preview.json";
 const HOMEBREW_FORMULA_API_URL: &str = "https://formulae.brew.sh/api/formula/herdr.json";
-const HERDR_UPDATE_COMMAND: &str = "herdr update";
 const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
 const MISE_UPDATE_COMMAND: &str = "mise upgrade herdr";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
@@ -995,7 +994,7 @@ pub(crate) fn parse_self_update_args(args: &[String]) -> Result<SelfUpdateOption
         match arg.as_str() {
             "--handoff" => options.live_handoff = true,
             "--help" | "-h" => {
-                return Err("usage: herdr update [--handoff]".to_string());
+                return Err(crate::product::usage("update [--handoff]"));
             }
             _ => return Err(format!("unknown update option: {arg}")),
         }
@@ -1010,8 +1009,12 @@ fn prompt_to_stop_old_servers_before_update(
 ) -> Result<bool, String> {
     if !io::stdin().is_terminal() {
         return Err(
-            "one or more Herdr sessions must stop for this update. Stop running Herdr sessions when ready, then run `herdr update` again from an interactive terminal."
-                .to_string(),
+            format!(
+                "one or more {} sessions must stop for this update. Stop running {} sessions when ready, then run `{}` again from an interactive terminal.",
+                crate::product::NAME,
+                crate::product::NAME,
+                crate::product::command("update")
+            ),
         );
     }
 
@@ -1196,7 +1199,7 @@ fn print_running_session_update_summary(
     release: &ReleaseInfo,
     options: SelfUpdateOptions,
 ) {
-    eprintln!("running herdr targets:");
+    eprintln!("running {} targets:", crate::product::CLI_NAME);
     for plan in plans {
         if options.live_handoff {
             let capability = if server_supports_live_handoff(&plan.server) {
@@ -1739,34 +1742,44 @@ fn print_running_session_update_outcomes(
 // Installation manager detection
 // ---------------------------------------------------------------------------
 
-pub(crate) fn update_install_command() -> &'static str {
+pub(crate) fn update_install_command() -> String {
     if is_homebrew_managed_install() {
-        HOMEBREW_UPDATE_COMMAND
+        HOMEBREW_UPDATE_COMMAND.to_string()
     } else if is_mise_managed_install() {
-        MISE_UPDATE_COMMAND
+        MISE_UPDATE_COMMAND.to_string()
     } else if is_nix_managed_install() {
-        NIX_UPDATE_COMMAND
+        NIX_UPDATE_COMMAND.to_string()
     } else {
-        HERDR_UPDATE_COMMAND
+        crate::product::command("update")
     }
 }
 
 pub(crate) fn update_install_instruction(install_command: &str) -> String {
-    match install_command {
-        HERDR_UPDATE_COMMAND => {
-            "detach, run `herdr update`, then follow its restart guidance".to_string()
-        }
-        HOMEBREW_UPDATE_COMMAND => {
-            "detach, run `brew update && brew upgrade herdr`, then restart this Herdr session when ready".to_string()
-        }
-        MISE_UPDATE_COMMAND => {
-            "detach, run `mise upgrade herdr`, then restart this Herdr session when ready"
-                .to_string()
-        }
-        NIX_UPDATE_COMMAND => {
-            "detach, update through Nix, then restart this Herdr session when ready".to_string()
-        }
-        command => format!("detach, run `{command}`, then restart this Herdr session when ready"),
+    if install_command == crate::product::command("update") {
+        format!(
+            "detach, run `{}`, then follow its restart guidance",
+            crate::product::command("update")
+        )
+    } else if install_command == HOMEBREW_UPDATE_COMMAND {
+        format!(
+            "detach, run `brew update && brew upgrade herdr`, then restart this {} session when ready",
+            crate::product::NAME
+        )
+    } else if install_command == MISE_UPDATE_COMMAND {
+        format!(
+            "detach, run `mise upgrade herdr`, then restart this {} session when ready",
+            crate::product::NAME
+        )
+    } else if install_command == NIX_UPDATE_COMMAND {
+        format!(
+            "detach, update through Nix, then restart this {} session when ready",
+            crate::product::NAME
+        )
+    } else {
+        format!(
+            "detach, run `{install_command}`, then restart this {} session when ready",
+            crate::product::NAME
+        )
     }
 }
 
@@ -1958,20 +1971,24 @@ fn homebrew_cellar_keg_root(path: &Path) -> Option<PathBuf> {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Manual self-update command (`herdr update`).
+/// Manual self-update command.
 pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
     let channel = UpdateChannel::configured();
     #[cfg(windows)]
     if channel == UpdateChannel::Stable {
-        return Err(
-            "Windows builds are preview-only for now; run `herdr channel set preview`".into(),
-        );
+        return Err(format!(
+            "Windows builds are preview-only for now; run `{}`",
+            crate::product::command("channel set preview")
+        ));
     }
 
     if is_homebrew_managed_install() {
         if channel == UpdateChannel::Preview {
             return Err(
-                "self-update is disabled for Homebrew installs; preview is only available for direct Herdr installs".into(),
+                format!(
+                    "self-update is disabled for Homebrew installs; preview is only available for direct {} installs",
+                    crate::product::NAME
+                ),
             );
         }
         return Err(format!(
@@ -1982,7 +1999,10 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
     if is_mise_managed_install() {
         if channel == UpdateChannel::Preview {
             return Err(
-                "self-update is disabled for mise installs; preview is only available for direct Herdr installs".into(),
+                format!(
+                    "self-update is disabled for mise installs; preview is only available for direct {} installs",
+                    crate::product::NAME
+                ),
             );
         }
         return Err(format!(
@@ -1993,16 +2013,26 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
     if is_nix_managed_install() {
         if channel == UpdateChannel::Preview {
             return Err(
-                "self-update is disabled for Nix installs; preview is only available for direct Herdr installs".into(),
+                format!(
+                    "self-update is disabled for Nix installs; preview is only available for direct {} installs",
+                    crate::product::NAME
+                ),
             );
         }
         return Err(
-            "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides Herdr".into(),
+            format!(
+                "self-update is disabled for Nix installs; update with `nix profile upgrade` or update the flake input that provides {}",
+                crate::product::NAME
+            ),
         );
     }
 
     if running_inside_herdr() {
-        return Err("run `herdr update` outside herdr after detaching from the session".into());
+        return Err(format!(
+            "run `{}` outside {} after detaching from the session",
+            crate::product::command("update"),
+            crate::product::NAME
+        ));
     }
 
     eprintln!("checking {} channel for updates...", channel.as_str());
@@ -2040,7 +2070,8 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
         eprintln!("installed {}", release.label());
         print_outdated_integration_notice_with_updated_binary(&updated_exe);
         eprintln!(
-            "Restart any running Herdr sessions to use {}.",
+            "Restart any running {} sessions to use {}.",
+            crate::product::NAME,
             release.label()
         );
     }
@@ -2058,8 +2089,12 @@ pub fn self_update(options: SelfUpdateOptions) -> Result<Version, String> {
         if !options.live_handoff
             && !prompt_to_complete_plain_update(&server_update_decisions, &release)?
         {
-            eprintln!("Herdr was not updated.");
-            eprintln!("Stop running Herdr sessions when ready, then run `herdr update` again.");
+            eprintln!("{} was not updated.", crate::product::NAME);
+            eprintln!(
+                "Stop running {} sessions when ready, then run `{}` again.",
+                crate::product::NAME,
+                crate::product::command("update")
+            );
             return Ok(current);
         }
         install_downloaded_update(downloaded_update)?;
@@ -2604,16 +2639,25 @@ mod tests {
     #[test]
     fn update_install_instruction_distinguishes_install_from_restart() {
         assert_eq!(
-            update_install_instruction(HERDR_UPDATE_COMMAND),
-            "detach, run `herdr update`, then follow its restart guidance"
+            update_install_instruction(&crate::product::command("update")),
+            format!(
+                "detach, run `{}`, then follow its restart guidance",
+                crate::product::command("update")
+            )
         );
         assert_eq!(
             update_install_instruction(HOMEBREW_UPDATE_COMMAND),
-            "detach, run `brew update && brew upgrade herdr`, then restart this Herdr session when ready"
+            format!(
+                "detach, run `brew update && brew upgrade herdr`, then restart this {} session when ready",
+                crate::product::NAME
+            )
         );
         assert_eq!(
             update_install_instruction(MISE_UPDATE_COMMAND),
-            "detach, run `mise upgrade herdr`, then restart this Herdr session when ready"
+            format!(
+                "detach, run `mise upgrade herdr`, then restart this {} session when ready",
+                crate::product::NAME
+            )
         );
     }
 

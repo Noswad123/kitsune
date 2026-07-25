@@ -24,10 +24,13 @@ mod tab;
 mod workspace;
 mod worktree;
 
-const TERMINAL_SESSION_OBSERVE_USAGE: &str =
-    "usage: herdr terminal session observe <target> [--cols N] [--rows N]";
-const TERMINAL_SESSION_CONTROL_USAGE: &str =
-    "usage: herdr terminal session control <target> [--takeover] [--cols N] [--rows N]";
+fn terminal_session_observe_usage() -> String {
+    crate::product::usage("terminal session observe <target> [--cols N] [--rows N]")
+}
+
+fn terminal_session_control_usage() -> String {
+    crate::product::usage("terminal session control <target> [--takeover] [--cols N] [--rows N]")
+}
 
 pub(crate) fn parse_token_assignment(raw: &str) -> Result<(String, Option<String>), String> {
     let Some((key, value)) = raw.split_once('=') else {
@@ -126,7 +129,7 @@ fn run_channel_command(args: &[String]) -> std::io::Result<i32> {
 
 fn channel_set(args: &[String]) -> std::io::Result<i32> {
     let Some(channel) = parse_channel_set_arg(args) else {
-        eprintln!("usage: herdr channel set <stable|preview>");
+        eprintln!("{}", crate::product::usage("channel set <stable|preview>"));
         return Ok(2);
     };
 
@@ -170,7 +173,8 @@ fn channel_set(args: &[String]) -> std::io::Result<i32> {
     }
     std::fs::write(&path, updated)?;
     println!(
-        "Herdr update channel set to {channel} in {}.",
+        "{} update channel set to {channel} in {}.",
+        crate::product::NAME,
         path.display()
     );
 
@@ -186,7 +190,7 @@ fn channel_set(args: &[String]) -> std::io::Result<i32> {
 
     if let Err(err) = crate::update::self_update(crate::update::SelfUpdateOptions::default()) {
         eprintln!("update failed: {err}");
-        eprintln!("Run `herdr update` to retry.");
+        eprintln!("Run `{}` to retry.", crate::product::command("update"));
         return Ok(1);
     }
 
@@ -235,9 +239,15 @@ fn channel_set_install_action(
 }
 
 fn print_channel_help() {
-    eprintln!("herdr channel commands:");
-    eprintln!("  herdr channel show                  print the configured update channel");
-    eprintln!("  herdr channel set <stable|preview>  choose the update channel");
+    eprintln!("{} channel commands:", crate::product::CLI_NAME);
+    eprintln!(
+        "  {}                  print the configured update channel",
+        crate::product::command("channel show")
+    );
+    eprintln!(
+        "  {}  choose the update channel",
+        crate::product::command("channel set <stable|preview>")
+    );
 }
 
 fn run_config_command(args: &[String]) -> std::io::Result<i32> {
@@ -264,11 +274,11 @@ fn config_check(args: &[String]) -> std::io::Result<i32> {
     match args {
         [] => {}
         [flag] if matches!(flag.as_str(), "help" | "--help" | "-h") => {
-            eprintln!("usage: herdr config check");
+            eprintln!("{}", crate::product::usage("config check"));
             return Ok(0);
         }
         _ => {
-            eprintln!("usage: herdr config check");
+            eprintln!("{}", crate::product::usage("config check"));
             return Ok(2);
         }
     }
@@ -288,7 +298,7 @@ fn config_check(args: &[String]) -> std::io::Result<i32> {
 
 fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr config reset-keys");
+        eprintln!("{}", crate::product::usage("config reset-keys"));
         return Ok(2);
     }
 
@@ -353,8 +363,15 @@ fn config_reset_keys(args: &[String]) -> std::io::Result<i32> {
         "Removed [keys], [keys.indexed], and [[keys.command]] from {}.",
         path.display()
     );
-    println!("Built-in v2 keybindings will apply after Herdr restarts or reloads config.");
-    println!("If a Herdr server is running, run `herdr server reload-config` to apply this now.");
+    println!(
+        "Built-in v2 keybindings will apply after {} restarts or reloads config.",
+        crate::product::NAME
+    );
+    println!(
+        "If a {} server is running, run `{}` to apply this now.",
+        crate::product::NAME,
+        crate::product::command("server reload-config")
+    );
     println!(
         "To restore: cp {} {}",
         backup_path.display(),
@@ -423,15 +440,16 @@ fn session_attach_help(args: &[String]) -> std::io::Result<i32> {
         args.first().map(String::as_str),
         Some("help" | "--help" | "-h")
     ) {
-        eprintln!("usage: herdr session attach <name>");
+        eprintln!("{}", crate::product::usage("session attach <name>"));
         return Ok(0);
     }
-    eprintln!("usage: herdr session attach <name>");
+    eprintln!("{}", crate::product::usage("session attach <name>"));
     Ok(2)
 }
 
 fn session_list(args: &[String]) -> std::io::Result<i32> {
-    let json = match parse_session_json_only(args, "usage: herdr session list [--json]") {
+    let usage = crate::product::usage("session list [--json]");
+    let json = match parse_session_json_only(args, &usage) {
         Ok(json) => json,
         Err(code) => return Ok(code),
     };
@@ -448,11 +466,11 @@ fn session_list(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn session_stop(args: &[String]) -> std::io::Result<i32> {
-    let (name, json) =
-        match parse_session_name_and_json(args, "usage: herdr session stop <name> [--json]") {
-            Ok(parsed) => parsed,
-            Err(code) => return Ok(code),
-        };
+    let usage = crate::product::usage("session stop <name> [--json]");
+    let (name, json) = match parse_session_name_and_json(args, &usage) {
+        Ok(parsed) => parsed,
+        Err(code) => return Ok(code),
+    };
 
     let target = match crate::session::parse_target_name(&name) {
         Ok(target) => target,
@@ -481,11 +499,11 @@ fn session_stop(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn session_delete(args: &[String]) -> std::io::Result<i32> {
-    let (name, json) =
-        match parse_session_name_and_json(args, "usage: herdr session delete <name> [--json]") {
-            Ok(parsed) => parsed,
-            Err(code) => return Ok(code),
-        };
+    let usage = crate::product::usage("session delete <name> [--json]");
+    let (name, json) = match parse_session_name_and_json(args, &usage) {
+        Ok(parsed) => parsed,
+        Err(code) => return Ok(code),
+    };
 
     match crate::session::delete_session(&name) {
         Ok(session) => {
@@ -507,10 +525,8 @@ fn session_delete(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn terminal_attach(args: &[String]) -> std::io::Result<i32> {
-    let (terminal_id, takeover) = match parse_attach_target(
-        args,
-        "usage: herdr terminal attach <terminal_id> [--takeover]",
-    ) {
+    let usage = crate::product::usage("terminal attach <terminal_id> [--takeover]");
+    let (terminal_id, takeover) = match parse_attach_target(args, &usage) {
         Ok(parsed) => parsed,
         Err(code) => return Ok(code),
     };
@@ -523,25 +539,21 @@ fn terminal_session(args: &[String]) -> std::io::Result<i32> {
         Some("control") => terminal_session_control(&args[1..]),
         Some("observe") => terminal_session_observe(&args[1..]),
         Some("help" | "--help" | "-h") => {
-            eprintln!("{TERMINAL_SESSION_CONTROL_USAGE}");
-            eprintln!("{TERMINAL_SESSION_OBSERVE_USAGE}");
+            eprintln!("{}", terminal_session_control_usage());
+            eprintln!("{}", terminal_session_observe_usage());
             Ok(0)
         }
         _ => {
-            eprintln!("{TERMINAL_SESSION_CONTROL_USAGE}");
-            eprintln!("{TERMINAL_SESSION_OBSERVE_USAGE}");
+            eprintln!("{}", terminal_session_control_usage());
+            eprintln!("{}", terminal_session_observe_usage());
             Ok(2)
         }
     }
 }
 
 fn terminal_session_control(args: &[String]) -> std::io::Result<i32> {
-    let options = match parse_terminal_session_options(
-        args,
-        TERMINAL_SESSION_CONTROL_USAGE,
-        "control",
-        true,
-    )? {
+    let usage = terminal_session_control_usage();
+    let options = match parse_terminal_session_options(args, &usage, "control", true)? {
         Ok(options) => options,
         Err(code) => return Ok(code),
     };
@@ -556,12 +568,8 @@ fn terminal_session_control(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn terminal_session_observe(args: &[String]) -> std::io::Result<i32> {
-    let options = match parse_terminal_session_options(
-        args,
-        TERMINAL_SESSION_OBSERVE_USAGE,
-        "observe",
-        false,
-    )? {
+    let usage = terminal_session_observe_usage();
+    let options = match parse_terminal_session_options(args, &usage, "observe", false)? {
         Ok(options) => options,
         Err(code) => return Ok(code),
     };
@@ -661,7 +669,7 @@ fn terminal_title(args: &[String]) -> std::io::Result<i32> {
     match args.first().map(|arg| arg.as_str()) {
         Some("set") => {
             if args.len() != 2 {
-                eprintln!("usage: herdr terminal title set <title>");
+                eprintln!("{}", crate::product::usage("terminal title set <title>"));
                 return Ok(2);
             }
             print_response(&send_request(&Request {
@@ -673,7 +681,7 @@ fn terminal_title(args: &[String]) -> std::io::Result<i32> {
         }
         Some("clear") => {
             if args.len() != 1 {
-                eprintln!("usage: herdr terminal title clear");
+                eprintln!("{}", crate::product::usage("terminal title clear"));
                 return Ok(2);
             }
             print_response(&send_request(&Request {
@@ -682,13 +690,13 @@ fn terminal_title(args: &[String]) -> std::io::Result<i32> {
             })?)
         }
         Some("help" | "--help" | "-h") => {
-            eprintln!("usage: herdr terminal title set <title>");
-            eprintln!("       herdr terminal title clear");
+            eprintln!("{}", crate::product::usage("terminal title set <title>"));
+            eprintln!("       {}", crate::product::command("terminal title clear"));
             Ok(0)
         }
         _ => {
-            eprintln!("usage: herdr terminal title set <title>");
-            eprintln!("       herdr terminal title clear");
+            eprintln!("{}", crate::product::usage("terminal title set <title>"));
+            eprintln!("       {}", crate::product::command("terminal title clear"));
             Ok(2)
         }
     }
@@ -929,27 +937,53 @@ fn print_session_error(code: &str, message: &str) {
 }
 
 fn print_config_help() {
-    eprintln!("herdr config commands:");
-    eprintln!("  herdr config check  validate config.toml and print diagnostics");
-    eprintln!("  herdr config reset-keys  back up config.toml and remove custom keybindings");
+    eprintln!("{} config commands:", crate::product::CLI_NAME);
+    eprintln!(
+        "  {}  validate config.toml and print diagnostics",
+        crate::product::command("config check")
+    );
+    eprintln!(
+        "  {}  back up config.toml and remove custom keybindings",
+        crate::product::command("config reset-keys")
+    );
 }
 
 fn print_terminal_help() {
-    eprintln!("herdr terminal commands:");
-    eprintln!("  herdr terminal attach <terminal_id> [--takeover]");
-    eprintln!("  herdr terminal session control <target> [--takeover] [--cols N] [--rows N]");
-    eprintln!("  herdr terminal session observe <target> [--cols N] [--rows N]");
-    eprintln!("  herdr terminal title set <title>");
-    eprintln!("  herdr terminal title clear");
+    eprintln!("{} terminal commands:", crate::product::CLI_NAME);
+    eprintln!(
+        "  {}",
+        crate::product::command("terminal attach <terminal_id> [--takeover]")
+    );
+    eprintln!(
+        "  {}",
+        crate::product::command(
+            "terminal session control <target> [--takeover] [--cols N] [--rows N]",
+        )
+    );
+    eprintln!(
+        "  {}",
+        crate::product::command("terminal session observe <target> [--cols N] [--rows N]")
+    );
+    eprintln!(
+        "  {}",
+        crate::product::command("terminal title set <title>")
+    );
+    eprintln!("  {}", crate::product::command("terminal title clear"));
     eprintln!("  detach from direct attach with ctrl+b q; send literal ctrl+b with ctrl+b ctrl+b");
 }
 
 fn print_session_help() {
-    eprintln!("herdr session commands:");
-    eprintln!("  herdr session list [--json]");
-    eprintln!("  herdr session attach <name>");
-    eprintln!("  herdr session stop <name> [--json]");
-    eprintln!("  herdr session delete <name> [--json]");
+    eprintln!("{} session commands:", crate::product::CLI_NAME);
+    eprintln!("  {}", crate::product::command("session list [--json]"));
+    eprintln!("  {}", crate::product::command("session attach <name>"));
+    eprintln!(
+        "  {}",
+        crate::product::command("session stop <name> [--json]")
+    );
+    eprintln!(
+        "  {}",
+        crate::product::command("session delete <name> [--json]")
+    );
     eprintln!("  use 'default' as <name> to target the default session for stop");
 }
 

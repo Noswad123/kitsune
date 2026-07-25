@@ -374,22 +374,22 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 
 [session]
 # Resume supported AI-agent panes into their native conversation sessions after
-# a Herdr server restart. Requires official integrations that report session refs.
+# a Kitsune server restart. Requires official integrations that report session refs.
 # resume_agents_on_restore = true
 
 [remote]
-# Whether herdr manages the ssh config used for `herdr --remote`.
-# When true (default), herdr runs remote ssh through a generated config that
+# Whether Kitsune manages the ssh config used for `kitsune --remote`.
+# When true (default), Kitsune runs remote ssh through a generated config that
 # includes your ~/.ssh/config first and adds ServerAliveInterval/
 # ServerAliveCountMax as fallbacks (so any keepalive values you set yourself
-# still win) to survive idle network/NAT timeouts. Herdr also uses a private
+# still win) to survive idle network/NAT timeouts. Kitsune also uses a private
 # per-attach OpenSSH control socket to reuse the first authenticated connection.
 # Set false to run plain ssh against your ssh config unchanged — this does not
-# force keepalive or multiplexing off, it only stops herdr from adding its own.
+# force keepalive or multiplexing off, it only stops Kitsune from adding its own.
 # manage_ssh_config = true
 
 [experimental]
-# Allow launching herdr from inside a herdr-managed pane.
+# Allow launching Kitsune from inside a Kitsune-managed pane.
 # allow_nested = false
 # Experimental local Kitty graphics rendering for attached clients.
 # Requires a Kitty graphics-compatible outer terminal.

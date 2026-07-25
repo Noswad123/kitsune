@@ -19,3 +19,7 @@ pub(crate) const RUNTIME_ENV_VALUE: &str = "1";
 pub(crate) fn command(command: &str) -> String {
     format!("{CLI_NAME} {command}")
 }
+
+pub(crate) fn usage(command: &str) -> String {
+    format!("usage: {}", self::command(command))
+}

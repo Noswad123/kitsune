@@ -8996,7 +8996,7 @@ next_tab = ""
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "herdr update".into(),
+            install_command: crate::product::command("update"),
         });
 
         assert!(changed);
@@ -9031,7 +9031,7 @@ next_tab = ""
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
-            install_command: "herdr update".into(),
+            install_command: crate::product::command("update"),
         });
 
         assert!(changed);
@@ -9049,7 +9049,13 @@ next_tab = ""
                 assert_eq!(message, "v9.9.9 available");
                 assert_eq!(
                     body.as_deref(),
-                    Some("detach, run `herdr update`, then follow its restart guidance")
+                    Some(
+                        format!(
+                            "detach, run `{}`, then follow its restart guidance",
+                            crate::product::command("update")
+                        )
+                        .as_str()
+                    )
                 );
             }
             other => panic!("expected system toast notify, got {other:?}"),

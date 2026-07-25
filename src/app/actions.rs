@@ -5382,7 +5382,7 @@ mod tests {
 
         let updates = state.handle_app_event(AppEvent::UpdateReady {
             version: "0.5.0".into(),
-            install_command: "herdr update".into(),
+            install_command: crate::product::command("update"),
         });
 
         assert!(updates.is_empty());
@@ -5394,7 +5394,10 @@ mod tests {
         assert_eq!(toast.title, "v0.5.0 available");
         assert_eq!(
             toast.context,
-            "detach, run `herdr update`, then follow its restart guidance"
+            format!(
+                "detach, run `{}`, then follow its restart guidance",
+                crate::product::command("update")
+            )
         );
     }
 
@@ -5415,7 +5418,10 @@ mod tests {
         let toast = state.toast.as_ref().expect("update toast");
         assert_eq!(
             toast.context,
-            "detach, run `brew update && brew upgrade herdr`, then restart this Herdr session when ready"
+            format!(
+                "detach, run `brew update && brew upgrade herdr`, then restart this {} session when ready",
+                crate::product::NAME
+            )
         );
     }
 

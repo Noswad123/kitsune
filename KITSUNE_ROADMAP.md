@@ -59,16 +59,18 @@ recall flow.
 
 Design direction:
 
-- Add a first-class action for session recall.
-- Bind that action through the existing keybinding/config system.
+- Add a first-class action for session recall. (Done: `session_recall`.)
+- Bind that action through the existing keybinding/config system. (Done:
+  default `prefix+shift+s`.)
 - Reuse existing modal/screen patterns rather than inventing a one-off UI.
+  (Done initially by launching the existing Kitsune recall TUI in a popup.)
 - Keep recall state client-side unless it becomes shared runtime/session fact.
 
 Open decisions:
 
-- Final default keybinding.
-- Whether recall opens an in-process picker, launches an existing Kitsune
-  command, or bridges to an existing Kitsune recall API.
+- Whether the default `prefix+shift+s` remains the long-term binding.
+- Whether to keep launching the existing `kit tui --backend herdr` helper or
+  replace it with an in-process picker/native Kitsune recall API.
 - How recalled sessions map to Herdr/Kitsune named sessions.
 
 ## Phase 3: intentional divergence

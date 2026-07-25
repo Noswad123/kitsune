@@ -55,7 +55,7 @@ fn api_schema(args: &[String]) -> std::io::Result<i32> {
 
 fn api_snapshot(args: &[String]) -> std::io::Result<i32> {
     if !args.is_empty() {
-        eprintln!("usage: herdr api snapshot");
+        eprintln!("{}", crate::product::usage("api snapshot"));
         return Ok(2);
     }
 
@@ -89,21 +89,30 @@ fn schema_summary_text() -> std::io::Result<String> {
     schemas.sort();
 
     Ok(format!(
-        "Herdr API schema\nprotocol: {}\nschema_version: {}\nschemas: {}\n\nUse `herdr api schema --json` to print the full schema.\nUse `herdr api schema --output PATH` to write it to a file.\n",
+        "{} API schema\nprotocol: {}\nschema_version: {}\nschemas: {}\n\nUse `{}` to print the full schema.\nUse `{}` to write it to a file.\n",
+        crate::product::NAME,
         protocol,
         schema_version,
-        schemas.join(", ")
+        schemas.join(", "),
+        crate::product::command("api schema --json"),
+        crate::product::command("api schema --output PATH")
     ))
 }
 
 fn print_api_help() {
-    eprintln!("herdr api commands:");
-    eprintln!("  herdr api snapshot");
-    eprintln!("  herdr api schema [--json | --output PATH]");
+    eprintln!("{} api commands:", crate::product::CLI_NAME);
+    eprintln!("  {}", crate::product::command("api snapshot"));
+    eprintln!(
+        "  {}",
+        crate::product::command("api schema [--json | --output PATH]")
+    );
 }
 
 fn print_api_schema_help() {
-    eprintln!("usage: herdr api schema [--json | --output PATH]");
+    eprintln!(
+        "{}",
+        crate::product::usage("api schema [--json | --output PATH]")
+    );
 }
 
 #[cfg(test)]
@@ -111,8 +120,11 @@ mod tests {
     #[test]
     fn schema_summary_text_stays_human_sized() {
         let text = super::schema_summary_text().unwrap();
-        assert!(text.contains("Herdr API schema"));
-        assert!(text.contains("Use `herdr api schema --json`"));
+        assert!(text.contains(&format!("{} API schema", crate::product::NAME)));
+        assert!(text.contains(&format!(
+            "Use `{}`",
+            crate::product::command("api schema --json")
+        )));
         assert!(text.len() < 400);
     }
 }
