@@ -19,8 +19,8 @@ pub(crate) fn init_file_logging(file_name: &str) {
         return;
     };
 
-    let filter =
-        EnvFilter::try_from_env("HERDR_LOG").unwrap_or_else(|_| EnvFilter::new("herdr=info"));
+    let filter = EnvFilter::try_from_env(crate::product::LOG_ENV_VAR)
+        .unwrap_or_else(|_| EnvFilter::new("herdr=info"));
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -33,8 +33,10 @@ pub(crate) fn init_file_logging(file_name: &str) {
 pub(crate) fn help_log_paths_summary() -> String {
     let dir = crate::session::data_dir();
     format!(
-        "{} (plus herdr-client.log, herdr-server.log)",
-        dir.join("herdr.log").display()
+        "{} (plus {}, {})",
+        dir.join(crate::product::LOG_FILE_NAME).display(),
+        crate::product::CLIENT_LOG_FILE_NAME,
+        crate::product::SERVER_LOG_FILE_NAME,
     )
 }
 

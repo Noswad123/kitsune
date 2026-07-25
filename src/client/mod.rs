@@ -2152,7 +2152,7 @@ fn write_host_terminal_theme_query(mut writer: impl io::Write) -> io::Result<()>
 }
 
 fn init_logging() {
-    crate::logging::init_file_logging("herdr-client.log");
+    crate::logging::init_file_logging(crate::product::CLIENT_LOG_FILE_NAME);
 }
 
 // ---------------------------------------------------------------------------
