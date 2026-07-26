@@ -63,7 +63,7 @@ impl App {
                 })
             })
             .ok_or_else(|| {
-                "Herdr worktree actions require a workspace inside a Git work tree.".to_string()
+                "Kitsune worktree actions require a workspace inside a Git work tree.".to_string()
             })?;
         let source_checkout_path = existing_membership
             .as_ref()

@@ -1,5 +1,5 @@
-// installed by herdr
-// managed by herdr; reinstalling or updating the integration overwrites this file.
+// installed by kitsune
+// managed by kitsune; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // KITSUNE_INTEGRATION_ID=omp
 // KITSUNE_INTEGRATION_VERSION=7
@@ -12,7 +12,7 @@ const socketPath = process.env.KITSUNE_SOCKET_PATH;
 const socketEndpoint =
   process.platform === "win32" && socketPath ? `\\\\.\\pipe\\${socketPath}` : socketPath;
 const paneId = process.env.KITSUNE_PANE_ID;
-const source = "herdr:omp";
+const source = "kitsune:omp";
 
 function enabled() {
   return KITSUNE_ENV === "1" && !!socketPath && !!paneId;
@@ -349,7 +349,7 @@ export default function (pi) {
     publishState();
   }
 
-  pi.events.on("herdr:blocked", (data) => {
+  pi.events.on("kitsune:blocked", (data) => {
     if (!rootSession) {
       return;
     }

@@ -1619,7 +1619,7 @@ fn plugin_checkout_lifecycle_error(operation: &str, path: &Path, err: io::Error)
         return io::Error::new(
             err.kind(),
             format!(
-                "failed to {operation} managed plugin checkout at {}; close any Herdr plugin panes or plugin commands using that checkout, then retry: {err}",
+                "failed to {operation} managed plugin checkout at {}; close any Kitsune plugin panes or plugin commands using that checkout, then retry: {err}",
                 path.display()
             ),
         );

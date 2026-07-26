@@ -823,7 +823,7 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
-            dedupe_key: "herdr:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "kitsune:codex\0codex\0Id\0codex-session".into(),
         });
 
         assert!(
@@ -878,7 +878,7 @@ mod tests {
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
-            dedupe_key: "herdr:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "kitsune:codex\0codex\0Id\0codex-session".into(),
         });
         app.pending_agent_resume_deadline = Some(Instant::now() - Duration::from_millis(1));
 

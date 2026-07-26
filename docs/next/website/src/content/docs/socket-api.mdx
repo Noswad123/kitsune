@@ -25,7 +25,7 @@ binary:
 ```bash
 herdr api schema
 herdr api schema --json
-herdr api schema --output herdr-api.schema.json
+kitsune api schema --output kitsune-api.schema.json
 ```
 
 Plain `herdr api schema` prints a short summary. `--json` prints the full JSON
@@ -321,7 +321,7 @@ Show a user notification through the configured toast delivery:
 {"id":"req_notify","method":"notification.show","params":{"title":"build failed","body":"api workspace","position":"top-left","sound":"request"}}
 ```
 
-`title` is required and must contain visible text after control characters and repeated whitespace are removed. `body` is optional. Herdr collapses newlines, tabs, carriage returns, and repeated whitespace into spaces, then trims notification text to 80 characters for `title` and 240 characters for `body`. An empty sanitized `title` returns `invalid_params`. `position` is optional and applies only when `ui.toast.delivery = "herdr"`; desktop positions are relative to the full Herdr frame, and omitted positions use `ui.toast.herdr.position`. Terminal, system, and off delivery ignore `position`. `sound` is optional and can be `none`, `done`, or `request`; it defaults to `none` and plays only when the notification is shown.
+`title` is required and must contain visible text after control characters and repeated whitespace are removed. `body` is optional. Herdr collapses newlines, tabs, carriage returns, and repeated whitespace into spaces, then trims notification text to 80 characters for `title` and 240 characters for `body`. An empty sanitized `title` returns `invalid_params`. `position` is optional and applies only when `ui.toast.delivery = "kitsune"`; desktop positions are relative to the full Herdr frame, and omitted positions use `ui.toast.kitsune.position`. Terminal, system, and off delivery ignore `position`. `sound` is optional and can be `none`, `done`, or `request`; it defaults to `none` and plays only when the notification is shown.
 
 The response reports whether anything was shown:
 
@@ -668,7 +668,7 @@ Session-only official integrations report native session references with `pane.r
   "method": "pane.report_agent_session",
   "params": {
     "pane_id": "w1:p1",
-    "source": "herdr:codex",
+    "source": "kitsune:codex",
     "agent": "codex",
     "agent_session_id": "..."
   }
@@ -680,7 +680,7 @@ Session-only official integrations report native session references with `pane.r
 ```json
 {
   "agent_session": {
-    "source": "herdr:codex",
+    "source": "kitsune:codex",
     "agent": "codex",
     "kind": "id",
     "value": "..."

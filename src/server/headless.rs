@@ -1900,7 +1900,7 @@ impl HeadlessServer {
                 })
                 .unwrap_or_else(|_| "{}".to_string());
             }
-            config::ToastDelivery::Herdr => {
+            config::ToastDelivery::Kitsune => {
                 let sound = params.sound;
                 let response = self.app.handle_api_request_after_internal_events_drained(
                     api::schema::Request {
@@ -5022,7 +5022,7 @@ next_tab = ""
             .any(|binding| binding.label == "prefix+n"));
         assert!(server.app.state.toast.is_none());
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("delivery = \"herdr\""));
+        assert!(content.contains("delivery = \"kitsune\""));
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
         let _ = std::fs::remove_file(path);
@@ -6028,7 +6028,7 @@ next_tab = ""
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
-            dedupe_key: "herdr:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "kitsune:codex\0codex\0Id\0codex-session".into(),
         });
         server.app.pending_agent_resume_deadline = Some(Instant::now() - Duration::from_millis(1));
 
@@ -6082,7 +6082,7 @@ next_tab = ""
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
-            dedupe_key: "herdr:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "kitsune:codex\0codex\0Id\0codex-session".into(),
         });
         server.app.pending_agent_resume_deadline = Some(Instant::now() - Duration::from_millis(1));
 
@@ -6147,7 +6147,7 @@ next_tab = ""
             .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
             agent: "codex".into(),
             argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
-            dedupe_key: "herdr:codex\0codex\0Id\0codex-session".into(),
+            dedupe_key: "kitsune:codex\0codex\0Id\0codex-session".into(),
         });
         server.app.pending_agent_resume_deadline = Some(Instant::now() - Duration::from_millis(1));
 
@@ -8992,7 +8992,7 @@ next_tab = ""
             ),
         );
         server.foreground_client_id = Some(1);
-        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
 
         let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
             version: "9.9.9".to_string(),
@@ -9090,7 +9090,7 @@ next_tab = ""
                     api::schema::NotificationShowParams {
                         title: "build failed".into(),
                         body: Some("api workspace".into()),
-                        position: Some(crate::config::ToastHerdrPosition::TopLeft),
+                        position: Some(crate::config::ToastKitsunePosition::TopLeft),
                         sound: api::schema::NotificationShowSound::Request,
                     },
                 ),
@@ -9286,7 +9286,7 @@ next_tab = ""
     #[test]
     fn notification_show_api_herdr_toast_expires_headless() {
         let mut server = test_headless_server();
-        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
 
         let (respond_to, response_rx) = std::sync::mpsc::channel();
         assert!(
@@ -9342,7 +9342,7 @@ next_tab = ""
             ),
         );
         server.foreground_client_id = Some(1);
-        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Herdr;
+        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
 
         let (respond_to, response_rx) = std::sync::mpsc::channel();
         assert!(
@@ -9599,7 +9599,7 @@ next_tab = ""
             .get_mut(&terminal_id)
             .unwrap()
             .set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-                source: "herdr:pi".into(),
+                source: "kitsune:pi".into(),
                 agent: "pi".into(),
                 session_ref: crate::agent_resume::AgentSessionRef::path(
                     std::env::current_dir()
@@ -9617,7 +9617,7 @@ next_tab = ""
             .get_mut(&terminal_id)
             .unwrap()
             .set_hook_authority(
-                "herdr:pi".into(),
+                "kitsune:pi".into(),
                 "pi".into(),
                 crate::detect::AgentState::Working,
                 None,
@@ -9649,7 +9649,7 @@ next_tab = ""
                 id: "stale".into(),
                 method: api::schema::Method::PaneReportAgent(api::schema::PaneReportAgentParams {
                     pane_id: public_pane_id,
-                    source: "herdr:pi".into(),
+                    source: "kitsune:pi".into(),
                     agent: "pi".into(),
                     state: api::schema::PaneAgentState::Idle,
                     message: None,

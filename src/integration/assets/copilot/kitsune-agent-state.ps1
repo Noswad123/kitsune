@@ -1,5 +1,5 @@
-# installed by herdr
-# managed by herdr; reinstalling or updating the integration overwrites this file.
+# installed by kitsune
+# managed by kitsune; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # KITSUNE_INTEGRATION_ID=copilot
 # KITSUNE_INTEGRATION_VERSION=2
@@ -49,4 +49,4 @@ if ([string]::IsNullOrWhiteSpace($sessionId)) {
 if ([string]::IsNullOrWhiteSpace($sessionId)) { exit 0 }
 
 $seq = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-& herdr pane report-agent-session $env:KITSUNE_PANE_ID --source herdr:copilot --agent copilot --agent-session-id $sessionId --seq $seq 2>$null | Out-Null
+& kitsune pane report-agent-session $env:KITSUNE_PANE_ID --source kitsune:copilot --agent copilot --agent-session-id $sessionId --seq $seq 2>$null | Out-Null

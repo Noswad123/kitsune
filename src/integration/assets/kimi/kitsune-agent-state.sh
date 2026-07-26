@@ -1,5 +1,5 @@
 #!/bin/sh
-# managed by herdr; reinstalling the integration replaces this file.
+# managed by kitsune; reinstalling the integration replaces this file.
 # KITSUNE_INTEGRATION_ID=kimi
 # KITSUNE_INTEGRATION_VERSION=6
 
@@ -34,7 +34,7 @@ if not isinstance(session_id, str) or not session_id:
 seq = time.time_ns()
 params = {
     "pane_id": os.environ["KITSUNE_PANE_ID"],
-    "source": "herdr:kimi",
+    "source": "kitsune:kimi",
     "agent": "kimi",
     "seq": seq,
 }
@@ -49,7 +49,7 @@ else:
 if session_id is not None:
     params["agent_session_id"] = session_id
 
-request = json.dumps({"id": f"herdr:kimi:{seq}", "method": method, "params": params})
+request = json.dumps({"id": f"kitsune:kimi:{seq}", "method": method, "params": params})
 try:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         client.settimeout(0.5)

@@ -1,6 +1,6 @@
 #!/bin/sh
-# installed by herdr
-# managed by herdr; reinstalling or updating the integration overwrites this file.
+# installed by kitsune
+# managed by kitsune; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # KITSUNE_INTEGRATION_ID=devin
 # KITSUNE_INTEGRATION_VERSION=2
@@ -8,7 +8,7 @@
 set -eu
 
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/herdr-devin-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/kitsune-devin-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
@@ -32,7 +32,7 @@ import socket
 import subprocess
 import time
 
-SOURCE = "herdr:devin"
+SOURCE = "kitsune:devin"
 AGENT = "devin"
 
 

@@ -12,8 +12,8 @@ const NESTED_KITSUNE_MESSAGES: [&str; 6] = [
     "inception detected. we need to go deeper... said no one ever.",
     "recursion is a pathway to many abilities some consider to be... unnatural.",
     "you were so preoccupied with whether you could, you didn't stop to think if you should. — dr. malcolm",
-    "recursive herdring is disabled. somewhere, a call stack breathes a sigh of relief.",
-    "recursive descent denied. there is, in fact, such a thing as too much herdr.",
+    "recursive kitsuning is disabled. somewhere, a call stack breathes a sigh of relief.",
+    "recursive descent denied. there is, in fact, such a thing as too much kitsune.",
     "recursion detected. base case not found. aborting.",
 ];
 
@@ -142,7 +142,7 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 
 # CWD policy for new panes, tabs, and workspaces when no explicit --cwd is provided.
 # Use "follow" to inherit the source pane/workspace, "home" for $HOME,
-# "current" for Herdr's process directory, or a fixed path such as "~/Projects".
+# "current" for Kitsune's process directory, or a fixed path such as "~/Projects".
 # new_cwd = "follow"
 
 [update]
@@ -154,7 +154,7 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # Check for new Kitsune versions in the background.
 # version_check = true
 
-# Check herdr.dev for remote agent-detection manifest updates in the background.
+# Check for remote agent-detection manifest updates in the background.
 # manifest_check = true
 
 [keys]
@@ -188,7 +188,7 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # previous_agent = ""     # optional, unset by default
 # next_agent = ""         # optional, unset by default
 # focus_agent = ""        # optional indexed binding, e.g. "prefix+alt+1..9"
-# remote_image_paste = "ctrl+v" # only active in herdr --remote; empty disables raw-key image paste
+# remote_image_paste = "ctrl+v" # only active in kitsune --remote; empty disables raw-key image paste
 # new_tab = "prefix+c"
 # rename_tab = "prefix+shift+t"
 # previous_tab = "prefix+p"
@@ -260,11 +260,11 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # Collapsed sidebar presentation: "compact" keeps the narrow status rail, "hidden" uses zero width.
 # sidebar_collapsed_mode = "compact"
 
-# Terminal width at or below which Herdr uses the mobile single-column layout.
+# Terminal width at or below which Kitsune uses the mobile single-column layout.
 # Increase this for foldables, tablets, or wide phone terminals.
 # mobile_width_threshold = 64
 
-# Capture mouse input for Herdr's mouse UI.
+# Capture mouse input for Kitsune's mouse UI.
 # Set false to let the terminal handle normal clicks, such as Cmd-clicking URLs.
 # Pane apps like lazygit and btop can still receive mouse when they request it.
 # mouse_capture = true
@@ -275,16 +275,16 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # copy_on_select = true
 
 # Host cursor policy: "auto", "native", or "drawn".
-# "auto" draws Herdr's own cursor on native Windows builds and WSL to avoid ConPTY cursor flicker, and uses the native terminal cursor elsewhere.
-# "native" always uses the outer terminal cursor. "drawn" always draws Herdr's cursor as terminal cell content.
+# "auto" draws Kitsune's own cursor on native Windows builds and WSL to avoid ConPTY cursor flicker, and uses the native terminal cursor elsewhere.
+# "native" always uses the outer terminal cursor. "drawn" always draws Kitsune's cursor as terminal cell content.
 # host_cursor = "auto"
 
-# Optional modifier that forwards right-click hold/drag gestures to pane apps instead of opening Herdr's pane menu.
+# Optional modifier that forwards right-click hold/drag gestures to pane apps instead of opening Kitsune's pane menu.
 # Empty/off disables this. Shift is intentionally unsupported because terminals commonly reserve Shift+mouse.
 # right_click_passthrough_modifier = ""
 
 # Force a full redraw when the outer terminal regains focus.
-# Set false to reduce visible flashing when switching back to Herdr.
+# Set false to reduce visible flashing when switching back to Kitsune.
 # Trade-off: rare host terminal surface corruption may persist until the next full redraw.
 # redraw_on_focus_gained = true
 
@@ -346,13 +346,13 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # Background notification popup delivery
 [ui.toast]
 # off = disable pop-up notifications
-# herdr = show in-app toasts
+# kitsune = show in-app toasts
 # terminal = ask the outer terminal to show a desktop notification
 # system = ask the OS notification service directly
 # delivery = "off"
 # delay_seconds = 1
 
-[ui.toast.herdr]
+[ui.toast.kitsune]
 # position = "bottom-right"
 
 [ui.toast.clipboard]
@@ -932,6 +932,6 @@ mod tests {
     fn nested_message_strings_no_longer_repeat_herdr_prefix() {
         assert!(NESTED_KITSUNE_MESSAGES
             .iter()
-            .all(|message| !message.starts_with("herdr:")));
+            .all(|message| !message.starts_with("kitsune:")));
     }
 }

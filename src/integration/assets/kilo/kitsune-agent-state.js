@@ -1,12 +1,12 @@
-// installed by herdr
-// managed by herdr; reinstalling or updating the integration overwrites this file.
+// installed by kitsune
+// managed by kitsune; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // KITSUNE_INTEGRATION_ID=kilo
 // KITSUNE_INTEGRATION_VERSION=4
 
 import net from "node:net";
 
-const SOURCE = "herdr:kilo";
+const SOURCE = "kitsune:kilo";
 const AGENT = "kilo";
 let reportSeq = Date.now() * 1000;
 
@@ -102,7 +102,7 @@ function reportState(state, sessionID) {
   return request("pane.report_agent", params);
 }
 
-export const HerdrAgentStatePlugin = async () => {
+export const KitsuneAgentStatePlugin = async () => {
   if (
     process.env.KITSUNE_ENV !== "1" ||
     !process.env.KITSUNE_SOCKET_PATH ||

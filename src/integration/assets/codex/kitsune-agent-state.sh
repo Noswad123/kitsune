@@ -1,19 +1,19 @@
 #!/bin/sh
-# installed by herdr
-# managed by herdr; reinstalling or updating the integration overwrites this file.
+# installed by kitsune
+# managed by kitsune; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# KITSUNE_INTEGRATION_ID=mastracode
-# KITSUNE_INTEGRATION_VERSION=2
+# KITSUNE_INTEGRATION_ID=codex
+# KITSUNE_INTEGRATION_VERSION=6
 
 set -eu
 
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/herdr-mastracode-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/kitsune-codex-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
 case "$action" in
-  session|working|idle|blocked) ;;
+  session) ;;
   *) exit 0 ;;
 esac
 
@@ -29,7 +29,7 @@ import random
 import socket
 import time
 
-source = "herdr:mastracode"
+source = "kitsune:codex"
 action = os.environ.get("KITSUNE_ACTION", "")
 pane_id = os.environ.get("KITSUNE_PANE_ID")
 socket_path = os.environ.get("KITSUNE_SOCKET_PATH")
@@ -48,42 +48,34 @@ if hook_input_file:
     except Exception:
         hook_input = {}
 
+hook_event_name = str(hook_input.get("hook_event_name") or "")
+if hook_event_name and hook_event_name != "SessionStart":
+    raise SystemExit(0)
+
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
 report_seq = time.time_ns()
 session_id = hook_input.get("session_id")
-if isinstance(session_id, str) and session_id:
-    agent_session_id = session_id
-else:
-    agent_session_id = None
-if action == "session":
-    if not agent_session_id:
-        raise SystemExit(0)
+agent_session_id = session_id if isinstance(session_id, str) and session_id else None
+session_start_source = hook_input.get("source") if hook_event_name == "SessionStart" else None
+if not isinstance(session_start_source, str) or not session_start_source:
+    session_start_source = None
+if agent_session_id:
+    params = {
+        "pane_id": pane_id,
+        "source": source,
+        "agent": "codex",
+        "seq": report_seq,
+        "agent_session_id": agent_session_id,
+    }
+    if session_start_source:
+        params["session_start_source"] = session_start_source
     request = {
         "id": request_id,
         "method": "pane.report_agent_session",
-        "params": {
-            "pane_id": pane_id,
-            "source": source,
-            "agent": "mastracode",
-            "agent_session_id": agent_session_id,
-            "session_start_source": "startup",
-            "seq": report_seq,
-        },
+        "params": params,
     }
 else:
-    request = {
-        "id": request_id,
-        "method": "pane.report_agent",
-        "params": {
-            "pane_id": pane_id,
-            "source": source,
-            "agent": "mastracode",
-            "state": action,
-            "seq": report_seq,
-        },
-    }
-    if agent_session_id:
-        request["params"]["agent_session_id"] = agent_session_id
+    raise SystemExit(0)
 
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

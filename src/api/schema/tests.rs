@@ -32,7 +32,7 @@ fn rewrite_schema_refs(value: &mut serde_json::Value, schema_name: &str) {
 fn protocol_schema_document() -> serde_json::Value {
     serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "Herdr API",
+        "title": "Kitsune API",
         "schema_version": 1,
         "protocol": crate::protocol::PROTOCOL_VERSION,
         "schemas": {
@@ -156,7 +156,7 @@ fn generated_protocol_schema_artifact_is_current() {
         serde_json::to_string_pretty(&protocol_schema_document()).unwrap()
     );
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("docs/next/api/herdr-api.schema.json");
+        .join("docs/next/api/kitsune-api.schema.json");
 
     if std::env::var_os("KITSUNE_UPDATE_API_SCHEMA").is_some() {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -255,7 +255,7 @@ fn notification_show_request_parses() {
     assert_eq!(params.body.as_deref(), Some("api workspace"));
     assert_eq!(
         params.position,
-        Some(crate::config::ToastHerdrPosition::TopLeft)
+        Some(crate::config::ToastKitsunePosition::TopLeft)
     );
     assert_eq!(params.sound, NotificationShowSound::Request);
 }

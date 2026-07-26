@@ -1,5 +1,5 @@
 #!/bin/sh
-# managed by herdr; reinstalling the integration replaces this file.
+# managed by kitsune; reinstalling the integration replaces this file.
 # KITSUNE_INTEGRATION_ID=qodercli
 # KITSUNE_INTEGRATION_VERSION=2
 
@@ -7,7 +7,7 @@
 [ "${KITSUNE_ENV:-}" = "1" ] || exit 0
 [ -n "${KITSUNE_SOCKET_PATH:-}" ] || exit 0
 [ -n "${KITSUNE_PANE_ID:-}" ] || exit 0
-command -v herdr >/dev/null 2>&1 || exit 0
+command -v kitsune >/dev/null 2>&1 || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 python3 -c '
@@ -24,8 +24,8 @@ try:
         raise ValueError
     subprocess.run(
         [
-            "herdr", "pane", "report-agent-session", os.environ["KITSUNE_PANE_ID"],
-            "--source", "herdr:qodercli", "--agent", "qodercli",
+            "kitsune", "pane", "report-agent-session", os.environ["KITSUNE_PANE_ID"],
+            "--source", "kitsune:qodercli", "--agent", "qodercli",
             "--agent-session-id", session_id, "--seq", str(time.time_ns()),
         ],
         stdin=subprocess.DEVNULL,

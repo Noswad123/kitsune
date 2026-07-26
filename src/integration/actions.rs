@@ -135,7 +135,7 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
             ];
             if installed.updated_legacy_hooks {
                 messages.push(format!(
-                    "removed legacy herdr droid hook entries from {}",
+                    "removed legacy kitsune droid hook entries from {}",
                     installed.hooks_path.display()
                 ));
             }
@@ -274,12 +274,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed herdr claude hook entries from {}",
+                    "removed kitsune claude hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr claude hook entries found in {}",
+                    "no kitsune claude hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -301,12 +301,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_hooks {
                 messages.push(format!(
-                    "removed herdr codex hook entries from {}",
+                    "removed kitsune codex hook entries from {}",
                     result.hooks_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr codex hook entries found in {}",
+                    "no kitsune codex hook entries found in {}",
                     result.hooks_path.display()
                 ));
             }
@@ -332,12 +332,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed herdr copilot hook entries from {}",
+                    "removed kitsune copilot hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr copilot hook entries found in {}",
+                    "no kitsune copilot hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -359,12 +359,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed herdr devin hook entries from {}",
+                    "removed kitsune devin hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr devin hook entries found in {}",
+                    "no kitsune devin hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -386,12 +386,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_config {
                 messages.push(format!(
-                    "removed herdr kimi hook entries from {}",
+                    "removed kitsune kimi hook entries from {}",
                     result.config_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr kimi hook entries found in {}",
+                    "no kitsune kimi hook entries found in {}",
                     result.config_path.display()
                 ));
             }
@@ -413,23 +413,23 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_hooks {
                 messages.push(format!(
-                    "removed legacy herdr droid hook entries from {}",
+                    "removed legacy kitsune droid hook entries from {}",
                     result.hooks_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no legacy herdr droid hook entries found in {}",
+                    "no legacy kitsune droid hook entries found in {}",
                     result.hooks_path.display()
                 ));
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed herdr droid hook entries from {}",
+                    "removed kitsune droid hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr droid hook entries found in {}",
+                    "no kitsune droid hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -506,12 +506,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed herdr qodercli hook entries from {}",
+                    "removed kitsune qodercli hook entries from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr qodercli hook entries found in {}",
+                    "no kitsune qodercli hook entries found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -533,12 +533,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_hooks {
                 messages.push(format!(
-                    "removed herdr cursor hook entries from {}",
+                    "removed kitsune cursor hook entries from {}",
                     result.hooks_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr cursor hook entries found in {}",
+                    "no kitsune cursor hook entries found in {}",
                     result.hooks_path.display()
                 ));
             }
@@ -560,12 +560,12 @@ pub(crate) fn uninstall_target(
             }
             if result.updated_hooks {
                 messages.push(format!(
-                    "removed herdr mastracode hook entries from {}",
+                    "removed kitsune mastracode hook entries from {}",
                     result.hooks_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no herdr mastracode hook entries found in {}",
+                    "no kitsune mastracode hook entries found in {}",
                     result.hooks_path.display()
                 ));
             }

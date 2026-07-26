@@ -254,7 +254,7 @@ herdr notification show "build failed" --body "api workspace" --position top-lef
 {"id":"req_notify","method":"notification.show","params":{"title":"build failed","body":"api workspace","position":"top-left","sound":"request"}}
 ```
 
-`title` 必填,并且在移除控制字符和重复空白后必须仍有可见文本。`body` 可选。Herdr 把换行、制表符、回车和重复空白折叠为空格,然后把通知文本截断: `title` 80 个字符,`body` 240 个字符。净化后为空的 `title` 返回 `invalid_params`。`position` 可选,只在 `ui.toast.delivery = "herdr"` 时生效;桌面位置相对于完整的 Herdr 画面,省略时使用 `ui.toast.herdr.position`。terminal、system 和 off 投递忽略 `position`。`sound` 可选,取值 `none`、`done` 或 `request`;默认 `none`,且只在通知实际显示时播放。
+`title` 必填,并且在移除控制字符和重复空白后必须仍有可见文本。`body` 可选。Herdr 把换行、制表符、回车和重复空白折叠为空格,然后把通知文本截断: `title` 80 个字符,`body` 240 个字符。净化后为空的 `title` 返回 `invalid_params`。`position` 可选,只在 `ui.toast.delivery = "kitsune"` 时生效;桌面位置相对于完整的 Herdr 画面,省略时使用 `ui.toast.kitsune.position`。terminal、system 和 off 投递忽略 `position`。`sound` 可选,取值 `none`、`done` 或 `request`;默认 `none`,且只在通知实际显示时播放。
 
 响应会报告是否有内容被显示:
 
@@ -541,7 +541,7 @@ Herdr 在本地 socket 上使用换行分隔的 JSON。在 Unix 上,那个 socke
   "method": "pane.report_agent_session",
   "params": {
     "pane_id": "w1:p1",
-    "source": "herdr:codex",
+    "source": "kitsune:codex",
     "agent": "codex",
     "agent_session_id": "..."
   }
@@ -553,7 +553,7 @@ Herdr 存有原生会话引用时,`pane.get`、`pane.list`、`agent.get` 和 `ag
 ```json
 {
   "agent_session": {
-    "source": "herdr:codex",
+    "source": "kitsune:codex",
     "agent": "codex",
     "kind": "id",
     "value": "..."

@@ -143,7 +143,7 @@ pub(crate) fn mastracode_dir() -> io::Result<PathBuf> {
 }
 
 pub(crate) fn grok_dir() -> io::Result<PathBuf> {
-    // GROK_CONFIG_DIR is a herdr-level override only (primarily a test
+    // GROK_CONFIG_DIR is a kitsune-level override only (primarily a test
     // seam); the grok CLI does not honor it, so it stays first and explicit.
     if let Some(value) = std::env::var_os(GROK_CONFIG_DIR_ENV_VAR).filter(|value| !value.is_empty())
     {

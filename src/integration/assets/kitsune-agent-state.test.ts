@@ -44,17 +44,17 @@ afterEach(async () => {
 });
 
 const integrations = [
-  { name: "Pi", modulePath: "./pi/herdr-agent-state.ts" },
-  { name: "Oh My Pi", modulePath: "./omp/herdr-agent-state.ts" },
+  { name: "Pi", modulePath: "./pi/kitsune-agent-state.ts" },
+  { name: "Oh My Pi", modulePath: "./omp/kitsune-agent-state.ts" },
 ] as const;
 
 const socketPlugins = [
   {
     name: "OpenCode",
-    modulePath: "./opencode/herdr-agent-state.js",
+    modulePath: "./opencode/kitsune-agent-state.js",
     sessionID: "opencode-session",
   },
-  { name: "Kilo", modulePath: "./kilo/herdr-agent-state.js", sessionID: "kilo-session" },
+  { name: "Kilo", modulePath: "./kilo/kitsune-agent-state.js", sessionID: "kilo-session" },
 ] as const;
 
 function importFresh(modulePath: string) {
@@ -100,7 +100,7 @@ function captureConnectionEndpoint() {
 }
 
 async function startRecordingServer(name: string): Promise<unknown[]> {
-  const recordingSocketPath = join(tmpdir(), `herdr-${name}-${process.pid}.sock`);
+  const recordingSocketPath = join(tmpdir(), `kitsune-${name}-${process.pid}.sock`);
   socketPath = recordingSocketPath;
   await rm(recordingSocketPath, { force: true });
 
@@ -129,13 +129,13 @@ async function startRecordingServer(name: string): Promise<unknown[]> {
 
 for (const socketPlugin of socketPlugins) {
   test(`${socketPlugin.name} maps the Windows socket marker path to a named pipe endpoint`, async () => {
-    const markerPath = `herdr-${socketPlugin.name.toLowerCase()}-${process.pid}.sock`;
+    const markerPath = `kitsune-${socketPlugin.name.toLowerCase()}-${process.pid}.sock`;
     configureIntegrationEnvironment(markerPath);
     Object.defineProperty(process, "platform", { value: "win32" });
     const connectedEndpoint = captureConnectionEndpoint();
 
-    const { HerdrAgentStatePlugin } = await importFresh(socketPlugin.modulePath);
-    const plugin = await HerdrAgentStatePlugin();
+    const { KitsuneAgentStatePlugin } = await importFresh(socketPlugin.modulePath);
+    const plugin = await KitsuneAgentStatePlugin();
     await plugin.event({
       event: {
         type: "session.updated",
@@ -147,19 +147,19 @@ for (const socketPlugin of socketPlugins) {
   });
 }
 
-test("OpenCode stays disabled without the Herdr socket environment", async () => {
+test("OpenCode stays disabled without the Kitsune socket environment", async () => {
   process.env.KITSUNE_ENV = "1";
   process.env.KITSUNE_PANE_ID = "test:p1";
   delete process.env.KITSUNE_SOCKET_PATH;
 
-  const { HerdrAgentStatePlugin } = await importFresh("./opencode/herdr-agent-state.js");
+  const { KitsuneAgentStatePlugin } = await importFresh("./opencode/kitsune-agent-state.js");
 
-  expect(await HerdrAgentStatePlugin()).toEqual({});
+  expect(await KitsuneAgentStatePlugin()).toEqual({});
 });
 
 for (const integration of integrations) {
   test(`${integration.name} maps the Windows socket marker path to a named pipe endpoint`, async () => {
-    const markerPath = `herdr-${integration.name.toLowerCase().replaceAll(" ", "-")}-${process.pid}.sock`;
+    const markerPath = `kitsune-${integration.name.toLowerCase().replaceAll(" ", "-")}-${process.pid}.sock`;
     configureIntegrationEnvironment(markerPath);
     Object.defineProperty(process, "platform", { value: "win32" });
     const connectedEndpoint = captureConnectionEndpoint();
@@ -230,7 +230,7 @@ for (const integration of integrations) {
 test("Pi reports idle only after the agent settles", async () => {
   const requests = await startRecordingServer("pi-settled");
   const { handlers, pi } = createExtensionHarness();
-  const { default: install } = await importFresh("./pi/herdr-agent-state.ts");
+  const { default: install } = await importFresh("./pi/kitsune-agent-state.ts");
   install(pi);
 
   expect(completionHandlers(handlers)).toEqual(["agent_settled"]);
@@ -260,7 +260,7 @@ test("Pi reports idle only after the agent settles", async () => {
 test("Pi settlement preserves explicit blocked-state precedence", async () => {
   const requests = await startRecordingServer("pi-settled-blocked");
   const { eventHandlers, handlers, pi } = createExtensionHarness();
-  const { default: install } = await importFresh("./pi/herdr-agent-state.ts");
+  const { default: install } = await importFresh("./pi/kitsune-agent-state.ts");
   install(pi);
 
   let idle = true;
@@ -270,7 +270,7 @@ test("Pi settlement preserves explicit blocked-state precedence", async () => {
   idle = false;
   handlers.get("agent_start")?.({}, context);
   await waitFor(() => requestStates(requests).length === 2);
-  eventHandlers.get("herdr:blocked")?.({ active: true, label: "approval" }, context);
+  eventHandlers.get("kitsune:blocked")?.({ active: true, label: "approval" }, context);
   await waitFor(() => requestStates(requests).length === 3);
 
   idle = true;
@@ -278,7 +278,7 @@ test("Pi settlement preserves explicit blocked-state precedence", async () => {
   await Bun.sleep(25);
   expect(requestStates(requests)).toEqual(["idle", "working", "blocked"]);
 
-  eventHandlers.get("herdr:blocked")?.({ active: false }, context);
+  eventHandlers.get("kitsune:blocked")?.({ active: false }, context);
   await waitFor(() => requestStates(requests).length === 4);
   expect(requestStates(requests)).toEqual(["idle", "working", "blocked", "idle"]);
 });
@@ -287,7 +287,7 @@ test("Pi reports the session replacement source", async () => {
   const requests = await startRecordingServer("pi-session-source");
   const { handlers, pi } = createExtensionHarness();
 
-  const { default: install } = await importFresh("./pi/herdr-agent-state.ts");
+  const { default: install } = await importFresh("./pi/kitsune-agent-state.ts");
   install(pi);
 
   const sessionStart = handlers.get("session_start");
@@ -318,7 +318,7 @@ test("Pi reports the session replacement source", async () => {
 });
 
 test("Pi waits for a replacement session report before publishing state", async () => {
-  const recordingSocketPath = join(tmpdir(), `herdr-pi-session-order-${process.pid}.sock`);
+  const recordingSocketPath = join(tmpdir(), `kitsune-pi-session-order-${process.pid}.sock`);
   socketPath = recordingSocketPath;
   await rm(recordingSocketPath, { force: true });
 
@@ -350,7 +350,7 @@ test("Pi waits for a replacement session report before publishing state", async 
 
   configureIntegrationEnvironment(recordingSocketPath);
   const { handlers, pi } = createExtensionHarness();
-  const { default: install } = await importFresh("./pi/herdr-agent-state.ts");
+  const { default: install } = await importFresh("./pi/kitsune-agent-state.ts");
   install(pi);
 
   const sessionStart = handlers.get("session_start");
@@ -393,7 +393,7 @@ test("Pi waits for a replacement session report before publishing state", async 
 });
 
 async function startDroppedFirstResponseServer(name: string) {
-  const recordingSocketPath = join(tmpdir(), `herdr-${name}-${process.pid}.sock`);
+  const recordingSocketPath = join(tmpdir(), `kitsune-${name}-${process.pid}.sock`);
   socketPath = recordingSocketPath;
   await rm(recordingSocketPath, { force: true });
 
@@ -439,7 +439,7 @@ test("Oh My Pi retries working before a queued idle state", async () => {
   process.env.KITSUNE_OMP_IDLE_DEBOUNCE_MS = "0";
   const { handlers, pi } = createExtensionHarness();
 
-  const { default: install } = await importFresh("./omp/herdr-agent-state.ts");
+  const { default: install } = await importFresh("./omp/kitsune-agent-state.ts");
   install(pi);
 
   const context = {
@@ -469,7 +469,7 @@ test("Pi retries working state after an unanswered socket attempt", async () => 
     await startDroppedFirstResponseServer("pi-retry");
   const { handlers, pi } = createExtensionHarness();
 
-  const { default: install } = await importFresh("./pi/herdr-agent-state.ts");
+  const { default: install } = await importFresh("./pi/kitsune-agent-state.ts");
   install(pi);
 
   const sessionStart = handlers.get("session_start");

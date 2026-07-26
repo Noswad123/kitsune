@@ -1203,7 +1203,7 @@ pub(crate) fn uninstall_mastracode() -> io::Result<MastracodeUninstallResult> {
     })
 }
 
-/// The complete Herdr-owned Grok hook config. Installation and status share
+/// The complete Kitsune-owned Grok hook config. Installation and status share
 /// this value so any config drift is reported as outdated.
 pub(crate) fn grok_hook_config(hook_path: &Path) -> Value {
     let quoted_hook_path = shell_single_quote(&hook_path.display().to_string());
@@ -1234,7 +1234,7 @@ pub(crate) fn install_grok() -> io::Result<GrokInstallPaths> {
         )));
     }
 
-    // Grok merges every `~/.grok/hooks/*.json`, so herdr owns a dedicated
+    // Grok merges every `~/.grok/hooks/*.json`, so kitsune owns a dedicated
     // config file and never edits the user's other hooks. The hook script and
     // its config live side by side under `hooks/`.
     let hooks_dir = dir.join("hooks");
@@ -1261,7 +1261,7 @@ pub(crate) fn uninstall_grok() -> io::Result<GrokUninstallResult> {
     let hook_path = hooks_dir.join(GROK_HOOK_INSTALL_NAME);
     let config_path = hooks_dir.join(GROK_HOOK_CONFIG_INSTALL_NAME);
 
-    // herdr owns both files outright, so removal is a straight delete.
+    // kitsune owns both files outright, so removal is a straight delete.
     let removed_config_file = remove_file_if_exists(&config_path)?;
     let removed_hook_file = remove_file_if_exists(&hook_path)?;
 

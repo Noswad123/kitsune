@@ -131,7 +131,7 @@ mod tests {
     #[test]
     fn windows_batch_command_captures_output() {
         let path = std::env::temp_dir().join(format!(
-            "herdr-plugin-command-output-{}.cmd",
+            "kitsune-plugin-command-output-{}.cmd",
             std::process::id()
         ));
         std::fs::write(&path, "@echo off\r\necho plugin-%1\r\n").expect("write batch fixture");

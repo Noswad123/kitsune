@@ -1,12 +1,12 @@
-// installed by herdr
-// managed by herdr; reinstalling or updating the integration overwrites this file.
+// installed by kitsune
+// managed by kitsune; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
 // KITSUNE_INTEGRATION_ID=opencode
 // KITSUNE_INTEGRATION_VERSION=9
 
 import net from "node:net";
 
-const SOURCE = "herdr:opencode";
+const SOURCE = "kitsune:opencode";
 const AGENT = "opencode";
 let reportSeq = Date.now() * 1000;
 let requestChain = Promise.resolve();
@@ -122,7 +122,7 @@ function reportState(state, sessionID) {
   return request("pane.report_agent", params);
 }
 
-export const HerdrAgentStatePlugin = async () => {
+export const KitsuneAgentStatePlugin = async () => {
   if (
     process.env.KITSUNE_ENV !== "1" ||
     !process.env.KITSUNE_SOCKET_PATH ||
@@ -158,7 +158,7 @@ export const HerdrAgentStatePlugin = async () => {
       switch (type) {
         case "session.created":
           // A root session.created is a genuine new-session start (subagent
-          // creates are dropped above). Signal it so herdr replaces the pane's
+          // creates are dropped above). Signal it so kitsune replaces the pane's
           // prior session id instead of treating the change as cross-talk.
           await reportSession(sessionID, "new");
           break;

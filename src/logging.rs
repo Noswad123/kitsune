@@ -589,7 +589,7 @@ mod tests {
 
     fn temp_log_path(name: &str) -> PathBuf {
         let unique = format!(
-            "herdr-logging-tests-{}-{}-{}",
+            "kitsune-logging-tests-{}-{}-{}",
             name,
             std::process::id(),
             std::time::SystemTime::now()
@@ -597,15 +597,15 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         );
-        std::env::temp_dir().join(unique).join("herdr.log")
+        std::env::temp_dir().join(unique).join("kitsune.log")
     }
 
     #[test]
     fn rotated_log_path_appends_numeric_suffix() {
-        let path = PathBuf::from("/tmp/herdr.log");
+        let path = PathBuf::from("/tmp/kitsune.log");
         assert_eq!(
             rotated_log_path(&path, 2),
-            PathBuf::from("/tmp/herdr.log.2")
+            PathBuf::from("/tmp/kitsune.log.2")
         );
     }
 
@@ -645,7 +645,7 @@ mod tests {
         let dir = path.parent().unwrap().to_path_buf();
         fs::create_dir_all(&dir).unwrap();
 
-        let writer = RotatingFileMakeWriter::new(dir.clone(), "herdr.log", 8, 0).unwrap();
+        let writer = RotatingFileMakeWriter::new(dir.clone(), "kitsune.log", 8, 0).unwrap();
         {
             let mut guard = writer.make_writer();
             guard.write_all(b"12345678").unwrap();

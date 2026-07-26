@@ -1,14 +1,14 @@
 #!/bin/sh
-# installed by herdr
-# managed by herdr; reinstalling or updating the integration overwrites this file.
+# installed by kitsune
+# managed by kitsune; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# KITSUNE_INTEGRATION_ID=claude
-# KITSUNE_INTEGRATION_VERSION=7
+# KITSUNE_INTEGRATION_ID=grok
+# KITSUNE_INTEGRATION_VERSION=1
 
 set -eu
 
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/herdr-claude-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/kitsune-grok-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
@@ -29,8 +29,7 @@ import random
 import socket
 import time
 
-source = "herdr:claude"
-action = os.environ.get("KITSUNE_ACTION", "")
+source = "kitsune:grok"
 pane_id = os.environ.get("KITSUNE_PANE_ID")
 socket_path = os.environ.get("KITSUNE_SOCKET_PATH")
 hook_input_file = os.environ.get("KITSUNE_HOOK_INPUT_FILE")
@@ -48,43 +47,42 @@ if hook_input_file:
     except Exception:
         hook_input = {}
 
-hook_event_name = str(hook_input.get("hook_event_name") or "")
-is_subagent = bool(hook_input.get("agent_id"))
-if is_subagent:
+
+def first_text(*keys):
+    for key in keys:
+        value = hook_input.get(key)
+        if isinstance(value, str) and value:
+            return value
+    return None
+
+
+# Backstop: only report on session-start payloads. Grok emits
+# "session_start" and accepts the Claude/Cursor spellings, so tolerate all
+# three; a missing field is allowed for forward compatibility.
+hook_event_name = first_text("hook_event_name", "hookEventName")
+if hook_event_name not in (None, "session_start", "SessionStart", "sessionStart"):
     raise SystemExit(0)
-if hook_event_name == "SubagentStop":
-    # SubagentStop is a completion event. Older Herdr integrations mapped it
-    # to durable working, but Claude recap/away-summary can emit it after the
-    # main turn has already stopped. Never let it revive an idle pane.
+
+# Grok injects GROK_SESSION_ID into every hook process; prefer it and fall
+# back to the event payload's session id fields.
+session_id = os.environ.get("GROK_SESSION_ID") or first_text("session_id", "sessionId")
+agent_session_id = session_id if isinstance(session_id, str) and session_id else None
+if not agent_session_id:
     raise SystemExit(0)
+
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
 report_seq = time.time_ns()
-session_id = hook_input.get("session_id")
-agent_session_id = session_id if isinstance(session_id, str) and session_id else None
-transcript_path = hook_input.get("transcript_path")
-agent_session_path = transcript_path if isinstance(transcript_path, str) and transcript_path else None
-session_start_source = hook_input.get("source") if hook_event_name == "SessionStart" else None
-if not isinstance(session_start_source, str) or not session_start_source:
-    session_start_source = None
-if agent_session_id:
-    params = {
+request = {
+    "id": request_id,
+    "method": "pane.report_agent_session",
+    "params": {
         "pane_id": pane_id,
         "source": source,
-        "agent": "claude",
+        "agent": "grok",
         "seq": report_seq,
         "agent_session_id": agent_session_id,
-    }
-    if agent_session_path:
-        params["agent_session_path"] = agent_session_path
-    if session_start_source:
-        params["session_start_source"] = session_start_source
-    request = {
-        "id": request_id,
-        "method": "pane.report_agent_session",
-        "params": params,
-    }
-else:
-    raise SystemExit(0)
+    },
+}
 
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

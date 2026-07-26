@@ -158,7 +158,7 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
     let local_socket = local_forward_socket_path(&remote.target, &session_name);
     let program = std::env::args()
         .next()
-        .unwrap_or_else(|| "herdr".to_string());
+        .unwrap_or_else(|| crate::product::CLI_NAME.to_string());
     let reattach_command = reattach_command(
         &program,
         &remote.target,
@@ -199,7 +199,7 @@ pub(crate) fn run_remote_client_bridge() -> io::Result<()> {
         io::Error::new(
             err.kind(),
             format!(
-                "failed to connect to remote Herdr client socket {}: {err}",
+                "failed to connect to remote Kitsune client socket {}: {err}",
                 socket_path.display()
             ),
         )
@@ -230,7 +230,7 @@ fn ensure_remote_server_running() -> io::Result<()> {
             return Ok(());
         }
         return Err(io::Error::other(
-            "remote herdr server must restart before this bridge can attach; rerun `herdr --remote` from an interactive terminal to approve stopping it",
+            "remote kitsune server must restart before this bridge can attach; rerun `kitsune --remote` from an interactive terminal to approve stopping it",
         ));
     }
 
@@ -293,7 +293,7 @@ struct RemoteHerdr {
 
 impl RemoteHerdr {
     fn for_platform(platform: RemotePlatform) -> Self {
-        let install_suffix = ".local/bin/herdr".to_string();
+        let install_suffix = ".local/bin/kitsune".to_string();
         let shell_path = format!("\"$HOME/{install_suffix}\"");
         Self {
             install_suffix,
@@ -721,7 +721,7 @@ fn prepare_remote_herdr(
 
     if !remote_binary_matches(ssh, &remote_herdr)? {
         return Err(io::Error::other(format!(
-            "installed remote herdr at {}, but it did not report version {}",
+            "installed remote kitsune at {}, but it did not report version {}",
             remote_herdr.shell_path,
             current_version()
         )));
@@ -803,34 +803,34 @@ emit() {
     fi
 }
 if [ -n "$home" ]; then
-    emit "$home/.local/bin/herdr"
+    emit "$home/.local/bin/kitsune"
 fi
 "#,
     );
     if platform.os == "macos" {
         script.push_str(
-            r#"    emit "/opt/homebrew/bin/herdr"
-    emit "/usr/local/bin/herdr"
+            r#"    emit "/opt/homebrew/bin/kitsune"
+    emit "/usr/local/bin/kitsune"
 "#,
         );
     } else if platform.os == "linux" {
         script.push_str(
-            r#"    emit "/home/linuxbrew/.linuxbrew/bin/herdr"
+            r#"    emit "/home/linuxbrew/.linuxbrew/bin/kitsune"
 "#,
         );
     }
     script.push_str(
         r#"if [ -n "$home" ]; then
-    emit "$home/.local/share/mise/installs/herdr/$version/bin/herdr"
-    emit "$home/.local/share/mise/installs/herdr/$version/herdr"
-    emit "$home/.local/share/mise/installs/github-ogulcancelik-herdr/$version/herdr"
-    emit "$home/.nix-profile/bin/herdr"
+    emit "$home/.local/share/mise/installs/kitsune/$version/bin/kitsune"
+    emit "$home/.local/share/mise/installs/kitsune/$version/kitsune"
+    emit "$home/.local/share/mise/installs/github-Noswad123-herdr/$version/kitsune"
+    emit "$home/.nix-profile/bin/kitsune"
 fi
 if [ -n "$user" ]; then
-    emit "/etc/profiles/per-user/$user/bin/herdr"
+    emit "/etc/profiles/per-user/$user/bin/kitsune"
 fi
-emit "/nix/var/nix/profiles/default/bin/herdr"
-emit "/run/current-system/sw/bin/herdr"
+emit "/nix/var/nix/profiles/default/bin/kitsune"
+emit "/run/current-system/sw/bin/kitsune"
 "#,
     );
 
@@ -841,7 +841,7 @@ fn remote_binary_on_path_any(
     ssh: &RemoteSsh,
     remote_herdr: &RemoteHerdr,
 ) -> io::Result<Option<RemoteHerdr>> {
-    let output = ssh.user_shell_output("command -v herdr")?;
+    let output = ssh.user_shell_output("command -v kitsune")?;
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         if let Some(candidate) = remote_herdr_from_path_discovery(remote_herdr, &stdout) {
@@ -851,7 +851,7 @@ fn remote_binary_on_path_any(
 
     // Non-POSIX login shells such as xonsh reject `command -v`; retry through
     // /bin/sh while retaining the login-shell probe for shell-initialized PATHs.
-    let output = ssh.sh_output("command -v herdr\n")?;
+    let output = ssh.sh_output("command -v kitsune\n")?;
     if !output.status.success() {
         return Ok(None);
     }
@@ -888,7 +888,7 @@ fn remote_herdr_from_path(remote_herdr: &RemoteHerdr, path: &str) -> Option<Remo
 }
 
 fn is_mise_shim_path(path: &str) -> bool {
-    path.ends_with("/mise/shims/herdr")
+    path.ends_with("/mise/shims/kitsune")
 }
 
 fn remote_binary_matches(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result<bool> {
@@ -905,7 +905,7 @@ fn remote_binary_matches(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Res
     let mut lines = stdout.lines();
     let version = lines.next().unwrap_or_default().trim();
     let status = lines.next().unwrap_or_default();
-    Ok(version == format!("herdr {}", current_version())
+    Ok(version == format!("kitsune {}", current_version())
         && parse_client_status_json(status)
             .map(|status| status.protocol == CURRENT_PROTOCOL)
             .unwrap_or(false))
@@ -968,7 +968,7 @@ fn install_source_description_for(
     }
 
     if local_binary_can_seed_remote {
-        "the current local herdr binary".to_string()
+        "the current local kitsune binary".to_string()
     } else {
         format!(
             "the {} {} asset for {}",
@@ -1113,13 +1113,13 @@ fn confirm_remote_install_with_running_server(
         Err(err) => {
             if !io::stdin().is_terminal() {
                 return Err(io::Error::other(format!(
-                    "could not inspect the running remote herdr server on {target} before installing: {err}; run from an interactive terminal to approve updating the remote binary"
+                    "could not inspect the running remote kitsune server on {target} before installing: {err}; run from an interactive terminal to approve updating the remote binary"
                 )));
             }
             eprintln!(
-                "could not inspect the running remote herdr server on {target} before installing: {err}"
+                "could not inspect the running remote kitsune server on {target} before installing: {err}"
             );
-            eprint!("continue installing the remote herdr binary? [y/N] ");
+            eprint!("continue installing the remote kitsune binary? [y/N] ");
             io::stderr().flush()?;
 
             let mut answer = String::new();
@@ -1128,7 +1128,7 @@ fn confirm_remote_install_with_running_server(
             if answer != "y" && answer != "yes" {
                 return Err(io::Error::new(
                     io::ErrorKind::Interrupted,
-                    "remote herdr install cancelled",
+                    "remote kitsune install cancelled",
                 ));
             }
             return Ok(false);
@@ -1154,10 +1154,10 @@ fn confirm_remote_install_with_running_server(
 
     if plan == RemoteInstallRunningServerPlan::KeepRunning {
         if io::stdin().is_terminal() {
-            eprintln!("remote herdr server on {target} is already compatible:");
+            eprintln!("remote kitsune server on {target} is already compatible:");
             eprintln!("  server: v{}", version_label(version.as_deref()));
             eprintln!(
-                "Herdr will install {} without stopping the running remote server.",
+                "Kitsune will install {} without stopping the running remote server.",
                 current_version()
             );
         }
@@ -1169,7 +1169,7 @@ fn confirm_remote_install_with_running_server(
             RemoteInstallRunningServerPlan::LiveHandoff => return Ok(false),
             RemoteInstallRunningServerPlan::StopRequired(_) => {
                 return Err(io::Error::other(format!(
-                    "remote herdr server on {target} is running v{}; run from an interactive terminal to approve stopping it for the update",
+                    "remote kitsune server on {target} is running v{}; run from an interactive terminal to approve stopping it for the update",
                     version_label(version.as_deref())
                 )));
             }
@@ -1178,19 +1178,19 @@ fn confirm_remote_install_with_running_server(
     }
 
     if plan == RemoteInstallRunningServerPlan::LiveHandoff {
-        eprintln!("remote herdr server on {target} is currently running:");
+        eprintln!("remote kitsune server on {target} is currently running:");
         eprintln!("  server: v{}", version_label(version.as_deref()));
         eprintln!(
-            "Herdr will install {} and hand off live pane processes to the prepared server.",
+            "Kitsune will install {} and hand off live pane processes to the prepared server.",
             current_version()
         );
         return Ok(false);
     }
 
-    eprintln!("remote herdr server on {target} is currently running:");
+    eprintln!("remote kitsune server on {target} is currently running:");
     eprintln!("  server: v{}", version_label(version.as_deref()));
     eprintln!(
-        "To complete the remote update, Herdr must stop the running remote server after installing."
+        "To complete the remote update, Kitsune must stop the running remote server after installing."
     );
     eprintln!("This stops active remote pane processes, including shells, dev servers, and tests.");
     eprintln!();
@@ -1206,7 +1206,7 @@ fn confirm_remote_install_with_running_server(
     if answer != "y" && answer != "yes" {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
-            "remote herdr install cancelled",
+            "remote kitsune install cancelled",
         ));
     }
 
@@ -1308,19 +1308,19 @@ fn confirm_remote_server_stop(
     if !io::stdin().is_terminal() {
         if reason == RemoteServerRestartReason::ProtocolMismatch {
             return Err(io::Error::other(format!(
-                "remote herdr server on {target} must stop before this client can attach; run from an interactive terminal to approve stopping it"
+                "remote kitsune server on {target} must stop before this client can attach; run from an interactive terminal to approve stopping it"
             )));
         }
 
         eprintln!(
-            "remote herdr server on {target} is still running v{}; it will use {} after it restarts.",
+            "remote kitsune server on {target} is still running v{}; it will use {} after it restarts.",
             version_label(version),
             current_version()
         );
         return Ok(false);
     }
 
-    eprintln!("remote herdr server on {target} is currently running:");
+    eprintln!("remote kitsune server on {target} is currently running:");
     eprintln!("  server: v{}", version_label(version));
     eprintln!("  prepared binary: {}", current_version());
     eprintln!();
@@ -1331,17 +1331,17 @@ fn confirm_remote_server_stop(
         }
         RemoteServerRestartReason::DaemonDetachMissing => {
             eprintln!(
-                "the remote server was started by a herdr build that may not survive SSH connection loss. restart it so network drops disconnect only this client."
+                "the remote server was started by a kitsune build that may not survive SSH connection loss. restart it so network drops disconnect only this client."
             );
         }
         RemoteServerRestartReason::BinaryUpdated => {
             eprintln!(
-                "the remote herdr binary was installed or replaced. restart the remote server so it uses the prepared binary."
+                "the remote kitsune binary was installed or replaced. restart the remote server so it uses the prepared binary."
             );
         }
         RemoteServerRestartReason::VersionMismatch => {
             eprintln!(
-                "the remote server is still running a different herdr version. restart it so it uses the prepared binary."
+                "the remote server is still running a different kitsune version. restart it so it uses the prepared binary."
             );
         }
     }
@@ -1366,7 +1366,7 @@ fn confirm_remote_server_stop(
     if reason == RemoteServerRestartReason::ProtocolMismatch {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
-            "remote herdr server stop cancelled",
+            "remote kitsune server stop cancelled",
         ));
     }
 
@@ -1387,7 +1387,7 @@ fn live_handoff_remote_server(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io
     }
 
     eprintln!(
-        "handed off the remote herdr server on {}; reconnecting to the prepared server.",
+        "handed off the remote kitsune server on {}; reconnecting to the prepared server.",
         ssh.target()
     );
     Ok(())
@@ -1402,7 +1402,7 @@ fn stop_remote_server(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result
 
     wait_for_remote_server_shutdown(ssh, remote_herdr)?;
     eprintln!(
-        "stopped the remote herdr server on {}; it will restart when the remote client bridge attaches.",
+        "stopped the remote kitsune server on {}; it will restart when the remote client bridge attaches.",
         ssh.target()
     );
     Ok(())
@@ -1418,7 +1418,7 @@ fn wait_for_remote_server_shutdown(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) 
             return Err(io::Error::new(
                 io::ErrorKind::TimedOut,
                 format!(
-                    "shutdown was requested, but the old remote herdr server on {target} is still responding after {} seconds",
+                    "shutdown was requested, but the old remote kitsune server on {target} is still responding after {} seconds",
                     REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT.as_secs(),
                     target = ssh.target()
                 ),
@@ -1433,7 +1433,7 @@ fn version_label(version: Option<&str>) -> &str {
 }
 
 fn warn_if_remote_bin_not_on_path(ssh: &RemoteSsh) -> io::Result<()> {
-    let output = ssh.user_shell_output("command -v herdr")?;
+    let output = ssh.user_shell_output("command -v kitsune")?;
     if output.status.success()
         && remote_shell_resolves_managed_install(&String::from_utf8_lossy(&output.stdout))
     {
@@ -1441,7 +1441,7 @@ fn warn_if_remote_bin_not_on_path(ssh: &RemoteSsh) -> io::Result<()> {
     }
 
     eprintln!(
-        "herdr: installed remote binary to ~/.local/bin/herdr, but the remote shell does not resolve `herdr` to that path"
+        "kitsune: installed remote binary to ~/.local/bin/kitsune, but the remote shell does not resolve `kitsune` to that path"
     );
     Ok(())
 }
@@ -1451,7 +1451,7 @@ fn remote_shell_resolves_managed_install(stdout: &str) -> bool {
         .lines()
         .next()
         .map(str::trim)
-        .is_some_and(|path| path.ends_with("/.local/bin/herdr"))
+        .is_some_and(|path| path.ends_with("/.local/bin/kitsune"))
 }
 
 fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource> {
@@ -1459,7 +1459,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
     let asset = remote_release_asset(&asset_key)?;
 
     let dir = private_download_dir(&asset_key)?;
-    let path = dir.join("herdr.tmp");
+    let path = dir.join("kitsune.tmp");
     let status = crate::noninteractive_process::curl_command()
         .args(["-sfL", "--max-time", "120", "-o"])
         .arg(&path)
@@ -1519,7 +1519,7 @@ fn preview_assets_for_build<'a>(
     }
     let build = manifest.builds.get(build_id).ok_or_else(|| {
         io::Error::other(format!(
-            "preview manifest no longer includes build {build_id}; run `herdr update` locally or set {REMOTE_BINARY_ENV_VAR}=target/release/herdr"
+            "preview manifest no longer includes build {build_id}; run `kitsune update` locally or set {REMOTE_BINARY_ENV_VAR}=target/release/kitsune"
         ))
     })?;
     Ok((build.protocol, &build.assets))
@@ -1538,7 +1538,7 @@ fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
         let (protocol, assets) = preview_assets_for_build(&manifest, build_id)?;
         if protocol != CURRENT_PROTOCOL {
             return Err(io::Error::other(format!(
-                "preview manifest has build {build_id} protocol {protocol}, but this client needs protocol {CURRENT_PROTOCOL}; set {REMOTE_BINARY_ENV_VAR}=target/release/herdr or install a matching Herdr on the remote host manually"
+                "preview manifest has build {build_id} protocol {protocol}, but this client needs protocol {CURRENT_PROTOCOL}; set {REMOTE_BINARY_ENV_VAR}=target/release/kitsune or install a matching Kitsune on the remote host manually"
             )));
         }
         return assets.get(asset_key).map(remote_asset_info).ok_or_else(|| {
@@ -1554,14 +1554,14 @@ fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
         .map_err(|err| io::Error::other(format!("failed to parse update manifest JSON: {err}")))?;
     let release = manifest.release_for_version(&current_version).ok_or_else(|| {
         io::Error::other(format!(
-            "release manifest does not include herdr {current_version}; build herdr for {} or install it there manually",
+            "release manifest does not include kitsune {current_version}; build kitsune for {} or install it there manually",
             asset_key
         ))
     })?;
     if let Some(protocol) = release.protocol {
         if protocol != CURRENT_PROTOCOL {
             return Err(io::Error::other(format!(
-                "release manifest has herdr {current_version} protocol {protocol}, but this client needs protocol {CURRENT_PROTOCOL}; set {REMOTE_BINARY_ENV_VAR}=target/release/herdr or install a matching herdr on the remote host manually"
+                "release manifest has kitsune {current_version} protocol {protocol}, but this client needs protocol {CURRENT_PROTOCOL}; set {REMOTE_BINARY_ENV_VAR}=target/release/kitsune or install a matching kitsune on the remote host manually"
             )));
         }
     }
@@ -1571,7 +1571,7 @@ fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
         .map(remote_asset_info)
         .ok_or_else(|| {
             io::Error::other(format!(
-                "no {asset_key} binary in the release manifest for herdr {current_version}"
+                "no {asset_key} binary in the release manifest for kitsune {current_version}"
             ))
         })
 }
@@ -1580,7 +1580,7 @@ fn private_download_dir(asset_key: &str) -> io::Result<PathBuf> {
     let base = std::env::temp_dir();
     for attempt in 0..100 {
         let dir = base.join(format!(
-            "herdr-remote-{}-{}-{attempt}",
+            "kitsune-remote-{}-{}-{attempt}",
             std::process::id(),
             asset_key
         ));
@@ -1593,7 +1593,7 @@ fn private_download_dir(asset_key: &str) -> io::Result<PathBuf> {
 
     Err(io::Error::new(
         io::ErrorKind::AlreadyExists,
-        "failed to create private herdr remote download directory",
+        "failed to create private kitsune remote download directory",
     ))
 }
 
@@ -1604,14 +1604,14 @@ fn confirm_remote_install(
 ) -> io::Result<()> {
     if !io::stdin().is_terminal() {
         return Err(io::Error::other(format!(
-            "matching remote herdr {} is not installed at {}; run from an interactive terminal to approve installation",
+            "matching remote kitsune {} is not installed at {}; run from an interactive terminal to approve installation",
             current_version(),
             remote_herdr.shell_path
         )));
     }
 
     eprintln!(
-        "matching herdr {} is not installed on {target} for {}.",
+        "matching kitsune {} is not installed on {target} for {}.",
         current_version(),
         remote_herdr.platform.asset_key()
     );
@@ -1627,7 +1627,7 @@ fn confirm_remote_install(
     if answer == "n" || answer == "no" {
         return Err(io::Error::new(
             io::ErrorKind::Interrupted,
-            "remote herdr installation cancelled",
+            "remote kitsune installation cancelled",
         ));
     }
 
@@ -1651,7 +1651,11 @@ fn reattach_command(
     keybindings: RemoteKeybindings,
     live_handoff: bool,
 ) -> String {
-    let program = if program.is_empty() { "herdr" } else { program };
+    let program = if program.is_empty() {
+        crate::product::CLI_NAME
+    } else {
+        program
+    };
     let mut command = format!("{} --remote {}", shell_quote(program), shell_quote(target));
     if keybindings != RemoteKeybindings::Local {
         command.push_str(" --remote-keybindings ");
@@ -1721,7 +1725,7 @@ impl SshStdioBridge {
                     Ok((stream, _addr)) => {
                         if let Err(err) = stream.set_nonblocking(false) {
                             eprintln!(
-                                "herdr: remote bridge failed to prepare client socket: {err}"
+                                "kitsune: remote bridge failed to prepare client socket: {err}"
                             );
                             continue;
                         }
@@ -1732,14 +1736,14 @@ impl SshStdioBridge {
                             &session_name,
                             thread_ssh_options.as_ref(),
                         ) {
-                            eprintln!("herdr: remote bridge failed: {err}");
+                            eprintln!("kitsune: remote bridge failed: {err}");
                         }
                     }
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                         thread::sleep(BRIDGE_ACCEPT_POLL);
                     }
                     Err(err) => {
-                        eprintln!("herdr: remote bridge listener failed: {err}");
+                        eprintln!("kitsune: remote bridge listener failed: {err}");
                         break;
                     }
                 }
@@ -1769,7 +1773,7 @@ impl Drop for SshStdioBridge {
 ///
 /// Using a private directory created with fail-if-exists semantics — rather
 /// than a predictable file in the world-writable temp dir — stops a local user
-/// from pre-planting a symlink or world-writable file that herdr would write
+/// from pre-planting a symlink or world-writable file that kitsune would write
 /// and `ssh -F` would then read.
 fn private_ssh_config_dir() -> io::Result<PathBuf> {
     use std::os::unix::fs::DirBuilderExt;
@@ -1783,7 +1787,7 @@ fn private_ssh_config_dir() -> io::Result<PathBuf> {
     let mut last_error = None;
     for base in bases {
         for attempt in 0..100 {
-            let dir = base.join(format!("herdr-ssh-{}-{attempt}", std::process::id()));
+            let dir = base.join(format!("kitsune-ssh-{}-{attempt}", std::process::id()));
             if !fits_unix_socket_path(&dir.join(SSH_CONTROL_SOCKET_NAME)) {
                 continue;
             }
@@ -1801,7 +1805,7 @@ fn private_ssh_config_dir() -> io::Result<PathBuf> {
     Err(last_error.unwrap_or_else(|| {
         io::Error::new(
             io::ErrorKind::AlreadyExists,
-            "failed to create private herdr ssh config directory",
+            "failed to create private kitsune ssh config directory",
         )
     }))
 }
@@ -1809,7 +1813,7 @@ fn private_ssh_config_dir() -> io::Result<PathBuf> {
 /// Quotes a path for an ssh_config `Include` so a path containing spaces (or
 /// glob metacharacters) is treated as one literal token instead of being split
 /// or expanded by ssh — otherwise the user's config might not be Included and
-/// herdr's fallback would wrongly take effect.
+/// kitsune's fallback would wrongly take effect.
 fn ssh_config_quote(path: &str) -> String {
     format!("\"{path}\"")
 }
@@ -1819,7 +1823,7 @@ fn ssh_config_quote(path: &str) -> String {
 ///
 /// The file `Include`s the user's real ssh config first, so ssh's
 /// first-value-wins rule keeps any `ServerAlive*` the user set there (including
-/// an explicit `0` to disable it). Herdr's keepalive values apply only when
+/// an explicit `0` to disable it). Kitsune's keepalive values apply only when
 /// the user has none.
 fn write_managed_ssh_config() -> io::Result<ManagedSshConfig> {
     use std::os::unix::fs::OpenOptionsExt;
@@ -1969,7 +1973,7 @@ fn local_forward_socket_path(target: &str, session_name: &str) -> PathBuf {
 
     let tmpdir = std::env::temp_dir();
     let readable = tmpdir.join(format!(
-        "herdr-remote-{pid}-{target_clean}-{session_clean}.sock"
+        "kitsune-remote-{pid}-{target_clean}-{session_clean}.sock"
     ));
     if fits_unix_socket_path(&readable) {
         return readable;
@@ -1983,7 +1987,7 @@ fn local_forward_socket_path(target: &str, session_name: &str) -> PathBuf {
     // the prefix is kept only for debuggability.
     let target_prefix: String = target_clean.chars().take(8).collect();
     let hash = short_socket_hash(target, session_name);
-    let short_name = format!("herdr-r-{pid}-{target_prefix}-{hash}.sock");
+    let short_name = format!("kitsune-r-{pid}-{target_prefix}-{hash}.sock");
     let short_in_tmp = tmpdir.join(&short_name);
     if fits_unix_socket_path(&short_in_tmp) {
         return short_in_tmp;
@@ -2033,7 +2037,7 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
 
         let socket = std::env::temp_dir().join(format!(
-            "herdr-bridge-permissions-test-{}.sock",
+            "kitsune-bridge-permissions-test-{}.sock",
             std::process::id()
         ));
         let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
@@ -2065,7 +2069,7 @@ mod tests {
         let control_path = managed_config.options.control_path.clone();
         let contents = std::fs::read_to_string(&path).expect("read keepalive config");
 
-        // herdr's fallback transport settings are present...
+        // kitsune's fallback transport settings are present...
         assert!(
             contents.contains("Host *"),
             "config should add a Host * fallback block: {contents}"
@@ -2094,7 +2098,7 @@ mod tests {
                 let fallback_at = contents.find("Host *").expect("fallback present");
                 assert!(
                     include_at < fallback_at,
-                    "user config must be Included before herdr's fallback: {contents}"
+                    "user config must be Included before kitsune's fallback: {contents}"
                 );
             }
         }
@@ -2175,9 +2179,9 @@ mod tests {
 
     #[test]
     fn remote_install_stream_command_avoids_shell_c_wrapper() {
-        let command = remote_install_stream_command("/home/a b/.local/bin/herdr.tmp.123");
+        let command = remote_install_stream_command("/home/a b/.local/bin/kitsune.tmp.123");
 
-        assert_eq!(command, "tee '/home/a b/.local/bin/herdr.tmp.123'");
+        assert_eq!(command, "tee '/home/a b/.local/bin/kitsune.tmp.123'");
     }
 
     #[test]
@@ -2191,35 +2195,36 @@ mod tests {
         assert!(prepare.contains("mkdir -p \"$dir\""));
         assert!(prepare.contains("printf '%s\\0%s\\0' \"$tmp\" \"$dest\""));
         assert_eq!(
-            parse_remote_install_paths(b"/home/a b/herdr.tmp.42\0/home/a b/herdr\0").unwrap(),
+            parse_remote_install_paths(b"/home/a b/kitsune.tmp.42\0/home/a b/kitsune\0").unwrap(),
             (
-                "/home/a b/herdr.tmp.42".to_string(),
-                "/home/a b/herdr".to_string()
+                "/home/a b/kitsune.tmp.42".to_string(),
+                "/home/a b/kitsune".to_string()
             )
         );
         assert_eq!(
-            parse_remote_install_paths(b"/home/a b\n/herdr.tmp.42\0/home/a b\n/herdr\0").unwrap(),
+            parse_remote_install_paths(b"/home/a b\n/kitsune.tmp.42\0/home/a b\n/kitsune\0")
+                .unwrap(),
             (
-                "/home/a b\n/herdr.tmp.42".to_string(),
-                "/home/a b\n/herdr".to_string()
+                "/home/a b\n/kitsune.tmp.42".to_string(),
+                "/home/a b\n/kitsune".to_string()
             )
         );
         assert_eq!(
-            remote_install_commit_script("/home/a b/herdr.tmp.42", "/home/a b/herdr"),
-            "set -eu\nchmod 755 '/home/a b/herdr.tmp.42'\nmv '/home/a b/herdr.tmp.42' '/home/a b/herdr'\n"
+            remote_install_commit_script("/home/a b/kitsune.tmp.42", "/home/a b/kitsune"),
+            "set -eu\nchmod 755 '/home/a b/kitsune.tmp.42'\nmv '/home/a b/kitsune.tmp.42' '/home/a b/kitsune'\n"
         );
     }
 
     #[test]
     fn extract_remote_args_removes_space_form() {
         let args = vec![
-            "herdr".into(),
+            "kitsune".into(),
             "--remote".into(),
             "dev".into(),
             "--help".into(),
         ];
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
-        assert_eq!(cleaned, vec!["herdr", "--help"]);
+        assert_eq!(cleaned, vec!["kitsune", "--help"]);
         let remote = remote.unwrap();
         assert_eq!(remote.target, "dev");
         assert_eq!(remote.keybindings, RemoteKeybindings::Local);
@@ -2227,9 +2232,9 @@ mod tests {
 
     #[test]
     fn extract_remote_args_removes_equals_form() {
-        let args = vec!["herdr".into(), "--remote=user@host".into()];
+        let args = vec!["kitsune".into(), "--remote=user@host".into()];
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
-        assert_eq!(cleaned, vec!["herdr"]);
+        assert_eq!(cleaned, vec!["kitsune"]);
         let remote = remote.unwrap();
         assert_eq!(remote.target, "user@host");
         assert_eq!(remote.keybindings, RemoteKeybindings::Local);
@@ -2238,13 +2243,13 @@ mod tests {
     #[test]
     fn extract_remote_args_accepts_remote_keybindings_server() {
         let args = vec![
-            "herdr".into(),
+            "kitsune".into(),
             "--remote".into(),
             "dev".into(),
             "--remote-keybindings=server".into(),
         ];
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
-        assert_eq!(cleaned, vec!["herdr"]);
+        assert_eq!(cleaned, vec!["kitsune"]);
         let remote = remote.unwrap();
         assert_eq!(remote.target, "dev");
         assert_eq!(remote.keybindings, RemoteKeybindings::Server);
@@ -2253,23 +2258,23 @@ mod tests {
     #[test]
     fn extract_remote_args_accepts_remote_keybindings_space_form() {
         let args = vec![
-            "herdr".into(),
+            "kitsune".into(),
             "--remote=dev".into(),
             "--remote-keybindings".into(),
             "server".into(),
         ];
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
-        assert_eq!(cleaned, vec!["herdr"]);
+        assert_eq!(cleaned, vec!["kitsune"]);
         assert_eq!(remote.unwrap().keybindings, RemoteKeybindings::Server);
     }
 
     #[test]
     fn extract_remote_args_accepts_explicit_handoff() {
-        let args = vec!["herdr".into(), "--remote=dev".into(), "--handoff".into()];
+        let args = vec!["kitsune".into(), "--remote=dev".into(), "--handoff".into()];
 
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
 
-        assert_eq!(cleaned, vec!["herdr"]);
+        assert_eq!(cleaned, vec!["kitsune"]);
         let remote = remote.unwrap();
         assert_eq!(remote.target, "dev");
         assert!(remote.live_handoff);
@@ -2278,7 +2283,7 @@ mod tests {
     #[test]
     fn extract_remote_args_preserves_child_remote_options_after_separator() {
         let args = vec![
-            "herdr".into(),
+            "kitsune".into(),
             "agent".into(),
             "start".into(),
             "repro".into(),
@@ -2298,7 +2303,7 @@ mod tests {
 
     #[test]
     fn extract_remote_args_preserves_handoff_without_remote() {
-        let args = vec!["herdr".into(), "update".into(), "--handoff".into()];
+        let args = vec!["kitsune".into(), "update".into(), "--handoff".into()];
 
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
 
@@ -2308,7 +2313,7 @@ mod tests {
 
     #[test]
     fn extract_remote_args_rejects_remote_keybindings_without_remote() {
-        let args = vec!["herdr".into(), "--remote-keybindings=server".into()];
+        let args = vec!["kitsune".into(), "--remote-keybindings=server".into()];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "--remote-keybindings requires --remote");
     }
@@ -2316,7 +2321,7 @@ mod tests {
     #[test]
     fn extract_remote_args_rejects_duplicate_remote_keybindings() {
         let args = vec![
-            "herdr".into(),
+            "kitsune".into(),
             "--remote=dev".into(),
             "--remote-keybindings=local".into(),
             "--remote-keybindings=server".into(),
@@ -2327,14 +2332,14 @@ mod tests {
 
     #[test]
     fn extract_remote_args_requires_value() {
-        let args = vec!["herdr".into(), "--remote".into()];
+        let args = vec!["kitsune".into(), "--remote".into()];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "missing value for --remote");
     }
 
     #[test]
     fn extract_remote_args_rejects_empty_value() {
-        let args = vec!["herdr".into(), "--remote=".into()];
+        let args = vec!["kitsune".into(), "--remote=".into()];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "missing value for --remote");
     }
@@ -2342,7 +2347,7 @@ mod tests {
     #[test]
     fn extract_remote_args_rejects_duplicate_values() {
         let args = vec![
-            "herdr".into(),
+            "kitsune".into(),
             "--remote=dev".into(),
             "--remote=prod".into(),
         ];
@@ -2352,7 +2357,11 @@ mod tests {
 
     #[test]
     fn extract_remote_args_rejects_option_like_target() {
-        let args = vec!["herdr".into(), "--remote".into(), "-oProxyCommand=x".into()];
+        let args = vec![
+            "kitsune".into(),
+            "--remote".into(),
+            "-oProxyCommand=x".into(),
+        ];
         let err = extract_remote_args(&args).unwrap_err();
         assert_eq!(err, "--remote target must not start with '-'");
     }
@@ -2383,43 +2392,43 @@ mod tests {
     fn reattach_command_includes_remote_and_session() {
         assert_eq!(
             reattach_command(
-                "target/release/herdr",
+                "target/release/kitsune",
                 "user@host",
                 "work",
                 RemoteKeybindings::Local,
                 false,
             ),
-            "target/release/herdr --remote user@host --session work"
+            "target/release/kitsune --remote user@host --session work"
         );
         assert_eq!(
             reattach_command(
-                "herdr",
+                "kitsune",
                 "host name",
                 crate::session::DEFAULT_SESSION_NAME,
                 RemoteKeybindings::Local,
                 false,
             ),
-            "herdr --remote 'host name'"
+            "kitsune --remote 'host name'"
         );
         assert_eq!(
             reattach_command(
-                "herdr",
+                "kitsune",
                 "host",
                 crate::session::DEFAULT_SESSION_NAME,
                 RemoteKeybindings::Server,
                 false,
             ),
-            "herdr --remote host --remote-keybindings server"
+            "kitsune --remote host --remote-keybindings server"
         );
         assert_eq!(
             reattach_command(
-                "herdr",
+                "kitsune",
                 "host",
                 crate::session::DEFAULT_SESSION_NAME,
                 RemoteKeybindings::Local,
                 true,
             ),
-            "herdr --remote host --handoff"
+            "kitsune --remote host --handoff"
         );
     }
 
@@ -2431,7 +2440,7 @@ mod tests {
         });
         assert_eq!(
             remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec \"$HOME/.local/bin/herdr\" remote-client-bridge"
+            "exec \"$HOME/.local/bin/kitsune\" remote-client-bridge"
         );
     }
 
@@ -2441,12 +2450,12 @@ mod tests {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_herdr = remote_herdr_from_path_discovery(&remote_herdr, "/usr/bin/herdr\n")
+        let remote_herdr = remote_herdr_from_path_discovery(&remote_herdr, "/usr/bin/kitsune\n")
             .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec /usr/bin/herdr remote-client-bridge"
+            "exec /usr/bin/kitsune remote-client-bridge"
         );
     }
 
@@ -2457,12 +2466,12 @@ mod tests {
             arch: "x86_64",
         });
         let remote_herdr =
-            remote_herdr_from_path_discovery(&remote_herdr, "/opt/herdr bin/herdr\n")
+            remote_herdr_from_path_discovery(&remote_herdr, "/opt/kitsune bin/kitsune\n")
                 .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec '/opt/herdr bin/herdr' remote-client-bridge"
+            "exec '/opt/kitsune bin/kitsune' remote-client-bridge"
         );
     }
 
@@ -2473,12 +2482,12 @@ mod tests {
             arch: "aarch64",
         });
         let remote_herdr =
-            remote_herdr_from_path_discovery(&remote_herdr, "/opt/homebrew/bin/herdr\n")
+            remote_herdr_from_path_discovery(&remote_herdr, "/opt/homebrew/bin/kitsune\n")
                 .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec /opt/homebrew/bin/herdr remote-client-bridge"
+            "exec /opt/homebrew/bin/kitsune remote-client-bridge"
         );
         assert_eq!(remote_herdr.platform.asset_key(), "macos-aarch64");
     }
@@ -2491,12 +2500,12 @@ mod tests {
         });
         let candidates = remote_herdrs_from_path_discovery(
             &remote_herdr,
-            "/usr/bin/herdr\nbin/herdr\n /opt/herdr bin/herdr\n",
+            "/usr/bin/kitsune\nbin/kitsune\n /opt/kitsune bin/kitsune\n",
         );
 
         assert_eq!(candidates.len(), 2);
-        assert_eq!(candidates[0].shell_path, "/usr/bin/herdr");
-        assert_eq!(candidates[1].shell_path, "'/opt/herdr bin/herdr'");
+        assert_eq!(candidates[0].shell_path, "/usr/bin/kitsune");
+        assert_eq!(candidates[1].shell_path, "'/opt/kitsune bin/kitsune'");
     }
 
     #[test]
@@ -2507,13 +2516,13 @@ mod tests {
         });
         let candidates = remote_herdrs_from_path_discovery(
             &remote_herdr,
-            "/home/can/.local/share/mise/shims/herdr\n/home/can/.local/share/mise/installs/herdr/0.7.1/bin/herdr\n",
+            "/home/can/.local/share/mise/shims/kitsune\n/home/can/.local/share/mise/installs/kitsune/0.7.1/bin/kitsune\n",
         );
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(
             candidates[0].shell_path,
-            "/home/can/.local/share/mise/installs/herdr/0.7.1/bin/herdr"
+            "/home/can/.local/share/mise/installs/kitsune/0.7.1/bin/kitsune"
         );
     }
 
@@ -2524,21 +2533,22 @@ mod tests {
             arch: "x86_64",
         });
 
-        assert!(script.contains("emit \"$home/.local/bin/herdr\""));
-        assert!(!script.contains("mise/shims/herdr"));
+        assert!(script.contains("emit \"$home/.local/bin/kitsune\""));
+        assert!(!script.contains("mise/shims/kitsune"));
         assert!(script.contains(&format!("version={}", shell_quote(&current_version()))));
+        assert!(script
+            .contains("emit \"$home/.local/share/mise/installs/kitsune/$version/bin/kitsune\""));
         assert!(
-            script.contains("emit \"$home/.local/share/mise/installs/herdr/$version/bin/herdr\"")
+            script.contains("emit \"$home/.local/share/mise/installs/kitsune/$version/kitsune\"")
         );
-        assert!(script.contains("emit \"$home/.local/share/mise/installs/herdr/$version/herdr\""));
         assert!(script.contains(
-            "emit \"$home/.local/share/mise/installs/github-ogulcancelik-herdr/$version/herdr\""
+            "emit \"$home/.local/share/mise/installs/github-Noswad123-herdr/$version/kitsune\""
         ));
-        assert!(script.contains("emit \"$home/.nix-profile/bin/herdr\""));
-        assert!(script.contains("emit \"/etc/profiles/per-user/$user/bin/herdr\""));
-        assert!(script.contains("emit \"/run/current-system/sw/bin/herdr\""));
-        assert!(script.contains("emit \"/home/linuxbrew/.linuxbrew/bin/herdr\""));
-        assert!(!script.contains("emit \"/opt/homebrew/bin/herdr\""));
+        assert!(script.contains("emit \"$home/.nix-profile/bin/kitsune\""));
+        assert!(script.contains("emit \"/etc/profiles/per-user/$user/bin/kitsune\""));
+        assert!(script.contains("emit \"/run/current-system/sw/bin/kitsune\""));
+        assert!(script.contains("emit \"/home/linuxbrew/.linuxbrew/bin/kitsune\""));
+        assert!(!script.contains("emit \"/opt/homebrew/bin/kitsune\""));
     }
 
     #[test]
@@ -2548,9 +2558,9 @@ mod tests {
             arch: "aarch64",
         });
 
-        assert!(script.contains("emit \"/opt/homebrew/bin/herdr\""));
-        assert!(script.contains("emit \"/usr/local/bin/herdr\""));
-        assert!(!script.contains("emit \"/home/linuxbrew/.linuxbrew/bin/herdr\""));
+        assert!(script.contains("emit \"/opt/homebrew/bin/kitsune\""));
+        assert!(script.contains("emit \"/usr/local/bin/kitsune\""));
+        assert!(!script.contains("emit \"/home/linuxbrew/.linuxbrew/bin/kitsune\""));
     }
 
     #[test]
@@ -2560,12 +2570,12 @@ mod tests {
             arch: "x86_64",
         });
         let remote_herdr =
-            remote_herdr_from_path_discovery(&remote_herdr, "/opt/herdr's/bin/herdr\n")
+            remote_herdr_from_path_discovery(&remote_herdr, "/opt/kitsune's/bin/kitsune\n")
                 .expect("path binary");
 
         assert_eq!(
             remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
-            "exec '/opt/herdr'\\''s/bin/herdr' remote-client-bridge"
+            "exec '/opt/kitsune'\\''s/bin/kitsune' remote-client-bridge"
         );
     }
 
@@ -2575,7 +2585,7 @@ mod tests {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_herdr = remote_herdr_from_path_discovery(&remote_herdr, "bin/herdr\n");
+        let remote_herdr = remote_herdr_from_path_discovery(&remote_herdr, "bin/kitsune\n");
 
         assert!(remote_herdr.is_none());
     }
@@ -2594,13 +2604,13 @@ mod tests {
     #[test]
     fn remote_shell_path_warning_accepts_managed_install() {
         assert!(remote_shell_resolves_managed_install(
-            "/home/can/.local/bin/herdr\n"
+            "/home/can/.local/bin/kitsune\n"
         ));
         assert!(remote_shell_resolves_managed_install(
-            "/Users/can/.local/bin/herdr\n"
+            "/Users/can/.local/bin/kitsune\n"
         ));
         assert!(!remote_shell_resolves_managed_install(
-            "/usr/local/bin/herdr\n"
+            "/usr/local/bin/kitsune\n"
         ));
         assert!(!remote_shell_resolves_managed_install(""));
     }
@@ -2608,7 +2618,7 @@ mod tests {
     #[test]
     fn parse_client_status_json_reads_protocol() {
         assert_eq!(
-            parse_client_status_json(r#"{"version":"x","protocol":8,"binary":"/bin/herdr"}"#)
+            parse_client_status_json(r#"{"version":"x","protocol":8,"binary":"/bin/kitsune"}"#)
                 .map(|status| status.protocol),
             Some(8)
         );
@@ -2967,8 +2977,12 @@ mod tests {
             arch: "aarch64",
         };
         assert_eq!(
-            install_source_description_for(&platform, Some(Path::new("/tmp/herdr-aarch64")), false),
-            "KITSUNE_REMOTE_BINARY (/tmp/herdr-aarch64)"
+            install_source_description_for(
+                &platform,
+                Some(Path::new("/tmp/kitsune-aarch64")),
+                false
+            ),
+            "KITSUNE_REMOTE_BINARY (/tmp/kitsune-aarch64)"
         );
     }
 
@@ -2978,7 +2992,7 @@ mod tests {
 
         assert_eq!(
             install_source_description_for(&platform, None, true),
-            "the current local herdr binary"
+            "the current local kitsune binary"
         );
     }
 
@@ -3003,9 +3017,9 @@ mod tests {
             os: "linux",
             arch: "aarch64",
         };
-        let source = resolve_install_source(&platform, Some(PathBuf::from("/tmp/herdr-aarch64")))
+        let source = resolve_install_source(&platform, Some(PathBuf::from("/tmp/kitsune-aarch64")))
             .expect("override source");
-        assert_eq!(source.path, PathBuf::from("/tmp/herdr-aarch64"));
+        assert_eq!(source.path, PathBuf::from("/tmp/kitsune-aarch64"));
         assert!(source.temporary_dir.is_none());
     }
 
@@ -3031,7 +3045,7 @@ mod tests {
             .unwrap_or("")
             .to_string();
         assert!(
-            filename.starts_with("herdr-remote-"),
+            filename.starts_with("kitsune-remote-"),
             "expected readable name, got {filename}"
         );
         assert!(filename.contains("-dev-default."), "got {filename}");
@@ -3088,7 +3102,7 @@ mod tests {
         assert!(fits, "fallback path still overflows: {}", path.display());
         assert_eq!(parent.as_deref(), Some(Path::new("/tmp")));
         assert!(
-            filename.starts_with("herdr-r-"),
+            filename.starts_with("kitsune-r-"),
             "expected hashed fallback, got {filename}"
         );
     }
@@ -3096,12 +3110,12 @@ mod tests {
     #[test]
     fn install_source_cleanup_removes_temporary_directory() {
         let dir = std::env::temp_dir().join(format!(
-            "herdr-install-source-cleanup-test-{}",
+            "kitsune-install-source-cleanup-test-{}",
             std::process::id()
         ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir(&dir).expect("create temp dir");
-        let path = dir.join("herdr.tmp");
+        let path = dir.join("kitsune.tmp");
         fs::write(&path, b"test").expect("write temp file");
 
         InstallSource::temporary(path, dir.clone()).cleanup();

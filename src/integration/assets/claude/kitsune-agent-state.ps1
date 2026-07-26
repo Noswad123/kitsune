@@ -1,5 +1,5 @@
-# installed by herdr
-# managed by herdr; reinstalling or updating the integration overwrites this file.
+# installed by kitsune
+# managed by kitsune; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
 # KITSUNE_INTEGRATION_ID=claude
 # KITSUNE_INTEGRATION_VERSION=7
@@ -30,7 +30,7 @@ try {
         "report-agent-session",
         $env:KITSUNE_PANE_ID,
         "--source",
-        "herdr:claude",
+        "kitsune:claude",
         "--agent",
         "claude",
         "--seq",
@@ -44,6 +44,6 @@ try {
     if ($payload.hook_event_name -eq "SessionStart" -and $payload.source -is [string] -and -not [string]::IsNullOrWhiteSpace($payload.source)) {
         $args += @("--session-start-source", "$($payload.source)")
     }
-    & herdr @args 2>$null | Out-Null
+    & kitsune @args 2>$null | Out-Null
 } catch {
 }

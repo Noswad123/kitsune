@@ -50,8 +50,8 @@ beforeEach(() => {
 
 async function loadPlugin() {
   importCounter += 1;
-  const { HerdrAgentStatePlugin } = await import(`./herdr-agent-state.js?test=${importCounter}`);
-  return HerdrAgentStatePlugin();
+  const { KitsuneAgentStatePlugin } = await import(`./kitsune-agent-state.js?test=${importCounter}`);
+  return KitsuneAgentStatePlugin();
 }
 
 function waitForNextRequest(): Promise<void> {

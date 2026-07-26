@@ -1,14 +1,14 @@
 #!/bin/sh
-# installed by herdr
-# managed by herdr; reinstalling or updating the integration overwrites this file.
+# installed by kitsune
+# managed by kitsune; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# KITSUNE_INTEGRATION_ID=codex
-# KITSUNE_INTEGRATION_VERSION=6
+# KITSUNE_INTEGRATION_ID=droid
+# KITSUNE_INTEGRATION_VERSION=2
 
 set -eu
 
 action="${1:-}"
-hook_input_file="$(mktemp "${TMPDIR:-/tmp}/herdr-codex-hook.XXXXXX")" || exit 0
+hook_input_file="$(mktemp "${TMPDIR:-/tmp}/kitsune-droid-hook.XXXXXX")" || exit 0
 trap 'rm -f "$hook_input_file"' EXIT HUP INT TERM
 cat >"$hook_input_file" 2>/dev/null || true
 
@@ -29,8 +29,7 @@ import random
 import socket
 import time
 
-source = "herdr:codex"
-action = os.environ.get("KITSUNE_ACTION", "")
+source = "kitsune:droid"
 pane_id = os.environ.get("KITSUNE_PANE_ID")
 socket_path = os.environ.get("KITSUNE_SOCKET_PATH")
 hook_input_file = os.environ.get("KITSUNE_HOOK_INPUT_FILE")
@@ -48,34 +47,23 @@ if hook_input_file:
     except Exception:
         hook_input = {}
 
-hook_event_name = str(hook_input.get("hook_event_name") or "")
-if hook_event_name and hook_event_name != "SessionStart":
+session_id = hook_input.get("session_id")
+if not isinstance(session_id, str) or not session_id:
     raise SystemExit(0)
 
 request_id = f"{source}:{int(time.time() * 1000)}:{random.randrange(1_000_000):06d}"
 report_seq = time.time_ns()
-session_id = hook_input.get("session_id")
-agent_session_id = session_id if isinstance(session_id, str) and session_id else None
-session_start_source = hook_input.get("source") if hook_event_name == "SessionStart" else None
-if not isinstance(session_start_source, str) or not session_start_source:
-    session_start_source = None
-if agent_session_id:
-    params = {
+request = {
+    "id": request_id,
+    "method": "pane.report_agent_session",
+    "params": {
         "pane_id": pane_id,
         "source": source,
-        "agent": "codex",
+        "agent": "droid",
+        "agent_session_id": session_id,
         "seq": report_seq,
-        "agent_session_id": agent_session_id,
-    }
-    if session_start_source:
-        params["session_start_source"] = session_start_source
-    request = {
-        "id": request_id,
-        "method": "pane.report_agent_session",
-        "params": params,
-    }
-else:
-    raise SystemExit(0)
+    },
+}
 
 try:
     client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)

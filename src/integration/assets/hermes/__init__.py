@@ -1,4 +1,4 @@
-"""Hermes plugin installed by Herdr to report resumable session identity."""
+"""Hermes plugin installed by Kitsune to report resumable session identity."""
 
 # KITSUNE_INTEGRATION_ID=hermes
 # KITSUNE_INTEGRATION_VERSION=4
@@ -11,7 +11,7 @@ import random
 import socket
 import time
 
-_SOURCE = "herdr:hermes"
+_SOURCE = "kitsune:hermes"
 _AGENT = "hermes"
 _INTERACTIVE_PLATFORMS = {"cli", "tui", "desktop", "acp"}
 

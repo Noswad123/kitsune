@@ -82,7 +82,7 @@ struct ClientState {
     /// Rows scrolled for one direct-attach wheel notch.
     #[cfg(unix)]
     mouse_scroll_lines: usize,
-    /// Local-client shortcut that sends a clipboard image to a remote Herdr session.
+    /// Local-client shortcut that sends a clipboard image to a remote Kitsune session.
     #[cfg(unix)]
     remote_image_paste_key: Option<(crossterm::event::KeyCode, crossterm::event::KeyModifiers)>,
     /// Whether outer focus gain should force a full host-terminal redraw.
@@ -681,7 +681,7 @@ fn is_remote_client_process() -> bool {
 /// Time to wait for the server's Welcome reply during the handshake.
 ///
 /// A local client talks to an already-connected server, so 5s is plenty. The
-/// remote bridge client (`herdr --remote`) sits behind a fresh per-attach ssh
+/// remote bridge client (`kitsune --remote`) sits behind a fresh per-attach ssh
 /// connection whose cold-connect (TCP + key exchange + auth) happens inside this
 /// window; on a high-latency link that easily exceeds 5s, so it gets a far
 /// larger budget. See issue #753.
@@ -906,7 +906,7 @@ pub fn run_terminal_session_control(
                         return;
                     }
                 }
-                Err(err) => eprintln!("herdr: terminal session control input ignored: {err}"),
+                Err(err) => eprintln!("kitsune: terminal session control input ignored: {err}"),
             }
         }
         let _ = write_to_server(&mut write_stream, &ClientMessage::Detach);
@@ -930,7 +930,7 @@ fn connect_terminal_session_stream(
     let mut stream = match crate::ipc::connect_local_stream(&socket_path) {
         Ok(stream) => stream,
         Err(err) => {
-            eprintln!("herdr: {}", ClientError::ConnectionFailed(err));
+            eprintln!("kitsune: {}", ClientError::ConnectionFailed(err));
             std::process::exit(1);
         }
     };
@@ -947,12 +947,12 @@ fn connect_terminal_session_stream(
         Ok(RenderEncoding::TerminalAnsi) => {}
         Ok(encoding) => {
             eprintln!(
-                "herdr: terminal session observe negotiated unsupported encoding {encoding:?}"
+                "kitsune: terminal session observe negotiated unsupported encoding {encoding:?}"
             );
             std::process::exit(1);
         }
         Err(err) => {
-            eprintln!("herdr: {err}");
+            eprintln!("kitsune: {err}");
             std::process::exit(1);
         }
     }
@@ -1157,7 +1157,7 @@ fn run_client_with_mode(
         Err(err) => {
             // Server unreachable — show clear error and exit.
             let client_err = ClientError::ConnectionFailed(err);
-            eprintln!("herdr: {client_err}");
+            eprintln!("kitsune: {client_err}");
             std::process::exit(1);
         }
     };
@@ -1178,7 +1178,7 @@ fn run_client_with_mode(
     ) {
         Ok(encoding) => encoding,
         Err(err) => {
-            eprintln!("herdr: {err}");
+            eprintln!("kitsune: {err}");
             std::process::exit(1);
         }
     };
@@ -1189,7 +1189,7 @@ fn run_client_with_mode(
             takeover,
         };
         if let Err(err) = write_to_server(&mut stream, &attach) {
-            eprintln!("herdr: failed to request terminal attach: {err}");
+            eprintln!("kitsune: failed to request terminal attach: {err}");
             std::process::exit(1);
         }
     }
@@ -1203,7 +1203,7 @@ fn run_client_with_mode(
         setup_terminal(mouse_capture)
     }
     .map_err(|err| {
-        eprintln!("herdr: failed to set up terminal: {err}");
+        eprintln!("kitsune: failed to set up terminal: {err}");
         err
     })?;
 
@@ -1254,7 +1254,7 @@ fn run_client_with_mode(
     drop(terminal_guard);
 
     if let Err(err) = result {
-        eprintln!("herdr: {err}");
+        eprintln!("kitsune: {err}");
         rt.shutdown_timeout(Duration::from_millis(100));
         crate::logging::shutdown("client");
 
@@ -1976,7 +1976,7 @@ fn forward_clipboard(data: &str) {
 }
 
 fn window_title_osc(title: Option<&str>) -> Vec<u8> {
-    let title = title.unwrap_or("herdr");
+    let title = title.unwrap_or("kitsune");
     let safe_title = title
         .chars()
         .filter(|ch| !matches!(*ch, '\u{1b}' | '\u{7}' | '\u{9c}'))
@@ -2309,7 +2309,7 @@ mod tests {
                 .unwrap()
                 .as_nanos();
             let path = std::env::temp_dir().join(format!(
-                "herdr-client-drop-{name_fragment}-{}-{nanos}.{extension}",
+                "kitsune-client-drop-{name_fragment}-{}-{nanos}.{extension}",
                 std::process::id()
             ));
             std::fs::write(&path, bytes).unwrap();
@@ -2407,7 +2407,7 @@ mod tests {
     }
 
     #[test]
-    fn kitty_graphics_image_id_parser_tracks_herdr_ids_only() {
+    fn kitty_graphics_image_id_parser_tracks_kitsune_ids_only() {
         let ids = kitty_graphics_image_ids(
             b"text\x1b_Ga=t,t=d,f=32,s=1,v=1,i=10023,q=2;AAAA\x1b\\\x1b_Ga=p,i=10023,p=7;\x1b\\",
         );
@@ -2715,7 +2715,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _remote_env = EnvVarGuard::set(
             crate::remote::REATTACH_COMMAND_ENV_VAR,
-            "herdr --remote host --session work",
+            "kitsune --remote host --session work",
         );
         let _session_env = EnvVarGuard::set(crate::session::SESSION_ENV_VAR, "work");
         let err = ClientError::ServerShutdown {
@@ -2723,7 +2723,7 @@ mod tests {
         };
         let msg = err.to_string();
         assert!(
-            msg.contains("Run `herdr --remote host --session work` to reattach"),
+            msg.contains("Run `kitsune --remote host --session work` to reattach"),
             "should prefer remote reattach command: {msg}"
         );
     }
@@ -2746,7 +2746,7 @@ mod tests {
         let _guard = env_lock().lock().unwrap();
         let _remote_env = EnvVarGuard::set(
             crate::remote::REATTACH_COMMAND_ENV_VAR,
-            "herdr --remote host --session work",
+            "kitsune --remote host --session work",
         );
         let err =
             ClientError::ConnectionLost(io::Error::new(io::ErrorKind::BrokenPipe, "broken pipe"));
@@ -2763,7 +2763,7 @@ mod tests {
             "should explain possible persistence: {msg}"
         );
         assert!(
-            msg.contains("Run `herdr --remote host --session work` to reattach"),
+            msg.contains("Run `kitsune --remote host --session work` to reattach"),
             "should show remote reattach command: {msg}"
         );
     }
@@ -2793,7 +2793,7 @@ mod tests {
     fn reload_local_client_config_refreshes_local_client_presentation_state() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let path = std::env::temp_dir().join(format!(
-            "herdr-client-config-reload-{}-{}.toml",
+            "kitsune-client-config-reload-{}-{}.toml",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2983,11 +2983,11 @@ mod tests {
     }
 
     #[test]
-    fn window_title_osc_strips_terminators_and_defaults_to_herdr() {
+    fn window_title_osc_strips_terminators_and_defaults_to_kitsune() {
         assert_eq!(
-            window_title_osc(Some("herdr\x1b api\u{7}\u{9c}")),
-            b"\x1b]0;herdr api\x07"
+            window_title_osc(Some("kitsune\x1b api\u{7}\u{9c}")),
+            b"\x1b]0;kitsune api\x07"
         );
-        assert_eq!(window_title_osc(None), b"\x1b]0;herdr\x07");
+        assert_eq!(window_title_osc(None), b"\x1b]0;kitsune\x07");
     }
 }

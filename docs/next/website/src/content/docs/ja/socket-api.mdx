@@ -254,7 +254,7 @@ herdr notification show "build failed" --body "api workspace" --position top-lef
 {"id":"req_notify","method":"notification.show","params":{"title":"build failed","body":"api workspace","position":"top-left","sound":"request"}}
 ```
 
-`title` は必須で、制御文字と連続する空白を除去した後に可視のテキストが残っていなければなりません。`body` は任意です。Herdr は改行、タブ、キャリッジリターン、連続する空白をスペースにまとめてから、通知テキストを `title` は 80 文字、`body` は 240 文字に切り詰めます。サニタイズ後の `title` が空の場合は `invalid_params` を返します。`position` は任意で、`ui.toast.delivery = "herdr"` のときのみ適用されます。デスクトップの位置は Herdr のフレーム全体を基準とし、省略時は `ui.toast.herdr.position` を使います。terminal、system、off の配信では `position` は無視されます。`sound` は任意で `none`、`done`、`request` のいずれかを指定でき、デフォルトは `none` で、通知が表示されたときにのみ再生されます。
+`title` は必須で、制御文字と連続する空白を除去した後に可視のテキストが残っていなければなりません。`body` は任意です。Herdr は改行、タブ、キャリッジリターン、連続する空白をスペースにまとめてから、通知テキストを `title` は 80 文字、`body` は 240 文字に切り詰めます。サニタイズ後の `title` が空の場合は `invalid_params` を返します。`position` は任意で、`ui.toast.delivery = "kitsune"` のときのみ適用されます。デスクトップの位置は Herdr のフレーム全体を基準とし、省略時は `ui.toast.kitsune.position` を使います。terminal、system、off の配信では `position` は無視されます。`sound` は任意で `none`、`done`、`request` のいずれかを指定でき、デフォルトは `none` で、通知が表示されたときにのみ再生されます。
 
 レスポンスは何かが表示されたかどうかを報告します:
 
@@ -545,7 +545,7 @@ Herdr はローカルソケット上の改行区切り JSON を使います。Un
   "method": "pane.report_agent_session",
   "params": {
     "pane_id": "w1:p1",
-    "source": "herdr:codex",
+    "source": "kitsune:codex",
     "agent": "codex",
     "agent_session_id": "..."
   }
@@ -557,7 +557,7 @@ Herdr に保存されたネイティブセッション参照があるとき、`p
 ```json
 {
   "agent_session": {
-    "source": "herdr:codex",
+    "source": "kitsune:codex",
     "agent": "codex",
     "kind": "id",
     "value": "..."

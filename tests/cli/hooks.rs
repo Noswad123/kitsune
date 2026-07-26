@@ -2,7 +2,7 @@ use super::harness::*;
 
 fn run_claude_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
     run_shell_hook(
-        "src/integration/assets/claude/herdr-agent-state.sh",
+        "src/integration/assets/claude/kitsune-agent-state.sh",
         &[action],
         hook_input,
     )
@@ -10,7 +10,7 @@ fn run_claude_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> 
 
 fn run_codex_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
     run_shell_hook(
-        "src/integration/assets/codex/herdr-agent-state.sh",
+        "src/integration/assets/codex/kitsune-agent-state.sh",
         &[action],
         hook_input,
     )
@@ -18,7 +18,7 @@ fn run_codex_hook(action: &str, hook_input: &str) -> Option<serde_json::Value> {
 
 fn run_copilot_hook(hook_input: &str) -> Option<serde_json::Value> {
     run_shell_hook(
-        "src/integration/assets/copilot/herdr-agent-state.sh",
+        "src/integration/assets/copilot/kitsune-agent-state.sh",
         &[],
         hook_input,
     )
@@ -30,7 +30,7 @@ fn run_devin_hook(
     envs: &[(&str, &str)],
 ) -> Option<serde_json::Value> {
     run_shell_hook_with_env(
-        "src/integration/assets/devin/herdr-agent-state.sh",
+        "src/integration/assets/devin/kitsune-agent-state.sh",
         &[action],
         hook_input,
         envs,
@@ -49,7 +49,7 @@ fn run_shell_hook_with_env(
 ) -> Option<serde_json::Value> {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("herdr.sock");
+    let socket_path = base.join("kitsune.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {

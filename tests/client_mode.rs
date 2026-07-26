@@ -398,7 +398,7 @@ fn client_sees_headless_startup_config_diagnostic() {
                 let frame = decode_frame_payload(&payload).expect("decode frame");
                 last_frame_text = frame_text(&frame);
                 if last_frame_text.contains("config.toml")
-                    && last_frame_text.contains("herdr config check")
+                    && last_frame_text.contains("kitsune config check")
                 {
                     found_diagnostic = true;
                     break;
@@ -512,7 +512,7 @@ fn server_crash_after_attach_causes_lost_connection_error() {
                         seen = true;
                         break;
                     }
-                    if output.to_lowercase().contains("herdr:") {
+                    if output.to_lowercase().contains("kitsune:") {
                         break;
                     }
                 }

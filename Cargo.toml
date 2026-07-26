@@ -12,7 +12,7 @@ categories = ["command-line-utilities"]
 include = [
     "src/**/*",
     "assets/sounds/*",
-    "docs/next/api/herdr-api.schema.json",
+    "docs/next/api/kitsune-api.schema.json",
     "README.md",
     "LICENSE",
     "Cargo.toml",

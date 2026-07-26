@@ -1,5 +1,5 @@
 #!/bin/sh
-# managed by herdr; reinstalling the integration replaces this file.
+# managed by kitsune; reinstalling the integration replaces this file.
 # KITSUNE_INTEGRATION_ID=cursor
 # KITSUNE_INTEGRATION_VERSION=1
 
@@ -38,11 +38,11 @@ if session_id is None:
 
 seq = time.time_ns()
 request = json.dumps({
-    "id": f"herdr:cursor:{seq}",
+    "id": f"kitsune:cursor:{seq}",
     "method": "pane.report_agent_session",
     "params": {
         "pane_id": os.environ["KITSUNE_PANE_ID"],
-        "source": "herdr:cursor",
+        "source": "kitsune:cursor",
         "agent": "cursor",
         "seq": seq,
         "agent_session_id": session_id,
