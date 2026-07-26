@@ -1294,6 +1294,16 @@ fn parse_key_combo_with_diagnostic(
 }
 
 pub fn normalize_key_combo((mut code, mut modifiers): KeyCombo) -> KeyCombo {
+    if matches!(code, KeyCode::Null) {
+        // Terminals commonly report Ctrl+Space as NUL. Depending on the input
+        // path this may arrive either as a raw NUL byte (which we parse as
+        // Ctrl+Space) or as crossterm's KeyCode::Null with no reliable CONTROL
+        // modifier. Normalize both representations so configured
+        // `ctrl+space` bindings work across monolithic and attached clients.
+        code = KeyCode::Char(' ');
+        modifiers |= KeyModifiers::CONTROL;
+    }
+
     if matches!(code, KeyCode::Tab) && modifiers.contains(KeyModifiers::SHIFT) {
         code = KeyCode::BackTab;
         modifiers.remove(KeyModifiers::SHIFT);
@@ -1516,6 +1526,29 @@ prefix = "ö"
             parse_key_combo("shift+tab"),
             Some((KeyCode::BackTab, KeyModifiers::empty()))
         );
+    }
+
+    #[test]
+    fn ctrl_space_matches_crossterm_null() {
+        let combo = parse_key_combo("ctrl+space").expect("ctrl+space should parse");
+        assert_eq!(combo, (KeyCode::Char(' '), KeyModifiers::CONTROL));
+
+        assert!(key_event_matches_combo(
+            &KeyEvent::new(KeyCode::Null, KeyModifiers::empty()),
+            combo
+        ));
+        assert!(key_event_matches_combo(
+            &KeyEvent::new(KeyCode::Null, KeyModifiers::CONTROL),
+            combo
+        ));
+        assert!(terminal_key_matches_combo(
+            TerminalKey::new(KeyCode::Null, KeyModifiers::empty()),
+            combo
+        ));
+        assert!(terminal_key_matches_combo(
+            TerminalKey::new(KeyCode::Char(' '), KeyModifiers::CONTROL),
+            combo
+        ));
     }
 
     #[test]
