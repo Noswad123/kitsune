@@ -1,6 +1,6 @@
 //! Remote thin-client launcher over SSH command stdio.
 
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, IsTerminal, Write as _};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -14,16 +14,11 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-#[cfg(test)]
-use std::collections::BTreeMap;
-
 const BRIDGE_ACCEPT_POLL: Duration = Duration::from_millis(50);
 const BRIDGE_SOCKET_PERMISSION_MODE: u32 = 0o600;
 const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CURRENT_PROTOCOL: u32 = crate::protocol::PROTOCOL_VERSION;
-const RELEASE_DOWNLOAD_BASE_URL: &str = "https://github.com/Noswad123/kitsune/releases/download";
-const REMOTE_BINARY_ENV_VAR: &str = "KITSUNE_REMOTE_BINARY";
 const SSH_CONTROL_SOCKET_NAME: &str = "ctl";
 pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "KITSUNE_REATTACH_COMMAND";
 
@@ -176,8 +171,6 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
     ensure_remote_server_ready(
         &remote_ssh,
         &prepared_remote.remote_herdr,
-        prepared_remote.installed_or_replaced,
-        prepared_remote.stop_after_install_approved,
         remote.live_handoff,
     )?;
 
@@ -259,45 +252,18 @@ impl RemotePlatform {
         };
         Some(Self { os, arch })
     }
-
-    fn local() -> Self {
-        let os = if cfg!(target_os = "linux") {
-            "linux"
-        } else if cfg!(target_os = "macos") {
-            "macos"
-        } else {
-            "unknown"
-        };
-
-        let arch = if cfg!(target_arch = "x86_64") {
-            "x86_64"
-        } else if cfg!(target_arch = "aarch64") {
-            "aarch64"
-        } else {
-            "unknown"
-        };
-
-        Self { os, arch }
-    }
-
-    fn asset_key(&self) -> String {
-        format!("{}-{}", self.os, self.arch)
-    }
 }
 
 #[derive(Debug, Clone)]
 struct RemoteHerdr {
-    install_suffix: String,
     shell_path: String,
     platform: RemotePlatform,
 }
 
 impl RemoteHerdr {
     fn for_platform(platform: RemotePlatform) -> Self {
-        let install_suffix = ".local/bin/kitsune".to_string();
-        let shell_path = format!("\"$HOME/{install_suffix}\"");
+        let shell_path = "\"$HOME/.local/bin/kitsune\"".to_string();
         Self {
-            install_suffix,
             shell_path,
             platform,
         }
@@ -309,137 +275,12 @@ impl RemoteHerdr {
     }
 }
 
-#[cfg(test)]
-#[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-enum RemoteAssetRef {
-    Url(String),
-    Object { url: String, sha256: Option<String> },
-}
-
-#[cfg(test)]
-impl RemoteAssetRef {
-    fn url(&self) -> &str {
-        match self {
-            Self::Url(url) => url,
-            Self::Object { url, .. } => url,
-        }
-    }
-
-    fn sha256(&self) -> Option<&str> {
-        match self {
-            Self::Url(_) => None,
-            Self::Object { sha256, .. } => {
-                sha256.as_deref().filter(|value| !value.trim().is_empty())
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-#[derive(Deserialize)]
-struct RemoteUpdateManifest {
-    version: String,
-    protocol: Option<u32>,
-    assets: BTreeMap<String, RemoteAssetRef>,
-    #[serde(default, deserialize_with = "deserialize_remote_manifest_releases")]
-    releases: BTreeMap<String, RemoteReleaseMetadata>,
-}
-
-#[cfg(test)]
-#[derive(Deserialize)]
-struct RemoteReleaseMetadata {
-    protocol: Option<u32>,
-    #[serde(default)]
-    assets: BTreeMap<String, RemoteAssetRef>,
-}
-
-#[cfg(test)]
-#[derive(Deserialize)]
-struct RemotePreviewManifest {
-    build_id: String,
-    protocol: u32,
-    assets: BTreeMap<String, RemoteAssetRef>,
-    #[serde(default)]
-    builds: BTreeMap<String, RemotePreviewBuildMetadata>,
-}
-
-#[cfg(test)]
-#[derive(Deserialize)]
-struct RemotePreviewBuildMetadata {
-    protocol: u32,
-    assets: BTreeMap<String, RemoteAssetRef>,
-}
-
-#[cfg(test)]
-fn deserialize_remote_manifest_releases<'de, D>(
-    deserializer: D,
-) -> Result<BTreeMap<String, RemoteReleaseMetadata>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
-    Ok(match value {
-        Some(serde_json::Value::Object(object)) => object
-            .into_iter()
-            .filter_map(|(version, release)| {
-                serde_json::from_value::<RemoteReleaseMetadata>(release)
-                    .ok()
-                    .map(|metadata| (version, metadata))
-            })
-            .collect(),
-        _ => BTreeMap::new(),
-    })
-}
-
-#[cfg(test)]
-impl RemoteUpdateManifest {
-    fn release_for_version(&self, version: &str) -> Option<RemoteManifestReleaseRef<'_>> {
-        if self.version.trim_start_matches('v') == version {
-            return Some(RemoteManifestReleaseRef {
-                protocol: self.protocol,
-                assets: &self.assets,
-            });
-        }
-
-        self.releases.get(version).and_then(|release| {
-            (!release.assets.is_empty()).then_some(RemoteManifestReleaseRef {
-                protocol: release.protocol,
-                assets: &release.assets,
-            })
-        })
-    }
-}
-
-#[cfg(test)]
-#[derive(Clone, Copy)]
-struct RemoteManifestReleaseRef<'a> {
-    protocol: Option<u32>,
-    assets: &'a BTreeMap<String, RemoteAssetRef>,
-}
-
 fn current_version() -> String {
     crate::build_info::version()
 }
 
-fn current_channel() -> &'static str {
-    crate::build_info::channel()
-}
-
-struct InstallSource {
-    path: PathBuf,
-    temporary_dir: Option<PathBuf>,
-}
-
-struct RemoteReleaseAsset {
-    url: String,
-    sha256: Option<String>,
-}
-
 struct PreparedRemoteHerdr {
     remote_herdr: RemoteHerdr,
-    installed_or_replaced: bool,
-    stop_after_install_approved: bool,
 }
 
 #[derive(Clone)]
@@ -528,97 +369,6 @@ impl RemoteSsh {
     fn user_shell_output(&self, command: &str) -> io::Result<Output> {
         self.command().arg(command).output()
     }
-
-    fn install_herdr(&self, remote_herdr: &RemoteHerdr, source_path: &Path) -> io::Result<()> {
-        let output = self.sh_output(&remote_install_prepare_script(remote_herdr))?;
-        if !output.status.success() {
-            return Err(command_failed("remote install preparation failed", &output));
-        }
-        let (tmp_path, dest_path) = parse_remote_install_paths(&output.stdout)?;
-
-        let mut child = self
-            .command()
-            .arg(remote_install_stream_command(&tmp_path))
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .map_err(|err| {
-                io::Error::new(err.kind(), format!("failed to start ssh install: {err}"))
-            })?;
-
-        let mut source = File::open(source_path)?;
-        let copy_result = if let Some(mut stdin) = child.stdin.take() {
-            io::copy(&mut source, &mut stdin).map(|_| ())
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "ssh install stdin missing",
-            ))
-        };
-        let status = child.wait()?;
-        copy_result?;
-
-        if status.success() {
-            let output = self.sh_output(&remote_install_commit_script(&tmp_path, &dest_path))?;
-            if output.status.success() {
-                Ok(())
-            } else {
-                Err(command_failed("remote install commit failed", &output))
-            }
-        } else {
-            Err(io::Error::other(format!(
-                "remote install exited with {status}"
-            )))
-        }
-    }
-}
-
-fn remote_install_prepare_script(remote_herdr: &RemoteHerdr) -> String {
-    format!(
-        r#"set -eu
-dest="$HOME/{install_suffix}"
-dir="${{dest%/*}}"
-mkdir -p "$dir"
-tmp="${{dest}}.tmp.$$"
-printf '%s\0%s\0' "$tmp" "$dest"
-"#,
-        install_suffix = remote_herdr.install_suffix
-    )
-}
-
-fn parse_remote_install_paths(stdout: &[u8]) -> io::Result<(String, String)> {
-    let mut parts = stdout.split(|byte| *byte == 0);
-    let tmp_path = parts.next().unwrap_or_default();
-    let dest_path = parts.next().unwrap_or_default();
-    if tmp_path.is_empty() || dest_path.is_empty() {
-        return Err(io::Error::other(
-            "remote install preparation did not return destination paths",
-        ));
-    }
-    let tmp_path = String::from_utf8(tmp_path.to_vec()).map_err(|err| {
-        io::Error::other(format!(
-            "remote install temporary path is not valid UTF-8: {err}"
-        ))
-    })?;
-    let dest_path = String::from_utf8(dest_path.to_vec()).map_err(|err| {
-        io::Error::other(format!(
-            "remote install destination path is not valid UTF-8: {err}"
-        ))
-    })?;
-    Ok((tmp_path, dest_path))
-}
-
-fn remote_install_stream_command(tmp_path: &str) -> String {
-    format!("tee {}", shell_quote(tmp_path))
-}
-
-fn remote_install_commit_script(tmp_path: &str, dest_path: &str) -> String {
-    format!(
-        "set -eu\nchmod 755 {tmp_path}\nmv {tmp_path} {dest_path}\n",
-        tmp_path = shell_quote(tmp_path),
-        dest_path = shell_quote(dest_path)
-    )
 }
 
 impl Drop for RemoteSsh {
@@ -657,28 +407,6 @@ fn apply_managed_ssh_options(command: &mut Command, options: Option<&ManagedSshO
         .arg("ControlPersist=yes");
 }
 
-impl InstallSource {
-    fn persistent(path: PathBuf) -> Self {
-        Self {
-            path,
-            temporary_dir: None,
-        }
-    }
-
-    fn temporary(path: PathBuf, temporary_dir: PathBuf) -> Self {
-        Self {
-            path,
-            temporary_dir: Some(temporary_dir),
-        }
-    }
-
-    fn cleanup(&self) {
-        if let Some(dir) = &self.temporary_dir {
-            let _ = fs::remove_dir_all(dir);
-        }
-    }
-}
-
 fn prepare_remote_herdr(
     ssh: &RemoteSsh,
     _live_handoff_enabled: bool,
@@ -691,17 +419,11 @@ fn prepare_remote_herdr(
         if remote_binary_matches(ssh, candidate).unwrap_or(false) {
             return Ok(PreparedRemoteHerdr {
                 remote_herdr: candidate.clone(),
-                installed_or_replaced: false,
-                stop_after_install_approved: false,
             });
         }
     }
     if remote_binary_matches(ssh, &remote_herdr)? {
-        return Ok(PreparedRemoteHerdr {
-            remote_herdr,
-            installed_or_replaced: false,
-            stop_after_install_approved: false,
-        });
+        return Ok(PreparedRemoteHerdr { remote_herdr });
     }
 
     let discovered = remote_binary_candidates
@@ -899,98 +621,6 @@ fn remote_binary_matches(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Res
             .unwrap_or(false))
 }
 
-fn remote_binary_exists(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result<bool> {
-    let command = format!("test -x {}", remote_herdr.shell_path);
-    Ok(ssh.sh_output(&command)?.status.success())
-}
-
-fn remote_binary_override_path() -> io::Result<Option<PathBuf>> {
-    let Some(value) = std::env::var_os(REMOTE_BINARY_ENV_VAR) else {
-        return Ok(None);
-    };
-    if value.is_empty() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("{REMOTE_BINARY_ENV_VAR} must not be empty"),
-        ));
-    }
-
-    let path = PathBuf::from(value);
-    let metadata = fs::metadata(&path).map_err(|err| {
-        io::Error::new(
-            err.kind(),
-            format!(
-                "failed to inspect {REMOTE_BINARY_ENV_VAR} path {}: {err}",
-                path.display()
-            ),
-        )
-    })?;
-    if !metadata.is_file() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "{REMOTE_BINARY_ENV_VAR} path is not a file: {}",
-                path.display()
-            ),
-        ));
-    }
-
-    Ok(Some(path))
-}
-
-fn install_source_description(platform: &RemotePlatform, override_binary: Option<&Path>) -> String {
-    install_source_description_for(
-        platform,
-        override_binary,
-        local_binary_can_seed_remote(platform),
-    )
-}
-
-fn install_source_description_for(
-    platform: &RemotePlatform,
-    override_binary: Option<&Path>,
-    local_binary_can_seed_remote: bool,
-) -> String {
-    if let Some(path) = override_binary {
-        return format!("{REMOTE_BINARY_ENV_VAR} ({})", path.display());
-    }
-
-    if local_binary_can_seed_remote {
-        "the current local kitsune binary".to_string()
-    } else {
-        format!(
-            "the {} {} asset for {}",
-            current_version(),
-            current_channel(),
-            platform.asset_key()
-        )
-    }
-}
-
-fn resolve_install_source(
-    platform: &RemotePlatform,
-    override_binary: Option<PathBuf>,
-) -> io::Result<InstallSource> {
-    if let Some(path) = override_binary {
-        return Ok(InstallSource::persistent(path));
-    }
-
-    if *platform == RemotePlatform::local() {
-        let path = std::env::current_exe()?;
-        return Ok(InstallSource::persistent(path));
-    }
-
-    download_release_asset(platform)
-}
-
-fn local_binary_can_seed_remote(platform: &RemotePlatform) -> bool {
-    if *platform != RemotePlatform::local() {
-        return false;
-    }
-
-    std::env::current_exe().is_ok()
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum RemoteServerStatus {
     Running {
@@ -1006,22 +636,12 @@ enum RemoteServerStatus {
 enum RemoteServerRestartReason {
     ProtocolMismatch,
     DaemonDetachMissing,
-    BinaryUpdated,
     VersionMismatch,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RemoteInstallRunningServerPlan {
-    KeepRunning,
-    LiveHandoff,
-    StopRequired(RemoteServerRestartReason),
 }
 
 fn ensure_remote_server_ready(
     ssh: &RemoteSsh,
     remote_herdr: &RemoteHerdr,
-    remote_binary_changed: bool,
-    stop_after_install_approved: bool,
     live_handoff_enabled: bool,
 ) -> io::Result<()> {
     let status = remote_server_status(ssh, remote_herdr)?;
@@ -1035,12 +655,9 @@ fn ensure_remote_server_ready(
         return Ok(());
     };
 
-    let Some(reason) = remote_server_restart_reason(
-        version.as_deref(),
-        protocol,
-        detached_server_daemon,
-        remote_binary_changed,
-    ) else {
+    let Some(reason) =
+        remote_server_restart_reason(version.as_deref(), protocol, detached_server_daemon)
+    else {
         return Ok(());
     };
 
@@ -1054,11 +671,6 @@ fn ensure_remote_server_ready(
         }
     }
 
-    if stop_after_install_approved {
-        stop_remote_server(ssh, remote_herdr)?;
-        return Ok(());
-    }
-
     if confirm_remote_server_stop(ssh.target(), version.as_deref(), protocol, reason)? {
         stop_remote_server(ssh, remote_herdr)?;
     }
@@ -1069,7 +681,6 @@ fn remote_server_restart_reason(
     version: Option<&str>,
     protocol: Option<u32>,
     detached_server_daemon: bool,
-    remote_binary_changed: bool,
 ) -> Option<RemoteServerRestartReason> {
     if protocol != Some(CURRENT_PROTOCOL) {
         return Some(RemoteServerRestartReason::ProtocolMismatch);
@@ -1080,145 +691,7 @@ fn remote_server_restart_reason(
     if version != Some(current_version().as_str()) {
         return Some(RemoteServerRestartReason::VersionMismatch);
     }
-    if remote_binary_changed {
-        return Some(RemoteServerRestartReason::BinaryUpdated);
-    }
     None
-}
-
-fn confirm_remote_install_with_running_server(
-    ssh: &RemoteSsh,
-    remote_herdr: &RemoteHerdr,
-    live_handoff_enabled: bool,
-) -> io::Result<bool> {
-    let target = ssh.target();
-    let status = match remote_server_status(ssh, remote_herdr) {
-        Ok(status) => status,
-        Err(err) => {
-            if !io::stdin().is_terminal() {
-                return Err(io::Error::other(format!(
-                    "could not inspect the running remote kitsune server on {target} before installing: {err}; run from an interactive terminal to approve updating the remote binary"
-                )));
-            }
-            eprintln!(
-                "could not inspect the running remote kitsune server on {target} before installing: {err}"
-            );
-            eprint!("continue installing the remote kitsune binary? [y/N] ");
-            io::stderr().flush()?;
-
-            let mut answer = String::new();
-            io::stdin().read_line(&mut answer)?;
-            let answer = answer.trim().to_ascii_lowercase();
-            if answer != "y" && answer != "yes" {
-                return Err(io::Error::new(
-                    io::ErrorKind::Interrupted,
-                    "remote kitsune install cancelled",
-                ));
-            }
-            return Ok(false);
-        }
-    };
-    let RemoteServerStatus::Running {
-        version,
-        protocol,
-        live_handoff,
-        detached_server_daemon,
-    } = &status
-    else {
-        return Ok(false);
-    };
-    let plan = remote_install_running_server_plan(
-        version.as_deref(),
-        *protocol,
-        *detached_server_daemon,
-        true,
-        *live_handoff,
-        live_handoff_enabled,
-    );
-
-    if plan == RemoteInstallRunningServerPlan::KeepRunning {
-        if io::stdin().is_terminal() {
-            eprintln!("remote kitsune server on {target} is already compatible:");
-            eprintln!("  server: v{}", version_label(version.as_deref()));
-            eprintln!(
-                "Kitsune will install {} without stopping the running remote server.",
-                current_version()
-            );
-        }
-        return Ok(false);
-    }
-
-    if !io::stdin().is_terminal() {
-        match plan {
-            RemoteInstallRunningServerPlan::LiveHandoff => return Ok(false),
-            RemoteInstallRunningServerPlan::StopRequired(_) => {
-                return Err(io::Error::other(format!(
-                    "remote kitsune server on {target} is running v{}; run from an interactive terminal to approve stopping it for the update",
-                    version_label(version.as_deref())
-                )));
-            }
-            RemoteInstallRunningServerPlan::KeepRunning => return Ok(false),
-        }
-    }
-
-    if plan == RemoteInstallRunningServerPlan::LiveHandoff {
-        eprintln!("remote kitsune server on {target} is currently running:");
-        eprintln!("  server: v{}", version_label(version.as_deref()));
-        eprintln!(
-            "Kitsune will install {} and hand off live pane processes to the prepared server.",
-            current_version()
-        );
-        return Ok(false);
-    }
-
-    eprintln!("remote kitsune server on {target} is currently running:");
-    eprintln!("  server: v{}", version_label(version.as_deref()));
-    eprintln!(
-        "To complete the remote update, Kitsune must stop the running remote server after installing."
-    );
-    eprintln!("This stops active remote pane processes, including shells, dev servers, and tests.");
-    eprintln!();
-    eprint!(
-        "Install {} and stop the remote server now? [y/N] ",
-        current_version()
-    );
-    io::stderr().flush()?;
-
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    let answer = answer.trim().to_ascii_lowercase();
-    if answer != "y" && answer != "yes" {
-        return Err(io::Error::new(
-            io::ErrorKind::Interrupted,
-            "remote kitsune install cancelled",
-        ));
-    }
-
-    Ok(true)
-}
-
-fn remote_install_running_server_plan(
-    version: Option<&str>,
-    protocol: Option<u32>,
-    detached_server_daemon: bool,
-    remote_binary_changed: bool,
-    live_handoff: bool,
-    live_handoff_enabled: bool,
-) -> RemoteInstallRunningServerPlan {
-    let Some(reason) = remote_server_restart_reason(
-        version,
-        protocol,
-        detached_server_daemon,
-        remote_binary_changed,
-    ) else {
-        return RemoteInstallRunningServerPlan::KeepRunning;
-    };
-
-    if live_handoff_enabled && live_handoff {
-        return RemoteInstallRunningServerPlan::LiveHandoff;
-    }
-
-    RemoteInstallRunningServerPlan::StopRequired(reason)
 }
 
 fn remote_server_status(
@@ -1318,11 +791,6 @@ fn confirm_remote_server_stop(
                 "the remote server was started by a kitsune build that may not survive SSH connection loss. restart it so network drops disconnect only this client."
             );
         }
-        RemoteServerRestartReason::BinaryUpdated => {
-            eprintln!(
-                "the remote kitsune binary was installed or replaced. restart the remote server so it uses the prepared binary."
-            );
-        }
         RemoteServerRestartReason::VersionMismatch => {
             eprintln!(
                 "the remote server is still running a different kitsune version. restart it so it uses the prepared binary."
@@ -1414,147 +882,6 @@ fn wait_for_remote_server_shutdown(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) 
 
 fn version_label(version: Option<&str>) -> &str {
     version.unwrap_or("unknown")
-}
-
-fn warn_if_remote_bin_not_on_path(ssh: &RemoteSsh) -> io::Result<()> {
-    let output = ssh.user_shell_output("command -v kitsune")?;
-    if output.status.success()
-        && remote_shell_resolves_managed_install(&String::from_utf8_lossy(&output.stdout))
-    {
-        return Ok(());
-    }
-
-    eprintln!(
-        "kitsune: installed remote binary to ~/.local/bin/kitsune, but the remote shell does not resolve `kitsune` to that path"
-    );
-    Ok(())
-}
-
-fn remote_shell_resolves_managed_install(stdout: &str) -> bool {
-    stdout
-        .lines()
-        .next()
-        .map(str::trim)
-        .is_some_and(|path| path.ends_with("/.local/bin/kitsune"))
-}
-
-fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource> {
-    let asset_key = platform.asset_key();
-    let asset = remote_release_asset(&asset_key)?;
-
-    let dir = private_download_dir(&asset_key)?;
-    let path = dir.join("kitsune.tmp");
-    let status = crate::noninteractive_process::curl_command()
-        .args(["-sfL", "--max-time", "120", "-o"])
-        .arg(&path)
-        .arg(&asset.url)
-        .status()
-        .map_err(|err| io::Error::new(err.kind(), format!("download failed: {err}")))?;
-    if !status.success() {
-        let _ = fs::remove_dir_all(&dir);
-        return Err(io::Error::other("download failed"));
-    }
-    if let Some(expected) = &asset.sha256 {
-        if let Err(err) = crate::checksum::verify_sha256(&path, expected) {
-            let _ = fs::remove_dir_all(&dir);
-            return Err(io::Error::new(
-                err.kind(),
-                format!("downloaded remote asset checksum verification failed: {err}"),
-            ));
-        }
-    }
-
-    Ok(InstallSource::temporary(path, dir))
-}
-
-#[cfg(test)]
-fn preview_assets_for_build<'a>(
-    manifest: &'a RemotePreviewManifest,
-    build_id: &str,
-) -> io::Result<(u32, &'a BTreeMap<String, RemoteAssetRef>)> {
-    if manifest.build_id == build_id {
-        return Ok((manifest.protocol, &manifest.assets));
-    }
-    let build = manifest.builds.get(build_id).ok_or_else(|| {
-        io::Error::other(format!(
-            "preview manifest no longer includes build {build_id}; run `kitsune update` locally or set {REMOTE_BINARY_ENV_VAR}=target/release/kitsune"
-        ))
-    })?;
-    Ok((build.protocol, &build.assets))
-}
-
-fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
-    if crate::build_info::is_preview() {
-        return Err(io::Error::other(format!(
-            "preview remote helper downloads are not available in this Kitsune fork; set {REMOTE_BINARY_ENV_VAR}=target/release/kitsune or install a matching Kitsune on the remote host manually"
-        )));
-    }
-
-    let current_version = current_version();
-    let tag = format!("v{}", current_version.trim_start_matches('v'));
-    let asset_name = format!("kitsune-{asset_key}");
-    Ok(RemoteReleaseAsset {
-        url: format!("{RELEASE_DOWNLOAD_BASE_URL}/{tag}/{asset_name}"),
-        sha256: None,
-    })
-}
-
-fn private_download_dir(asset_key: &str) -> io::Result<PathBuf> {
-    let base = std::env::temp_dir();
-    for attempt in 0..100 {
-        let dir = base.join(format!(
-            "kitsune-remote-{}-{}-{attempt}",
-            std::process::id(),
-            asset_key
-        ));
-        match fs::create_dir(&dir) {
-            Ok(()) => return Ok(dir),
-            Err(err) if err.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(err) => return Err(err),
-        }
-    }
-
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "failed to create private kitsune remote download directory",
-    ))
-}
-
-fn confirm_remote_install(
-    target: &str,
-    remote_herdr: &RemoteHerdr,
-    source_description: &str,
-) -> io::Result<()> {
-    if !io::stdin().is_terminal() {
-        return Err(io::Error::other(format!(
-            "matching remote kitsune {} is not installed at {}; run from an interactive terminal to approve installation",
-            current_version(),
-            remote_herdr.shell_path
-        )));
-    }
-
-    eprintln!(
-        "matching kitsune {} is not installed on {target} for {}.",
-        current_version(),
-        remote_herdr.platform.asset_key()
-    );
-    eprint!(
-        "Install {} to {}? [Y/n] ",
-        source_description, remote_herdr.shell_path
-    );
-    io::stderr().flush()?;
-
-    let mut answer = String::new();
-    io::stdin().read_line(&mut answer)?;
-    let answer = answer.trim().to_ascii_lowercase();
-    if answer == "n" || answer == "no" {
-        return Err(io::Error::new(
-            io::ErrorKind::Interrupted,
-            "remote kitsune installation cancelled",
-        ));
-    }
-
-    Ok(())
 }
 
 fn remote_bridge_command(remote_herdr: &RemoteHerdr, session_name: &str) -> String {
@@ -2101,44 +1428,6 @@ mod tests {
     }
 
     #[test]
-    fn remote_install_stream_command_avoids_shell_c_wrapper() {
-        let command = remote_install_stream_command("/home/a b/.local/bin/kitsune.tmp.123");
-
-        assert_eq!(command, "tee '/home/a b/.local/bin/kitsune.tmp.123'");
-    }
-
-    #[test]
-    fn remote_install_prepare_and_commit_scripts_quote_paths() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
-            os: "linux",
-            arch: "x86_64",
-        });
-        let prepare = remote_install_prepare_script(&remote_herdr);
-
-        assert!(prepare.contains("mkdir -p \"$dir\""));
-        assert!(prepare.contains("printf '%s\\0%s\\0' \"$tmp\" \"$dest\""));
-        assert_eq!(
-            parse_remote_install_paths(b"/home/a b/kitsune.tmp.42\0/home/a b/kitsune\0").unwrap(),
-            (
-                "/home/a b/kitsune.tmp.42".to_string(),
-                "/home/a b/kitsune".to_string()
-            )
-        );
-        assert_eq!(
-            parse_remote_install_paths(b"/home/a b\n/kitsune.tmp.42\0/home/a b\n/kitsune\0")
-                .unwrap(),
-            (
-                "/home/a b\n/kitsune.tmp.42".to_string(),
-                "/home/a b\n/kitsune".to_string()
-            )
-        );
-        assert_eq!(
-            remote_install_commit_script("/home/a b/kitsune.tmp.42", "/home/a b/kitsune"),
-            "set -eu\nchmod 755 '/home/a b/kitsune.tmp.42'\nmv '/home/a b/kitsune.tmp.42' '/home/a b/kitsune'\n"
-        );
-    }
-
-    #[test]
     fn extract_remote_args_removes_space_form() {
         let args = vec![
             "kitsune".into(),
@@ -2297,16 +1586,18 @@ mod tests {
     #[test]
     fn remote_platform_maps_uname_values() {
         assert_eq!(
-            RemotePlatform::from_uname("Linux", "amd64")
-                .unwrap()
-                .asset_key(),
-            "linux-x86_64"
+            RemotePlatform::from_uname("Linux", "amd64").unwrap(),
+            RemotePlatform {
+                os: "linux",
+                arch: "x86_64"
+            }
         );
         assert_eq!(
-            RemotePlatform::from_uname("Darwin", "arm64")
-                .unwrap()
-                .asset_key(),
-            "macos-aarch64"
+            RemotePlatform::from_uname("Darwin", "arm64").unwrap(),
+            RemotePlatform {
+                os: "macos",
+                arch: "aarch64"
+            }
         );
         assert!(RemotePlatform::from_uname("FreeBSD", "x86_64").is_none());
     }
@@ -2412,7 +1703,8 @@ mod tests {
             remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
             "exec /opt/homebrew/bin/kitsune remote-client-bridge"
         );
-        assert_eq!(remote_herdr.platform.asset_key(), "macos-aarch64");
+        assert_eq!(remote_herdr.platform.os, "macos");
+        assert_eq!(remote_herdr.platform.arch, "aarch64");
     }
 
     #[test]
@@ -2525,20 +1817,6 @@ mod tests {
     }
 
     #[test]
-    fn remote_shell_path_warning_accepts_managed_install() {
-        assert!(remote_shell_resolves_managed_install(
-            "/home/can/.local/bin/kitsune\n"
-        ));
-        assert!(remote_shell_resolves_managed_install(
-            "/Users/can/.local/bin/kitsune\n"
-        ));
-        assert!(!remote_shell_resolves_managed_install(
-            "/usr/local/bin/kitsune\n"
-        ));
-        assert!(!remote_shell_resolves_managed_install(""));
-    }
-
-    #[test]
     fn parse_client_status_json_reads_protocol() {
         assert_eq!(
             parse_client_status_json(r#"{"version":"x","protocol":8,"binary":"/bin/kitsune"}"#)
@@ -2592,160 +1870,9 @@ mod tests {
     }
 
     #[test]
-    fn remote_update_manifest_uses_root_assets_for_latest_version() {
-        let manifest: RemoteUpdateManifest = serde_json::from_str(
-            r#"{
-                "version": "1.2.3",
-                "assets": {
-                    "linux-x86_64": "https://example.com/latest"
-                },
-                "releases": {
-                    "1.2.3": {
-                        "assets": {
-                            "linux-x86_64": "https://example.com/archive"
-                        }
-                    }
-                }
-            }"#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            manifest
-                .release_for_version("1.2.3")
-                .and_then(|release| release.assets.get("linux-x86_64"))
-                .map(RemoteAssetRef::url),
-            Some("https://example.com/latest")
-        );
-    }
-
-    #[test]
-    fn remote_update_manifest_reads_archived_release_assets() {
-        let manifest: RemoteUpdateManifest = serde_json::from_str(
-            r#"{
-                "version": "1.2.4",
-                "assets": {
-                    "linux-x86_64": "https://example.com/latest"
-                },
-                "releases": {
-                    "1.2.3": {
-                        "notes": "ignored",
-                        "assets": {
-                            "linux-x86_64": "https://example.com/archive"
-                        }
-                    }
-                }
-            }"#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            manifest
-                .release_for_version("1.2.3")
-                .and_then(|release| release.assets.get("linux-x86_64"))
-                .map(RemoteAssetRef::url),
-            Some("https://example.com/archive")
-        );
-    }
-
-    #[test]
-    fn remote_update_manifest_uses_archived_release_protocol() {
-        let manifest: RemoteUpdateManifest = serde_json::from_str(
-            r#"{
-                "version": "1.2.4",
-                "protocol": 42,
-                "assets": {
-                    "linux-x86_64": "https://example.com/latest"
-                },
-                "releases": {
-                    "1.2.3": {
-                        "notes": "ignored",
-                        "protocol": 41,
-                        "assets": {
-                            "linux-x86_64": "https://example.com/archive"
-                        }
-                    }
-                }
-            }"#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            manifest
-                .release_for_version("1.2.3")
-                .and_then(|release| release.protocol),
-            Some(41)
-        );
-    }
-
-    #[test]
-    fn remote_update_manifest_does_not_inherit_latest_protocol_for_archived_assets() {
-        let manifest: RemoteUpdateManifest = serde_json::from_str(
-            r#"{
-                "version": "1.2.4",
-                "protocol": 42,
-                "assets": {
-                    "linux-x86_64": "https://example.com/latest"
-                },
-                "releases": {
-                    "1.2.3": {
-                        "notes": "ignored",
-                        "assets": {
-                            "linux-x86_64": "https://example.com/archive"
-                        }
-                    }
-                }
-            }"#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            manifest
-                .release_for_version("1.2.3")
-                .and_then(|release| release.protocol),
-            None
-        );
-    }
-
-    #[test]
-    fn remote_preview_manifest_falls_back_to_archived_exact_build_assets() {
-        let manifest: RemotePreviewManifest = serde_json::from_str(
-            r#"{
-                "build_id": "2026-06-06-new",
-                "protocol": 12,
-                "assets": {
-                    "linux-x86_64": {
-                        "url": "https://example.com/new",
-                        "sha256": "new"
-                    }
-                },
-                "builds": {
-                    "2026-06-02-old": {
-                        "protocol": 11,
-                        "assets": {
-                            "linux-x86_64": {
-                                "url": "https://example.com/old",
-                                "sha256": "old"
-                            }
-                        }
-                    }
-                }
-            }"#,
-        )
-        .unwrap();
-
-        let (protocol, assets) =
-            preview_assets_for_build(&manifest, "2026-06-02-old").expect("archived build");
-        let asset = assets.get("linux-x86_64").expect("asset");
-        assert_eq!(protocol, 11);
-        assert_eq!(asset.url(), "https://example.com/old");
-        assert_eq!(asset.sha256(), Some("old"));
-    }
-
-    #[test]
     fn remote_server_restart_reason_requires_stop_for_protocol_mismatch() {
         assert_eq!(
-            remote_server_restart_reason(Some(&current_version()), Some(0), true, false),
+            remote_server_restart_reason(Some(&current_version()), Some(0), true),
             Some(RemoteServerRestartReason::ProtocolMismatch)
         );
     }
@@ -2753,12 +1880,7 @@ mod tests {
     #[test]
     fn remote_server_restart_reason_allows_unchanged_compatible_server() {
         assert_eq!(
-            remote_server_restart_reason(
-                Some(&current_version()),
-                Some(CURRENT_PROTOCOL),
-                true,
-                false
-            ),
+            remote_server_restart_reason(Some(&current_version()), Some(CURRENT_PROTOCOL), true),
             None
         );
     }
@@ -2766,37 +1888,19 @@ mod tests {
     #[test]
     fn remote_server_restart_reason_requires_restart_for_old_daemon() {
         assert_eq!(
-            remote_server_restart_reason(
-                Some(&current_version()),
-                Some(CURRENT_PROTOCOL),
-                false,
-                false
-            ),
+            remote_server_restart_reason(Some(&current_version()), Some(CURRENT_PROTOCOL), false),
             Some(RemoteServerRestartReason::DaemonDetachMissing)
-        );
-    }
-
-    #[test]
-    fn remote_server_restart_reason_requires_restart_after_helper_update() {
-        assert_eq!(
-            remote_server_restart_reason(
-                Some(&current_version()),
-                Some(CURRENT_PROTOCOL),
-                true,
-                true
-            ),
-            Some(RemoteServerRestartReason::BinaryUpdated)
         );
     }
 
     #[test]
     fn remote_server_restart_reason_offers_restart_for_version_mismatch() {
         assert_eq!(
-            remote_server_restart_reason(Some("0.0.0"), Some(CURRENT_PROTOCOL), true, false),
+            remote_server_restart_reason(Some("0.0.0"), Some(CURRENT_PROTOCOL), true),
             Some(RemoteServerRestartReason::VersionMismatch)
         );
         assert_eq!(
-            remote_server_restart_reason(None, Some(CURRENT_PROTOCOL), true, false),
+            remote_server_restart_reason(None, Some(CURRENT_PROTOCOL), true),
             Some(RemoteServerRestartReason::VersionMismatch)
         );
     }
@@ -2804,146 +1908,9 @@ mod tests {
     #[test]
     fn remote_server_restart_reason_allows_current_server() {
         assert_eq!(
-            remote_server_restart_reason(
-                Some(&current_version()),
-                Some(CURRENT_PROTOCOL),
-                true,
-                false
-            ),
+            remote_server_restart_reason(Some(&current_version()), Some(CURRENT_PROTOCOL), true),
             None
         );
-    }
-
-    #[test]
-    fn remote_install_plan_keeps_compatible_running_server() {
-        assert_eq!(
-            remote_install_running_server_plan(
-                Some(&current_version()),
-                Some(CURRENT_PROTOCOL),
-                true,
-                false,
-                false,
-                false
-            ),
-            RemoteInstallRunningServerPlan::KeepRunning
-        );
-    }
-
-    #[test]
-    fn remote_install_plan_requires_stop_for_old_daemon() {
-        assert_eq!(
-            remote_install_running_server_plan(
-                Some(&current_version()),
-                Some(CURRENT_PROTOCOL),
-                false,
-                true,
-                false,
-                false
-            ),
-            RemoteInstallRunningServerPlan::StopRequired(
-                RemoteServerRestartReason::DaemonDetachMissing
-            )
-        );
-    }
-
-    #[test]
-    fn remote_install_plan_requires_stop_after_helper_update() {
-        assert_eq!(
-            remote_install_running_server_plan(
-                Some(&current_version()),
-                Some(CURRENT_PROTOCOL),
-                true,
-                true,
-                false,
-                false
-            ),
-            RemoteInstallRunningServerPlan::StopRequired(RemoteServerRestartReason::BinaryUpdated)
-        );
-    }
-
-    #[test]
-    fn remote_install_plan_requires_stop_for_incompatible_running_server() {
-        assert_eq!(
-            remote_install_running_server_plan(
-                Some("0.0.0"),
-                Some(CURRENT_PROTOCOL),
-                true,
-                true,
-                false,
-                false
-            ),
-            RemoteInstallRunningServerPlan::StopRequired(
-                RemoteServerRestartReason::VersionMismatch
-            )
-        );
-    }
-
-    #[test]
-    fn remote_install_plan_uses_live_handoff_for_incompatible_running_server() {
-        assert_eq!(
-            remote_install_running_server_plan(
-                Some("0.0.0"),
-                Some(CURRENT_PROTOCOL),
-                true,
-                true,
-                true,
-                true
-            ),
-            RemoteInstallRunningServerPlan::LiveHandoff
-        );
-    }
-
-    #[test]
-    fn install_source_description_uses_override_binary() {
-        let platform = RemotePlatform {
-            os: "linux",
-            arch: "aarch64",
-        };
-        assert_eq!(
-            install_source_description_for(
-                &platform,
-                Some(Path::new("/tmp/kitsune-aarch64")),
-                false
-            ),
-            "KITSUNE_REMOTE_BINARY (/tmp/kitsune-aarch64)"
-        );
-    }
-
-    #[test]
-    fn install_source_description_uses_local_binary_when_allowed() {
-        let platform = RemotePlatform::local();
-
-        assert_eq!(
-            install_source_description_for(&platform, None, true),
-            "the current local kitsune binary"
-        );
-    }
-
-    #[test]
-    fn install_source_description_uses_release_asset_when_local_binary_cannot_seed_remote() {
-        let platform = RemotePlatform::local();
-
-        assert_eq!(
-            install_source_description_for(&platform, None, false),
-            format!(
-                "the {} {} asset for {}",
-                current_version(),
-                current_channel(),
-                platform.asset_key()
-            )
-        );
-    }
-
-    #[test]
-    fn resolve_install_source_uses_override_binary_without_temporary_cleanup() {
-        let platform = RemotePlatform {
-            os: "linux",
-            arch: "aarch64",
-        };
-        let source = resolve_install_source(&platform, Some(PathBuf::from("/tmp/kitsune-aarch64")))
-            .expect("override source");
-        assert_eq!(source.path, PathBuf::from("/tmp/kitsune-aarch64"));
-        assert!(source.temporary_dir.is_none());
     }
 
     fn remote_env_lock() -> &'static std::sync::Mutex<()> {
@@ -3028,21 +1995,5 @@ mod tests {
             filename.starts_with("kitsune-r-"),
             "expected hashed fallback, got {filename}"
         );
-    }
-
-    #[test]
-    fn install_source_cleanup_removes_temporary_directory() {
-        let dir = std::env::temp_dir().join(format!(
-            "kitsune-install-source-cleanup-test-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir(&dir).expect("create temp dir");
-        let path = dir.join("kitsune.tmp");
-        fs::write(&path, b"test").expect("write temp file");
-
-        InstallSource::temporary(path, dir.clone()).cleanup();
-
-        assert!(!dir.exists());
     }
 }

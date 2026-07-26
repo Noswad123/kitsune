@@ -10,17 +10,9 @@ pub(crate) const KITSUNE_TAB_ID_ENV_VAR: &str = "KITSUNE_TAB_ID";
 pub(crate) const KITSUNE_WORKSPACE_ID_ENV_VAR: &str = "KITSUNE_WORKSPACE_ID";
 
 pub(crate) const PI_CODING_AGENT_DIR_ENV_VAR: &str = "PI_CODING_AGENT_DIR";
-pub(crate) const OMP_CONFIG_DIR_ENV_VAR: &str = "PI_CONFIG_DIR";
 pub(crate) const CLAUDE_CONFIG_DIR_ENV_VAR: &str = "CLAUDE_CONFIG_DIR";
 pub(crate) const CODEX_HOME_ENV_VAR: &str = "CODEX_HOME";
-pub(crate) const KIMI_CODE_HOME_ENV_VAR: &str = "KIMI_CODE_HOME";
 pub(crate) const COPILOT_HOME_ENV_VAR: &str = "COPILOT_HOME";
-pub(crate) const QODERCLI_CONFIG_DIR_ENV_VAR: &str = "QODER_CONFIG_DIR";
-pub(crate) const CURSOR_CONFIG_DIR_ENV_VAR: &str = "CURSOR_CONFIG_DIR";
-pub(crate) const GROK_CONFIG_DIR_ENV_VAR: &str = "GROK_CONFIG_DIR";
-/// The grok CLI's own config-home override (documented alongside
-/// `$GROK_HOME/config.toml` and `$GROK_HOME/auth.json`).
-pub(crate) const GROK_HOME_ENV_VAR: &str = "GROK_HOME";
 
 pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
     cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
@@ -33,22 +25,6 @@ pub(crate) fn pi_extension_dir() -> io::Result<PathBuf> {
     )
 }
 
-pub(crate) fn omp_extension_dir() -> io::Result<PathBuf> {
-    if let Some(value) =
-        std::env::var_os(PI_CODING_AGENT_DIR_ENV_VAR).filter(|value| !value.is_empty())
-    {
-        return expand_tilde_path(PathBuf::from(value)).map(|path| path.join("extensions"));
-    }
-
-    let config_dir = std::env::var_os(OMP_CONFIG_DIR_ENV_VAR)
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| ".omp".into());
-    Ok(home_dir()?
-        .join(config_dir)
-        .join("agent")
-        .join("extensions"))
-}
-
 pub(crate) fn claude_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(CLAUDE_CONFIG_DIR_ENV_VAR, &[".claude"])
 }
@@ -57,24 +33,8 @@ pub(crate) fn codex_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(CODEX_HOME_ENV_VAR, &[".codex"])
 }
 
-pub(crate) fn kimi_dir() -> io::Result<PathBuf> {
-    config_dir_from_env_or_home(KIMI_CODE_HOME_ENV_VAR, &[".kimi-code"])
-}
-
 pub(crate) fn copilot_dir() -> io::Result<PathBuf> {
     config_dir_from_env_or_home(COPILOT_HOME_ENV_VAR, &[".copilot"])
-}
-
-pub(crate) fn devin_dir() -> io::Result<PathBuf> {
-    if let Some(value) = std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
-        return expand_tilde_path(PathBuf::from(value)).map(|path| path.join("devin"));
-    }
-
-    Ok(home_dir()?.join(".config").join("devin"))
-}
-
-pub(crate) fn droid_dir() -> io::Result<PathBuf> {
-    Ok(home_dir()?.join(".factory"))
 }
 
 pub(crate) fn config_dir_from_env_or_home(
@@ -114,44 +74,6 @@ pub(crate) fn expand_tilde_path(path: PathBuf) -> io::Result<PathBuf> {
 
 pub(crate) fn opencode_dir() -> io::Result<PathBuf> {
     Ok(home_dir()?.join(".config/opencode"))
-}
-
-pub(crate) fn kilo_dir() -> io::Result<PathBuf> {
-    Ok(home_dir()?.join(".config/kilo"))
-}
-
-pub(crate) fn hermes_dir() -> io::Result<PathBuf> {
-    Ok(home_dir()?.join(".hermes"))
-}
-
-pub(crate) fn hermes_plugin_dir() -> io::Result<PathBuf> {
-    Ok(hermes_dir()?
-        .join("plugins")
-        .join(super::HERMES_PLUGIN_INSTALL_NAME))
-}
-
-pub(crate) fn qodercli_dir() -> io::Result<PathBuf> {
-    config_dir_from_env_or_home(QODERCLI_CONFIG_DIR_ENV_VAR, &[".qoder"])
-}
-
-pub(crate) fn cursor_dir() -> io::Result<PathBuf> {
-    config_dir_from_env_or_home(CURSOR_CONFIG_DIR_ENV_VAR, &[".cursor"])
-}
-
-pub(crate) fn mastracode_dir() -> io::Result<PathBuf> {
-    Ok(home_dir()?.join(".mastracode"))
-}
-
-pub(crate) fn grok_dir() -> io::Result<PathBuf> {
-    // GROK_CONFIG_DIR is a kitsune-level override only (primarily a test
-    // seam); the grok CLI does not honor it, so it stays first and explicit.
-    if let Some(value) = std::env::var_os(GROK_CONFIG_DIR_ENV_VAR).filter(|value| !value.is_empty())
-    {
-        return expand_tilde_path(PathBuf::from(value));
-    }
-    // The grok CLI honors GROK_HOME as its config home (config.toml,
-    // auth.json, hooks/); mirror it so hook installs land where grok looks.
-    config_dir_from_env_or_home(GROK_HOME_ENV_VAR, &[".grok"])
 }
 
 pub(crate) fn home_dir() -> io::Result<PathBuf> {

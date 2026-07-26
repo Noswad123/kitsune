@@ -24,9 +24,6 @@ pub(crate) use types::{IntegrationRecommendation, IntegrationStatus, Integration
 const PI_EXTENSION_INSTALL_NAME: &str = "kitsune-agent-state.ts";
 const PI_EXTENSION_ASSET: &str = include_str!("assets/pi/kitsune-agent-state.ts");
 const PI_INTEGRATION_VERSION: u32 = 7;
-const OMP_EXTENSION_INSTALL_NAME: &str = "kitsune-omp-agent-state.ts";
-const OMP_EXTENSION_ASSET: &str = include_str!("assets/omp/kitsune-agent-state.ts");
-const OMP_INTEGRATION_VERSION: u32 = 7;
 const CLAUDE_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
     "kitsune-agent-state.ps1"
 } else {
@@ -49,48 +46,6 @@ const CODEX_HOOK_ASSET: &str = if cfg!(windows) {
     include_str!("assets/codex/kitsune-agent-state.sh")
 };
 const CODEX_INTEGRATION_VERSION: u32 = 6;
-const KIMI_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "kitsune-agent-state.ps1"
-} else {
-    "kitsune-agent-state.sh"
-};
-const KIMI_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/kimi/kitsune-agent-state.ps1")
-} else {
-    include_str!("assets/kimi/kitsune-agent-state.sh")
-};
-const KIMI_INTEGRATION_VERSION: u32 = 6;
-const KIMI_CONFIG_BLOCK_BEGIN: &str = "# >>> kitsune kimi integration";
-const KIMI_CONFIG_BLOCK_END: &str = "# <<< kitsune kimi integration";
-const KIMI_MIN_VERSION: &str = "0.14.0";
-const KIMI_ASK_USER_QUESTION_MATCHER: &str = "^AskUserQuestion$";
-const KIMI_OTHER_TOOL_MATCHER: &str = "^(?!AskUserQuestion$).*$";
-const KIMI_HOOK_EVENTS: [(&str, Option<&str>, &str); 12] = [
-    ("SessionStart", None, "session"),
-    ("UserPromptSubmit", None, "working"),
-    ("PreToolUse", Some(KIMI_OTHER_TOOL_MATCHER), "working"),
-    (
-        "PreToolUse",
-        Some(KIMI_ASK_USER_QUESTION_MATCHER),
-        "blocked",
-    ),
-    (
-        "PostToolUse",
-        Some(KIMI_ASK_USER_QUESTION_MATCHER),
-        "working",
-    ),
-    (
-        "PostToolUseFailure",
-        Some(KIMI_ASK_USER_QUESTION_MATCHER),
-        "working",
-    ),
-    ("SubagentStart", None, "working"),
-    ("PreCompact", None, "working"),
-    ("PermissionRequest", None, "blocked"),
-    ("PermissionResult", None, "working"),
-    ("Stop", None, "idle"),
-    ("Interrupt", None, "idle"),
-];
 const COPILOT_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
     "kitsune-agent-state.ps1"
 } else {
@@ -114,112 +69,9 @@ const COPILOT_REMOVED_LIFECYCLE_HOOK_EVENTS: [&str; 9] = [
     "notification",
     "sessionStart",
 ];
-const DEVIN_HOOK_INSTALL_NAME: &str = "kitsune-agent-state.sh";
-const DEVIN_HOOK_ASSET: &str = include_str!("assets/devin/kitsune-agent-state.sh");
-const DEVIN_INTEGRATION_VERSION: u32 = 2;
-const DEVIN_HOOK_EVENTS: [(&str, &str); 6] = [
-    ("SessionStart", "session"),
-    ("UserPromptSubmit", "session"),
-    ("PreToolUse", "session"),
-    ("PostToolUse", "session"),
-    ("PermissionRequest", "session"),
-    ("Stop", "session"),
-];
-const DEVIN_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 6] = [
-    ("UserPromptSubmit", "working"),
-    ("PreToolUse", "working"),
-    ("PostToolUse", "working"),
-    ("PermissionRequest", "blocked"),
-    ("Stop", "idle"),
-    ("SessionEnd", "release"),
-];
-const DROID_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "kitsune-agent-state.ps1"
-} else {
-    "kitsune-agent-state.sh"
-};
-const DROID_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/droid/kitsune-agent-state.ps1")
-} else {
-    include_str!("assets/droid/kitsune-agent-state.sh")
-};
-const DROID_INTEGRATION_VERSION: u32 = 2;
-const DROID_HOOK_EVENTS: [(&str, &str); 1] = [("SessionStart", "session")];
-const DROID_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 9] = [
-    ("SessionStart", "idle"),
-    ("UserPromptSubmit", "working"),
-    ("PreToolUse", "working"),
-    ("PostToolUse", "working"),
-    ("Notification", "blocked"),
-    ("Stop", "idle"),
-    ("SubagentStop", "working"),
-    ("PreCompact", "working"),
-    ("SessionEnd", "release"),
-];
 const OPENCODE_PLUGIN_INSTALL_NAME: &str = "kitsune-agent-state.js";
 const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/kitsune-agent-state.js");
 const OPENCODE_INTEGRATION_VERSION: u32 = 9;
-const KILO_PLUGIN_INSTALL_NAME: &str = "kitsune-agent-state.js";
-const KILO_PLUGIN_ASSET: &str = include_str!("assets/kilo/kitsune-agent-state.js");
-const KILO_INTEGRATION_VERSION: u32 = 4;
-const HERMES_PLUGIN_INSTALL_NAME: &str = "kitsune-agent-state";
-const HERMES_PLUGIN_MANIFEST_INSTALL_NAME: &str = "plugin.yaml";
-const HERMES_PLUGIN_INIT_INSTALL_NAME: &str = "__init__.py";
-const HERMES_PLUGIN_MANIFEST_ASSET: &str = include_str!("assets/hermes/plugin.yaml");
-const HERMES_PLUGIN_INIT_ASSET: &str = include_str!("assets/hermes/__init__.py");
-const HERMES_INTEGRATION_VERSION: u32 = 4;
-const QODERCLI_HOOK_INSTALL_NAME: &str = if cfg!(windows) {
-    "kitsune-agent-state.ps1"
-} else {
-    "kitsune-agent-state.sh"
-};
-const QODERCLI_HOOK_ASSET: &str = if cfg!(windows) {
-    include_str!("assets/qodercli/kitsune-agent-state.ps1")
-} else {
-    include_str!("assets/qodercli/kitsune-agent-state.sh")
-};
-const QODERCLI_INTEGRATION_VERSION: u32 = 2;
-const QODERCLI_HOOK_EVENTS: [(&str, &str); 1] = [("SessionStart", "session")];
-const QODERCLI_REMOVED_LIFECYCLE_HOOK_EVENTS: [(&str, &str); 12] = [
-    ("SessionStart", "idle"),
-    ("UserPromptSubmit", "working"),
-    ("PreToolUse", "working"),
-    ("PostToolUse", "working"),
-    ("PostToolUseFailure", "working"),
-    ("SubagentStart", "working"),
-    ("SubagentStop", "working"),
-    ("PreCompact", "working"),
-    ("Notification", "blocked"),
-    ("PermissionRequest", "blocked"),
-    ("Stop", "idle"),
-    ("SessionEnd", "release"),
-];
-const CURSOR_HOOK_INSTALL_NAME: &str = "kitsune-agent-state.sh";
-const CURSOR_HOOK_ASSET: &str = include_str!("assets/cursor/kitsune-agent-state.sh");
-const CURSOR_INTEGRATION_VERSION: u32 = 1;
-const MASTRACODE_HOOK_INSTALL_NAME: &str = "kitsune-agent-state.sh";
-const MASTRACODE_HOOK_ASSET: &str = include_str!("assets/mastracode/kitsune-agent-state.sh");
-const MASTRACODE_INTEGRATION_VERSION: u32 = 2;
-const MASTRACODE_HOOK_TIMEOUT_MS: u64 = 10_000;
-const MASTRACODE_REMOVED_HOOK_EVENTS: [(&str, &str); 2] =
-    [("SessionStart", "idle"), ("SessionEnd", "release")];
-const MASTRACODE_HOOK_EVENTS: [(&str, &str); 11] = [
-    ("SessionStart", "session"),
-    ("UserPromptSubmit", "working"),
-    ("AgentStart", "working"),
-    ("PreToolUse", "working"),
-    ("PermissionRequest", "blocked"),
-    ("PermissionResult", "working"),
-    ("SubagentStart", "working"),
-    ("SubagentEnd", "working"),
-    ("Interrupt", "idle"),
-    ("AgentEnd", "idle"),
-    ("Stop", "idle"),
-];
-const GROK_HOOK_INSTALL_NAME: &str = "kitsune-agent-state.sh";
-const GROK_HOOK_CONFIG_INSTALL_NAME: &str = "kitsune.json";
-const GROK_HOOK_ASSET: &str = include_str!("assets/grok/kitsune-agent-state.sh");
-const GROK_INTEGRATION_VERSION: u32 = 1;
 const INTEGRATION_VERSION_MARKER: &str = "KITSUNE_INTEGRATION_VERSION=";
 
 pub(crate) const INSTALL_WARNING_PREFIX: &str = "warning:";

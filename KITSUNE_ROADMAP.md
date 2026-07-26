@@ -36,6 +36,9 @@ Completed in this phase:
   metadata while keeping historical Herdr references where context matters.
 - Aligned `kit` and `kitsune` help/completion surfaces so generated shell
   completions and command examples follow the invoked entry point.
+- Deleted dead supporting code for removed updater, remote auto-install, and
+  inherited integration targets so Kitsune only carries supported integration
+  plumbing.
 
 Remaining candidate work:
 
@@ -44,8 +47,6 @@ Remaining candidate work:
   increases merge pain.
 - Continue auditing `kit` and `kitsune` behavior so editor integrations, shell
   aliases, and remote workflows can use either entry point predictably.
-- Finish deleting dead supporting code for removed updater, remote auto-install,
-  and inherited integration targets.
 
 ## Agent selector
 - Right now I leverage prefix+a to shift focus from agent to agent

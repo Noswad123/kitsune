@@ -284,12 +284,6 @@ impl App {
                 crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System
             )
         {
-            let notify = match self.state.toast_config.delivery {
-                crate::config::ToastDelivery::Terminal => crate::terminal_notify::show_notification,
-                crate::config::ToastDelivery::System => crate::platform::show_desktop_notification,
-                _ => unreachable!("toast delivery was checked above"),
-            };
-
             if self.state.toast_config.delay_seconds == 0 {
                 self.emit_terminal_or_system_agent_notifications(&pane_updates);
             }

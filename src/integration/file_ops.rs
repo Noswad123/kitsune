@@ -37,14 +37,6 @@ pub(crate) fn remove_legacy_bash_hook_file(_hook_path: &Path) -> io::Result<bool
     Ok(false)
 }
 
-pub(crate) fn remove_dir_all_if_exists(path: &Path) -> io::Result<bool> {
-    match fs::remove_dir_all(path) {
-        Ok(()) => Ok(true),
-        Err(err) if err.kind() == io::ErrorKind::NotFound => Ok(false),
-        Err(err) => Err(err),
-    }
-}
-
 pub(crate) fn make_executable(_path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {

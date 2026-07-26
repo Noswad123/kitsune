@@ -36,10 +36,6 @@ pub(crate) fn integration_target_command_names(
     }
 }
 
-pub(crate) fn cursor_command_names() -> &'static [&'static str] {
-    &["cursor-agent"]
-}
-
 pub(crate) fn integration_target_supported(target: crate::api::schema::IntegrationTarget) -> bool {
     #[cfg(windows)]
     {
@@ -154,30 +150,6 @@ pub(crate) fn codex_executable_name() -> &'static str {
         "codex.exe"
     } else {
         "codex"
-    }
-}
-
-pub(crate) fn hermes_install_layout_available() -> bool {
-    #[cfg(windows)]
-    {
-        let Some(local_app_data) =
-            std::env::var_os("LOCALAPPDATA").filter(|value| !value.is_empty())
-        else {
-            return false;
-        };
-        let dir = PathBuf::from(local_app_data).join("hermes");
-        [
-            dir.join("hermes.exe"),
-            dir.join("bin").join("hermes.exe"),
-            dir.join("Scripts").join("hermes.exe"),
-        ]
-        .into_iter()
-        .any(|path| executable_file_exists(&path))
-    }
-
-    #[cfg(not(windows))]
-    {
-        false
     }
 }
 
@@ -296,19 +268,6 @@ pub(crate) fn print_outdated_update_notice() -> bool {
     true
 }
 
-/// Whether the Kitsune-owned Grok hook config exactly matches the installed
-/// integration. JSON formatting and object key order do not affect validity.
-fn grok_hook_config_is_valid(hook_path: &Path) -> bool {
-    let Some(hooks_dir) = hook_path.parent() else {
-        return false;
-    };
-    let config_path = hooks_dir.join(super::GROK_HOOK_CONFIG_INSTALL_NAME);
-    fs::read_to_string(config_path)
-        .ok()
-        .and_then(|content| serde_json::from_str::<serde_json::Value>(&content).ok())
-        .is_some_and(|config| config == super::targets::grok_hook_config(hook_path))
-}
-
 pub(crate) fn integration_status_at(
     target: crate::api::schema::IntegrationTarget,
     path: PathBuf,
@@ -327,7 +286,7 @@ pub(crate) fn integration_status_at(
     let installed_version = fs::read_to_string(&path)
         .ok()
         .and_then(|content| parse_integration_version(&content));
-    let mut state = if installed_version.is_some_and(|version| version >= expected_version) {
+    let state = if installed_version.is_some_and(|version| version >= expected_version) {
         super::IntegrationStatusKind::Current
     } else {
         super::IntegrationStatusKind::Outdated

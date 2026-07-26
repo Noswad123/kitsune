@@ -56,8 +56,6 @@ mod agent_resume;
 mod api;
 mod app;
 mod build_info;
-#[cfg(not(windows))]
-mod checksum;
 mod cli;
 mod client;
 mod config;
