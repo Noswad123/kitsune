@@ -18,10 +18,6 @@ include = [
     "Cargo.toml",
 ]
 
-[[bin]]
-name = "kit"
-path = "src/bin/kit.rs"
-
 [dependencies]
 base64 = "0.22.1"
 bincode = { version = "2", features = ["serde"] }

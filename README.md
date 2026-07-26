@@ -2,13 +2,13 @@
 
 Kitsune started as a personal fork of Herdr, a terminal-based runtime for running coding agents in panes, tabs, workspaces, and detached sessions.
 
-This fork is branded around the `kitsune` command, the short `kit` command, and local Kitsune runtime state. It intentionally removes Herdr's public website, hosted updater, and plugin marketplace surfaces.
+This fork is branded around the `kitsune` command and local Kitsune runtime state. It intentionally removes Herdr's public website, hosted updater, and plugin marketplace surfaces.
 
 ## Runtime identity
 
 Kitsune has its own runtime identity so it can coexist with an installed Herdr session on the same machine.
 
-- Commands: `kitsune` and `kit`.
+- Command: `kitsune`.
 - Runtime config, sockets, logs, and environment variables use `kitsune` / `KITSUNE_*` names.
 - Panes launched by Kitsune receive Kitsune-owned workspace, tab, and pane environment.
 - The default config inspection and reload workflows use Kitsune paths and sockets.
@@ -18,7 +18,7 @@ Internal module/type names may still reference Herdr where keeping the fork easy
 ## Build and run
 
 ```bash
-cargo build --bin kitsune --bin kit
+cargo build --bin kitsune
 ./target/debug/kitsune
 ```
 

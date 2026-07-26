@@ -1,6 +1,6 @@
 # Kitsune docs
 
-Kitsune started as a personal Herdr fork and is distributed as the `kitsune` and `kit` commands.
+Kitsune started as a personal Herdr fork and is distributed as the `kitsune` command.
 
 The hosted Herdr website, versioned website docs, hosted updater manifests, and plugin marketplace docs do not apply to this fork. Keep durable local documentation in repository docs and keep the bundled API schema in `docs/next/api/`.
 
@@ -8,7 +8,7 @@ The hosted Herdr website, versioned website docs, hosted updater manifests, and 
 
 Kitsune has its own runtime identity while retaining Herdr's core terminal-agent runtime.
 
-- `kitsune` is the canonical command and `kit` is the short command.
+- `kitsune` is the canonical command.
 - Default config, session, socket, and log locations use Kitsune names rather than Herdr names.
 - Runtime controls use `KITSUNE_*` environment variables, including pane identity and socket selection.
 - Panes launched by Kitsune receive `KITSUNE_ENV`, `KITSUNE_WORKSPACE_ID`, `KITSUNE_TAB_ID`, and `KITSUNE_PANE_ID`.
@@ -33,8 +33,8 @@ The session recall helper has first-class `kitsune`, `herdr`, and `tmux` backend
 
 The completed Kitsune baseline includes:
 
-- Building both `kitsune` and `kit` binaries.
-- Showing Kitsune-facing help and version output from both commands.
+- Building the `kitsune` binary.
+- Showing Kitsune-facing help and version output from the command.
 - Running normal sessions against Kitsune-owned config, socket, session, and log paths.
 - Launching panes with Kitsune-owned environment variables.
 - Opening native Kitsune session recall from the default keybinding.

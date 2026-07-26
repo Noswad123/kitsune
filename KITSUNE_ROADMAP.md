@@ -7,9 +7,8 @@ runtime identity and session recall baseline is documented in `README.md` and
 ## Product goal
 
 Kitsune should provide Herdr's core terminal-agent runtime while presenting a
-Kitsune-owned product surface. Users can interact through the canonical
-`kitsune` command or the short `kit` command. Both entry points run the same
-runtime and target Kitsune-owned state rather than Herdr state.
+Kitsune-owned product surface. Users interact through the canonical `kitsune`
+command, which targets Kitsune-owned state rather than Herdr state.
 
 The remaining product goal is no longer basic rebranding; it is choosing the
 defaults and workflows that make Kitsune its own product.
@@ -34,8 +33,8 @@ Completed in this phase:
   channel behavior from the active Kitsune CLI/UI path.
 - Replaced low-risk Herdr-branded docs, assets, integration text, and package
   metadata while keeping historical Herdr references where context matters.
-- Aligned `kit` and `kitsune` help/completion surfaces so generated shell
-  completions and command examples follow the invoked entry point.
+- Aligned the `kitsune` help/completion surface so generated shell completions
+  and command examples use the canonical entry point.
 - Deleted dead supporting code for removed updater, remote auto-install, and
   inherited integration targets so Kitsune only carries supported integration
   plumbing.
@@ -45,8 +44,8 @@ Remaining candidate work:
 - Remove features that do not fit Kitsune's product direction.
 - Rename internal modules/types only when it reduces confusion more than it
   increases merge pain.
-- Continue auditing `kit` and `kitsune` behavior so editor integrations, shell
-  aliases, and remote workflows can use either entry point predictably.
+- Continue auditing `kitsune` behavior so editor integrations, shell aliases,
+  and remote workflows use the canonical entry point predictably.
 
 ## Agent selector
 - Right now I leverage prefix+a to shift focus from agent to agent

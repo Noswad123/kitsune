@@ -1981,7 +1981,7 @@ mod tests {
             ),
             (
                 "KITSUNE_BIN_PATH".to_string(),
-                "/usr/local/bin/kit".to_string(),
+                "/usr/local/bin/kitsune".to_string(),
             ),
             ("KITSUNE_ACTIVE_WORKSPACE_ID".to_string(), "w2".to_string()),
             ("KITSUNE_ACTIVE_TAB_ID".to_string(), "w2:t3".to_string()),
@@ -1999,7 +1999,7 @@ mod tests {
 
         App::append_session_recall_env_with_values(
             &mut env,
-            "/usr/local/bin/kit".to_string(),
+            "/usr/local/bin/kitsune".to_string(),
             "/tmp/kitsune.sock".to_string(),
             "/tmp/kitsune-client.sock".to_string(),
         );
@@ -2011,7 +2011,7 @@ mod tests {
         assert_eq!(env_last_value(&env, "KITSUNE_ENV"), Some("1"));
         assert_eq!(
             env_last_value(&env, "KITSUNE_BIN_PATH"),
-            Some("/usr/local/bin/kit")
+            Some("/usr/local/bin/kitsune")
         );
         assert_eq!(
             env_last_value(&env, crate::api::SOCKET_PATH_ENV_VAR),

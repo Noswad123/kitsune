@@ -1,5 +1,4 @@
 APP_NAME = kitsune
-ALIASES = kitsune kit
 INSTALL_DIR = ~/.local/bin
 
 HANDOFF_ARGS ?=
@@ -7,8 +6,8 @@ HANDOFF_ARGS ?=
 .PHONY: build check fmt test run install handoff
 
 build:
-	@echo "🔨 Building $(ALIASES)..."
-	cargo build $(foreach bin,$(ALIASES),--bin $(bin))
+	@echo "🔨 Building $(APP_NAME)..."
+	cargo build --bin $(APP_NAME)
 
 check:
 	cargo check --tests
@@ -28,10 +27,8 @@ run: build
 install: build
 	@echo "📦 Installing to $(INSTALL_DIR)"
 	@mkdir -p $(INSTALL_DIR)
-	@for bin in $(ALIASES); do \
-		cp target/debug/$$bin $(INSTALL_DIR)/$$bin; \
-	done
-	@echo "✅ Installed. Run with: kit or kitsune"
+	cp target/debug/$(APP_NAME) $(INSTALL_DIR)/$(APP_NAME)
+	@echo "✅ Installed. Run with: kitsune"
 
 handoff:
 	@scripts/live_handoff_dev.sh $(if $(BIN),--bin $(BIN),) $(HANDOFF_ARGS)
