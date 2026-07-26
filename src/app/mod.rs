@@ -62,13 +62,6 @@ use crate::events::AppEvent;
 
 pub use state::{AppState, Mode, ToastKind, ViewState};
 
-pub(crate) fn load_plugin_manifest(
-    path: &str,
-    enabled: bool,
-) -> Result<crate::api::schema::InstalledPluginInfo, (&'static str, String)> {
-    api::plugins::load_plugin_manifest(path, enabled)
-}
-
 /// Full application: AppState + runtime concerns (event channels, async I/O).
 #[derive(Debug, Clone)]
 pub(crate) struct OverlayPaneState {
@@ -126,9 +119,7 @@ pub struct App {
     pub(crate) pending_url_click_sources: HashSet<InputSourceId>,
     pub(crate) next_resize_poll: Instant,
     pub(crate) next_animation_tick: Option<Instant>,
-    pub(crate) next_auto_update_check: Option<Instant>,
     pub(crate) next_agent_manifest_update_check: Option<Instant>,
-    pub(crate) update_version_check_enabled: bool,
     pub(crate) update_manifest_check_enabled: bool,
     pub(crate) loaded_host_cursor: crate::config::HostCursorModeConfig,
     pub(crate) agent_metadata_deadline: Option<Instant>,
@@ -224,26 +215,12 @@ fn pressed_key_identity(
     (source_id, key.code)
 }
 
-fn auto_updates_enabled(no_session: bool) -> bool {
+fn remote_manifest_updates_enabled(no_session: bool) -> bool {
     !no_session && !cfg!(debug_assertions)
 }
 
 fn background_update_check_enabled(no_session: bool, check_enabled: bool) -> bool {
-    auto_updates_enabled(no_session) && check_enabled
-}
-
-fn load_plugin_registry(no_session: bool) -> crate::app::state::InstalledPluginRegistry {
-    if no_session {
-        return std::collections::HashMap::new();
-    }
-    let entries = crate::persist::plugin_registry::load();
-    let entries = crate::persist::plugin_registry::reload_manifests(entries, |path, enabled| {
-        crate::app::api::plugins::load_plugin_manifest(path, enabled).map_err(|(_, msg)| msg)
-    });
-    entries
-        .into_iter()
-        .map(|plugin| (plugin.plugin_id.clone(), plugin))
-        .collect()
+    remote_manifest_updates_enabled(no_session) && check_enabled
 }
 
 fn agent_panel_sort_from_config(
@@ -680,15 +657,10 @@ impl App {
             agent_manifest_summaries,
             agent_manifest_update_status: crate::detect::manifest_update::load_status(),
             integration_install_messages: Vec::new(),
-            installed_plugins: load_plugin_registry(no_session),
-            plugin_panes: std::collections::HashMap::new(),
             pane_graphics_layers: std::collections::HashMap::new(),
             pane_graphics_streams: std::collections::HashMap::new(),
             pane_graphics_revision: 0,
             popup_pane: None,
-            plugin_command_logs: Vec::new(),
-            next_plugin_command_log_id: 1,
-            plugin_commands_in_flight: 0,
             global_menu: state::MenuListState::new(0),
             host_terminal_theme: crate::terminal_theme::TerminalTheme::default(),
             host_cell_size: crate::kitty_graphics::HostCellSize::default(),
@@ -708,14 +680,8 @@ impl App {
         // Background auto-update is disabled in monolithic no-session mode
         // and in debug/test builds so local development never mutates the
         // running binary out from under spawned test processes.
-        let version_check_enabled =
-            background_update_check_enabled(no_session, config.update.version_check);
         let manifest_check_enabled =
             background_update_check_enabled(no_session, config.update.manifest_check);
-        if version_check_enabled {
-            let update_tx = event_tx.clone();
-            std::thread::spawn(move || crate::update::auto_update(update_tx));
-        }
         if manifest_check_enabled {
             let manifest_update_tx = event_tx.clone();
             std::thread::spawn(move || {
@@ -754,11 +720,8 @@ impl App {
             pending_url_click_sources: HashSet::new(),
             next_resize_poll: Instant::now() + RESIZE_POLL_INTERVAL,
             next_animation_tick: None,
-            next_auto_update_check: version_check_enabled
-                .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
             next_agent_manifest_update_check: manifest_check_enabled
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
-            update_version_check_enabled: config.update.version_check,
             update_manifest_check_enabled: config.update.manifest_check,
             loaded_host_cursor: config.ui.host_cursor,
             agent_metadata_deadline: None,
@@ -815,15 +778,7 @@ impl App {
         let pane_id_aliases = crate::persist::handoff_pane_aliases(snapshot, &workspaces);
 
         app.no_session = false;
-        app.state.installed_plugins = load_plugin_registry(app.no_session);
         let now = Instant::now();
-        if background_update_check_enabled(app.no_session, app.update_version_check_enabled) {
-            app.next_auto_update_check = app
-                .state
-                .update_available
-                .is_none()
-                .then_some(now + AUTO_UPDATE_CHECK_INTERVAL);
-        }
         if background_update_check_enabled(app.no_session, app.update_manifest_check_enabled) {
             app.next_agent_manifest_update_check = Some(now + AUTO_UPDATE_CHECK_INTERVAL);
         }
@@ -1503,22 +1458,8 @@ impl App {
 
         if !invalid_section("update") {
             let now = Instant::now();
-            let previous_version_check_enabled = self.update_version_check_enabled;
             let previous_manifest_check_enabled = self.update_manifest_check_enabled;
-            self.update_version_check_enabled = config.update.version_check;
             self.update_manifest_check_enabled = config.update.manifest_check;
-
-            if !self.update_version_check_enabled {
-                self.next_auto_update_check = None;
-            } else if !previous_version_check_enabled
-                && background_update_check_enabled(
-                    self.no_session,
-                    self.update_version_check_enabled,
-                )
-                && self.state.update_available.is_none()
-            {
-                self.next_auto_update_check = Some(now);
-            }
 
             if !self.update_manifest_check_enabled {
                 self.next_agent_manifest_update_check = None;
@@ -1596,7 +1537,7 @@ impl App {
     ///
     /// The input bytes are parsed into `RawInputEvent`s and then processed.
     /// In terminal mode, keys are routed through the same semantic
-    /// key-handling path as monolithic herdr so they are re-encoded for the
+    /// key-handling path as monolithic kitsune so they are re-encoded for the
     /// focused pane's negotiated keyboard protocol instead of passing host
     /// terminal escape sequences through unchanged.
     #[cfg(test)]
@@ -1868,7 +1809,7 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("herdr-{name}-{}-{stamp}", std::process::id()))
+        std::env::temp_dir().join(format!("kitsune-{name}-{}-{stamp}", std::process::id()))
     }
 
     #[cfg(windows)]
@@ -2111,7 +2052,7 @@ mod tests {
 
     fn temp_config_path(name: &str) -> std::path::PathBuf {
         let unique = format!(
-            "herdr-{name}-{}-{}",
+            "kitsune-{name}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -2434,7 +2375,7 @@ mod tests {
             app.event_tx
                 .try_send(AppEvent::UpdateReady {
                     version: format!("2.0.{i}"),
-                    install_command: "herdr install".into(),
+                    install_command: "kitsune install".into(),
                 })
                 .unwrap();
         }
@@ -2456,7 +2397,7 @@ mod tests {
             app.event_tx
                 .try_send(AppEvent::UpdateReady {
                     version: format!("3.0.{i}"),
-                    install_command: "herdr install".into(),
+                    install_command: "kitsune install".into(),
                 })
                 .unwrap();
         }
@@ -2754,7 +2695,6 @@ mod tests {
             col: 0,
             at: selection_deadline,
         });
-        app.next_auto_update_check = Some(Instant::now());
         app.next_agent_manifest_update_check = Some(Instant::now());
         let report = app.reload_config();
 
@@ -2808,9 +2748,7 @@ mod tests {
             app.state.new_terminal_cwd,
             crate::config::NewTerminalCwdConfig::Home
         );
-        assert!(!app.update_version_check_enabled);
         assert!(!app.update_manifest_check_enabled);
-        assert!(app.next_auto_update_check.is_none());
         assert!(app.next_agent_manifest_update_check.is_none());
         assert!(app.state.switch_ascii_input_source_in_prefix);
         assert!(app.state.config_diagnostic.is_none());
@@ -3888,8 +3826,8 @@ mod tests {
     #[test]
     fn workspace_creation_in_navigate_mode_uses_selected_workspace_seed_cwd() {
         let mut app = test_app();
-        let mut first = Workspace::test_new("herdr");
-        first.identity_cwd = std::path::PathBuf::from("/tmp/herdr");
+        let mut first = Workspace::test_new("kitsune");
+        first.identity_cwd = std::path::PathBuf::from("/tmp/kitsune");
         let mut second = Workspace::test_new("pion");
         second.identity_cwd = std::path::PathBuf::from("/tmp/pion");
 
@@ -3909,10 +3847,10 @@ mod tests {
     fn new_terminal_cwd_follow_uses_source_cwd() {
         let cwd = creation::resolve_new_terminal_cwd(
             &crate::config::NewTerminalCwdConfig::Follow,
-            Some(std::path::PathBuf::from("/tmp/herdr-source")),
+            Some(std::path::PathBuf::from("/tmp/kitsune-source")),
         );
 
-        assert_eq!(cwd, std::path::PathBuf::from("/tmp/herdr-source"));
+        assert_eq!(cwd, std::path::PathBuf::from("/tmp/kitsune-source"));
     }
 
     #[test]
@@ -3930,11 +3868,11 @@ mod tests {
     #[test]
     fn new_terminal_cwd_path_uses_configured_path() {
         let cwd = creation::resolve_new_terminal_cwd(
-            &crate::config::NewTerminalCwdConfig::Path("/tmp/herdr-fixed".into()),
-            Some(std::path::PathBuf::from("/tmp/herdr-source")),
+            &crate::config::NewTerminalCwdConfig::Path("/tmp/kitsune-fixed".into()),
+            Some(std::path::PathBuf::from("/tmp/kitsune-source")),
         );
 
-        assert_eq!(cwd, std::path::PathBuf::from("/tmp/herdr-fixed"));
+        assert_eq!(cwd, std::path::PathBuf::from("/tmp/kitsune-fixed"));
     }
 
     #[test]
@@ -4590,17 +4528,17 @@ mod tests {
         let mut parent = Workspace::test_new("api-pane-close-parent");
         parent.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
+            checkout_path: "/repo/kitsune".into(),
             is_linked_worktree: false,
         });
         let mut child = Workspace::test_new("api-pane-close-child");
         child.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr-child".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
+            checkout_path: "/repo/kitsune-child".into(),
             is_linked_worktree: true,
         });
         app.state.workspaces = vec![parent, child];
@@ -4643,7 +4581,6 @@ mod tests {
         let now = Instant::now();
         app.session_save_deadline = Some(now + Duration::from_secs(2));
         app.next_resize_poll = now + Duration::from_secs(5);
-        app.next_auto_update_check = Some(now + Duration::from_secs(6));
 
         assert_eq!(
             app.next_loop_deadline(now, false),
@@ -4657,7 +4594,6 @@ mod tests {
         let now = Instant::now();
         app.next_resize_poll = now + Duration::from_millis(100);
         app.session_save_deadline = Some(now + Duration::from_secs(2));
-        app.next_auto_update_check = Some(now + Duration::from_secs(6));
 
         assert_eq!(
             app.next_headless_loop_deadline_with_git_refresh(now, false, true),
@@ -4673,7 +4609,6 @@ mod tests {
         app.config_diagnostic_deadline = None;
         app.toast_deadline = None;
         app.next_animation_tick = None;
-        app.next_auto_update_check = None;
         app.session_save_deadline = None;
         app.state.workspaces.clear();
 
@@ -5626,13 +5561,13 @@ last_pane = "prefix+tab"
         app.state.name_input_replace_on_type = true;
         app.state.worktree_create = Some(state::WorktreeCreateState {
             source_workspace_id: "source".into(),
-            source_checkout_path: "/repo/herdr".into(),
+            source_checkout_path: "/repo/kitsune".into(),
             source_existing_membership: None,
-            source_repo_root: "/repo/herdr".into(),
+            source_repo_root: "/repo/kitsune".into(),
             repo_key: "repo-key".into(),
-            repo_name: "herdr".into(),
+            repo_name: "kitsune".into(),
             branch: "generated-branch".into(),
-            checkout_path: "/repo/herdr-generated-branch".into(),
+            checkout_path: "/repo/kitsune-generated-branch".into(),
             error: None,
             creating: false,
         });

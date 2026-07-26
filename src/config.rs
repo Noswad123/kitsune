@@ -22,7 +22,7 @@ pub use self::{
         validated_sidebar_bounds, AgentPanelSortConfig, Config, ConfigReloadReport,
         ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, ShellModeConfig,
         SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig, ToastDelivery,
-        ToastKitsunePosition, UpdateChannelConfig, MAX_TOAST_DELAY_SECONDS,
+        ToastKitsunePosition, MAX_TOAST_DELAY_SECONDS,
     },
     sidebar::{
         AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarTokenStyle,
@@ -60,7 +60,7 @@ impl Config {
         self.validated_keybinds().1
     }
 
-    /// Parsed keybinds for Herdr actions.
+    /// Parsed keybinds for Kitsune actions.
     pub fn keybinds(&self) -> Keybinds {
         self.validated_keybinds().3
     }

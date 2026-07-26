@@ -7,7 +7,7 @@ fn agent_start_command_works() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
     let bin = base.join("bin");
     let captured_args = base.join("pi-args");
     let captured_prompts = base.join("pi-prompts");
@@ -27,7 +27,7 @@ fn agent_start_command_works() {
     .unwrap();
     fs::set_permissions(&fake_pi, fs::Permissions::from_mode(0o755)).unwrap();
 
-    let herdr = spawn_herdr_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));
+    let kitsune = spawn_herdr_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));
     wait_for_socket(&socket_path, Duration::from_secs(5));
     let created = run_cli_json(
         &socket_path,
@@ -229,8 +229,8 @@ fn agent_start_rejects_a_shell_replaced_by_a_foreground_program() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     let created = run_cli_json(
         &socket_path,
@@ -280,7 +280,7 @@ fn agent_start_timeout_releases_the_name_for_reuse() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
     let bin = base.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let fake_pi = bin.join("pi");
@@ -291,7 +291,7 @@ fn agent_start_timeout_releases_the_name_for_reuse() {
     .unwrap();
     fs::set_permissions(&fake_pi, fs::Permissions::from_mode(0o755)).unwrap();
 
-    let herdr = spawn_herdr_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));
+    let kitsune = spawn_herdr_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));
     wait_for_socket(&socket_path, Duration::from_secs(5));
     let created = run_cli_json(
         &socket_path,
@@ -361,7 +361,7 @@ fn agent_start_reports_detected_kind_mismatch_before_released_name() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
     let bin = base.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let fake_pi = bin.join("pi");
@@ -372,7 +372,7 @@ fn agent_start_reports_detected_kind_mismatch_before_released_name() {
     .unwrap();
     fs::set_permissions(&fake_pi, fs::Permissions::from_mode(0o755)).unwrap();
 
-    let herdr = spawn_herdr_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));
+    let kitsune = spawn_herdr_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));
     wait_for_socket(&socket_path, Duration::from_secs(5));
     let created = run_cli_json(
         &socket_path,
@@ -438,14 +438,14 @@ fn agent_start_follows_its_named_terminal_when_the_pane_moves() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
     let bin = base.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let fake_pi = bin.join("pi");
     fs::write(&fake_pi, "#!/bin/sh\nKITSUNE_AGENT=pi exec /bin/sleep 10\n").unwrap();
     fs::set_permissions(&fake_pi, fs::Permissions::from_mode(0o755)).unwrap();
 
-    let herdr = spawn_herdr_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));
+    let kitsune = spawn_herdr_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));
     wait_for_socket(&socket_path, Duration::from_secs(5));
     let created = run_cli_json(
         &socket_path,
@@ -516,8 +516,8 @@ fn agent_start_and_rename_reject_invalid_names() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     let created = run_cli_json(
         &socket_path,
@@ -576,9 +576,9 @@ fn agent_commands_work() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
 
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli(
@@ -821,8 +821,8 @@ fn agent_wait_returns_immediately_for_unseen_done_agent() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli_json(
@@ -894,8 +894,8 @@ fn agent_wait_tolerates_detection_uncertainty_and_pane_target_rename() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     let created = run_cli_json(
         &socket_path,
@@ -1033,8 +1033,8 @@ fn agent_wait_pins_the_original_terminal_when_name_is_reused() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli_json(
@@ -1123,8 +1123,8 @@ fn agent_wait_ignores_other_panes_and_errors_when_its_pane_closes() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli_json(

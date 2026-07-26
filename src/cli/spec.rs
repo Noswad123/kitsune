@@ -16,7 +16,7 @@ pub(super) fn command() -> Command {
                 .value_parser(["local", "server"])
                 .help("Choose local or server keybindings for remote attach"),
         )
-        .arg(flag("handoff").help("Opt into live handoff for update or remote attach"))
+        .arg(flag("handoff").help("Opt into live handoff for remote attach"))
         .arg(flag("default-config").help("Print default configuration and exit"))
         .arg(
             Arg::new("version")
@@ -26,10 +26,8 @@ pub(super) fn command() -> Command {
                 .help("Print version and exit"),
         )
         .subcommand(completion_command())
-        .subcommand(update_command())
         .subcommand(status_command())
         .subcommand(config_command())
-        .subcommand(channel_command())
         .subcommand(server_command())
         .subcommand(api_command())
         .subcommand(workspace_command())
@@ -40,8 +38,7 @@ pub(super) fn command() -> Command {
         .subcommand(pane_command())
         .subcommand(terminal_command())
         .subcommand(session_command())
-        .subcommand(integration_command())
-        .subcommand(plugin_command());
+        .subcommand(integration_command());
     configure_help(command, true)
 }
 
@@ -111,12 +108,6 @@ fn completion_command() -> Command {
         )
 }
 
-fn update_command() -> Command {
-    Command::new("update")
-        .about("Download and install the latest version")
-        .arg(flag("handoff").help("Try live handoff after installing"))
-}
-
 fn status_command() -> Command {
     Command::new("status")
         .about("Show local client and running server status")
@@ -140,20 +131,6 @@ fn config_command() -> Command {
         .subcommand(Command::new("reset-keys").about("Reset custom keybindings"))
 }
 
-fn channel_command() -> Command {
-    Command::new("channel")
-        .about("Manage stable and preview update channels")
-        .subcommand(Command::new("show").about("Print the configured update channel"))
-        .subcommand(
-            Command::new("set").about("Choose the update channel").arg(
-                Arg::new("channel")
-                    .value_name("CHANNEL")
-                    .required(true)
-                    .value_parser(["stable", "preview"]),
-            ),
-        )
-}
-
 fn server_command() -> Command {
     Command::new("server")
         .about("Run or control the headless server")
@@ -162,11 +139,6 @@ fn server_command() -> Command {
         .subcommand(
             Command::new("agent-manifests")
                 .about("Show active agent detection manifests")
-                .arg(json_flag()),
-        )
-        .subcommand(
-            Command::new("update-agent-manifests")
-                .about("Fetch and reload agent detection manifests")
                 .arg(json_flag()),
         )
         .subcommand(
@@ -760,118 +732,6 @@ fn integration_command() -> Command {
         )
 }
 
-fn plugin_command() -> Command {
-    Command::new("plugin")
-        .about("Install and run workflow plugins")
-        .subcommand(
-            Command::new("install")
-                .about("Install a plugin from GitHub")
-                .arg(required("source", "OWNER/REPO[/SUBDIR]"))
-                .arg(option("ref", "REF"))
-                .arg(
-                    Arg::new("yes")
-                        .short('y')
-                        .long("yes")
-                        .action(ArgAction::SetTrue),
-                ),
-        )
-        .subcommand(
-            Command::new("uninstall")
-                .about("Uninstall a plugin")
-                .arg(required("plugin", "PLUGIN")),
-        )
-        .subcommand(
-            Command::new("link")
-                .about("Link a local plugin")
-                .arg(path_arg("path", "PATH"))
-                .arg(flag("disabled"))
-                .arg(flag("enabled")),
-        )
-        .subcommand(
-            Command::new("unlink")
-                .about("Unlink a local plugin")
-                .arg(required("plugin_id", "PLUGIN_ID")),
-        )
-        .subcommand(
-            Command::new("enable")
-                .about("Enable a plugin")
-                .arg(required("plugin_id", "PLUGIN_ID")),
-        )
-        .subcommand(
-            Command::new("disable")
-                .about("Disable a plugin")
-                .arg(required("plugin_id", "PLUGIN_ID")),
-        )
-        .subcommand(
-            Command::new("list")
-                .about("List installed plugins")
-                .arg(option("plugin", "ID"))
-                .arg(json_flag()),
-        )
-        .subcommand(
-            Command::new("config-dir")
-                .about("Print a plugin config directory")
-                .arg(required("plugin_id", "PLUGIN_ID")),
-        )
-        .subcommand(
-            Command::new("action")
-                .about("List or invoke plugin actions")
-                .subcommand(
-                    Command::new("list")
-                        .about("List plugin actions")
-                        .arg(option("plugin", "ID")),
-                )
-                .subcommand(
-                    Command::new("invoke")
-                        .about("Invoke a plugin action")
-                        .arg(required("action_id", "ACTION_ID"))
-                        .arg(option("plugin", "ID")),
-                ),
-        )
-        .subcommand(
-            Command::new("log")
-                .about("Inspect plugin command logs")
-                .visible_alias("logs")
-                .subcommand(
-                    Command::new("list")
-                        .about("List plugin command logs")
-                        .arg(option("plugin", "ID"))
-                        .arg(option("limit", "N")),
-                ),
-        )
-        .subcommand(
-            Command::new("pane")
-                .about("Manage plugin-owned panes")
-                .subcommand(
-                    Command::new("open")
-                        .about("Open a plugin pane")
-                        .arg(option("plugin", "ID"))
-                        .arg(option("entrypoint", "ID"))
-                        .arg(
-                            option("placement", "PLACEMENT")
-                                .value_parser(["overlay", "split", "tab", "zoomed"]),
-                        )
-                        .arg(option("workspace", "ID"))
-                        .arg(option("target-pane", "PANE"))
-                        .arg(split_direction_option())
-                        .arg(path_option("cwd", "PATH"))
-                        .arg(env_option())
-                        .arg(flag("focus"))
-                        .arg(flag("no-focus")),
-                )
-                .subcommand(
-                    Command::new("focus")
-                        .about("Focus a plugin pane")
-                        .arg(required("pane_id", "PANE_ID")),
-                )
-                .subcommand(
-                    Command::new("close")
-                        .about("Close a plugin pane")
-                        .arg(required("pane_id", "PANE_ID")),
-                ),
-        )
-}
-
 fn current_pane_args() -> [Arg; 2] {
     [option("pane", "ID"), flag("current")]
 }
@@ -970,10 +830,6 @@ fn path_option(name: &'static str, value_name: &'static str) -> Arg {
 
 fn required(name: &'static str, value_name: &'static str) -> Arg {
     Arg::new(name).value_name(value_name).required(true)
-}
-
-fn path_arg(name: &'static str, value_name: &'static str) -> Arg {
-    required(name, value_name).value_hint(ValueHint::AnyPath)
 }
 
 #[cfg(test)]
@@ -1224,16 +1080,6 @@ mod tests {
             "Usage: {} agent rename <TARGET> <NAME>|--clear",
             crate::product::CLI_NAME
         )));
-    }
-
-    #[test]
-    fn spec_includes_nested_plugin_pane_open_options() {
-        let cmd = super::command();
-        let open = command_path(&cmd, &["plugin", "pane", "open"]);
-        assert!(open
-            .get_arguments()
-            .any(|arg| arg.get_long() == Some("entrypoint")));
-        assert!(option_values(open, "placement").contains(&"zoomed".to_string()));
     }
 
     #[test]

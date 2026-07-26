@@ -132,7 +132,7 @@ fn named_sessions_use_separate_servers_and_workspace_state() {
     assert!(alpha_session["socket_path"]
         .as_str()
         .unwrap()
-        .ends_with("/sessions/alpha/herdr.sock"));
+        .ends_with("/sessions/alpha/kitsune.sock"));
     assert!(beta_session["session_dir"]
         .as_str()
         .unwrap()
@@ -275,8 +275,8 @@ fn integration_status_outdated_only_prints_action_for_legacy_install() {
     assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("installed herdr integrations need updating"));
-    assert!(stderr.contains("herdr integration install pi"));
+    assert!(stderr.contains("installed kitsune integrations need updating"));
+    assert!(stderr.contains("kitsune integration install pi"));
 
     cleanup_test_base(&base);
 }
@@ -308,9 +308,9 @@ fn status_commands_report_client_and_server_versions() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
 
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let full = run_cli(&socket_path, &["status"]);
@@ -444,10 +444,10 @@ fn server_stop_command_shuts_down_running_server() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
-    let mut herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let mut kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
@@ -484,11 +484,11 @@ fn server_stop_then_restart_restores_pane_history() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
     let marker = "PERSISTED_HISTORY_AFTER_STOP";
 
-    let mut herdr = spawn_herdr_with_pane_history(&config_home, &runtime_dir, &socket_path);
+    let mut kitsune = spawn_herdr_with_pane_history(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
@@ -576,11 +576,11 @@ fn server_start_restores_legacy_session_through_api_identity() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
     let data_dir = config_home.join(app_dir_name());
     let pion_cwd = base.join("legacy-pion");
-    let herdr_cwd = base.join("legacy-herdr");
+    let herdr_cwd = base.join("legacy-kitsune");
 
     fs::create_dir_all(&pion_cwd).unwrap();
     fs::create_dir_all(&herdr_cwd).unwrap();
@@ -589,10 +589,10 @@ fn server_start_restores_legacy_session_through_api_identity() {
     let herdr_cwd = herdr_cwd.to_str().expect("test cwd should be UTF-8");
     let legacy_session = include_str!("../fixtures/session/legacy-pre-tabs-v2.json")
         .replace("/tmp/pion", pion_cwd)
-        .replace("/tmp/herdr", herdr_cwd);
+        .replace("/tmp/kitsune", herdr_cwd);
     fs::write(data_dir.join("session.json"), legacy_session).unwrap();
 
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 

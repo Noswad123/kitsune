@@ -377,7 +377,7 @@ mod tests {
     fn live_handoff_params_parse_remote_update_fields() {
         let args = vec![
             "--import-exe".to_string(),
-            "/home/me/.local/bin/herdr".to_string(),
+            "/home/me/.local/bin/kitsune".to_string(),
             "--expected-protocol=9".to_string(),
             "--expected-version".to_string(),
             "0.6.2".to_string(),
@@ -387,7 +387,7 @@ mod tests {
 
         assert_eq!(
             params.import_exe.as_deref(),
-            Some("/home/me/.local/bin/herdr")
+            Some("/home/me/.local/bin/kitsune")
         );
         assert_eq!(params.expected_protocol, Some(9));
         assert_eq!(params.expected_version.as_deref(), Some("0.6.2"));

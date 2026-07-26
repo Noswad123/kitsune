@@ -632,7 +632,7 @@ mod tests {
     #[cfg(unix)]
     fn temp_detection_path(name: &str) -> std::path::PathBuf {
         let unique = format!(
-            "herdr-detect-tests-{}-{}-{}",
+            "kitsune-detect-tests-{}-{}-{}",
             name,
             std::process::id(),
             std::time::SystemTime::now()
@@ -921,7 +921,7 @@ mod tests {
                 "node.exe",
                 &[
                     "node.exe",
-                    "C:\\Users\\herdr\\AppData\\Roaming\\npm\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\cli.js",
+                    "C:\\Users\\kitsune\\AppData\\Roaming\\npm\\node_modules\\@earendil-works\\pi-coding-agent\\dist\\cli.js",
                 ],
             )],
         };
@@ -941,7 +941,7 @@ mod tests {
                 "node.exe",
                 &[
                     "node.exe",
-                    "C:\\Users\\herdr\\AppData\\Roaming\\npm\\node_modules\\@earendil-works\\pi-coding-agent\\scripts\\build.js",
+                    "C:\\Users\\kitsune\\AppData\\Roaming\\npm\\node_modules\\@earendil-works\\pi-coding-agent\\scripts\\build.js",
                 ],
             )],
         };
@@ -961,7 +961,7 @@ mod tests {
                     "/D",
                     "/S",
                     "/C",
-                    "C:\\Users\\herdr\\AppData\\Roaming\\npm\\codex.cmd --model gpt-5",
+                    "C:\\Users\\kitsune\\AppData\\Roaming\\npm\\codex.cmd --model gpt-5",
                 ],
             )],
         };
@@ -983,7 +983,7 @@ mod tests {
                     "powershell.exe",
                     "-NoProfile",
                     "-File",
-                    "C:\\Users\\herdr\\Documents\\PowerShell\\Scripts\\claude.ps1",
+                    "C:\\Users\\kitsune\\Documents\\PowerShell\\Scripts\\claude.ps1",
                 ],
             )],
         };
@@ -994,7 +994,7 @@ mod tests {
         );
     }
 
-    // A plain shell pane launched with herdr's injected prompt integration
+    // A plain shell pane launched with kitsune's injected prompt integration
     // must still classify as a shell, not an agent, even though its argv now
     // carries a -Command payload.
     #[test]

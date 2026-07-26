@@ -4,7 +4,7 @@ use super::harness::*;
 fn pane_run_sends_one_send_input_request_with_enter_key() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("herdr.sock");
+    let socket_path = base.join("kitsune.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -71,7 +71,7 @@ fn pane_run_sends_one_send_input_request_with_enter_key() {
 fn workspace_report_metadata_sends_token_patch() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("herdr.sock");
+    let socket_path = base.join("kitsune.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -123,7 +123,7 @@ fn workspace_report_metadata_sends_token_patch() {
 fn pane_report_metadata_sends_presentation_request() {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("herdr.sock");
+    let socket_path = base.join("kitsune.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -264,7 +264,7 @@ fn help_commands_exit_successfully() {
             .unwrap();
         assert!(
             output.status.success(),
-            "herdr {} failed: status={:?} stdout={} stderr={}",
+            "kitsune {} failed: status={:?} stdout={} stderr={}",
             args.join(" "),
             output.status.code(),
             String::from_utf8_lossy(&output.stdout),
@@ -306,7 +306,7 @@ fn subcommand_help_explains_automation_semantics_without_a_server() {
             .unwrap();
         assert!(
             output.status.success(),
-            "herdr {} failed: status={:?} stdout={} stderr={}",
+            "kitsune {} failed: status={:?} stdout={} stderr={}",
             args.join(" "),
             output.status.code(),
             String::from_utf8_lossy(&output.stdout),
@@ -315,7 +315,7 @@ fn subcommand_help_explains_automation_semantics_without_a_server() {
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             stdout.contains(expected),
-            "herdr {} help did not contain {expected:?}: {stdout}",
+            "kitsune {} help did not contain {expected:?}: {stdout}",
             args.join(" ")
         );
     }
@@ -333,7 +333,7 @@ fn removed_wait_and_agent_send_commands_are_rejected() {
         .arg("--help")
         .output()
         .unwrap();
-    assert!(!String::from_utf8_lossy(&help.stdout).contains("herdr wait <subcommand>"));
+    assert!(!String::from_utf8_lossy(&help.stdout).contains("kitsune wait <subcommand>"));
 
     let send = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .args(["agent", "send", "reviewer", "hello"])
@@ -378,13 +378,13 @@ fn agent_cli_rejects_invalid_wait_and_rename_grammar_locally() {
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_kitsune"))
             .args(args)
-            .env("KITSUNE_SOCKET_PATH", "/nonexistent/herdr.sock")
+            .env("KITSUNE_SOCKET_PATH", "/nonexistent/kitsune.sock")
             .output()
             .unwrap();
         assert_eq!(
             output.status.code(),
             Some(2),
-            "herdr {}: stdout={} stderr={}",
+            "kitsune {}: stdout={} stderr={}",
             args.join(" "),
             String::from_utf8_lossy(&output.stdout),
             String::from_utf8_lossy(&output.stderr)
@@ -409,7 +409,7 @@ fn completion_command_prints_zsh_script_without_session_startup() {
         String::from_utf8_lossy(&output.stderr)
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("#compdef herdr"), "stdout: {stdout}");
+    assert!(stdout.contains("#compdef kitsune"), "stdout: {stdout}");
     assert!(
         !stdout.contains("--cwd=[]"),
         "zsh completions should not suggest equals-style values unsupported by most manual parsers: {stdout}"
@@ -434,7 +434,7 @@ fn root_help_hides_explicit_client_command() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
-        !stdout.contains("herdr client"),
+        !stdout.contains("kitsune client"),
         "root help should not advertise the internal client command: {stdout}"
     );
 }
@@ -577,7 +577,7 @@ fn explicit_client_command_respects_nested_guard() {
     assert_eq!(output.status.code(), Some(1));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("nested herdr is disabled by default"),
+        stderr.contains("nested kitsune is disabled by default"),
         "client should fail at the nested guard before connecting: {stderr}"
     );
 }
@@ -597,7 +597,7 @@ fn removed_show_changelog_flag_fails_before_nested_guard() {
         "stderr: {stderr}"
     );
     assert!(
-        !stderr.contains("nested herdr"),
+        !stderr.contains("nested kitsune"),
         "unknown flag should be rejected before nested guard: {stderr}"
     );
 }

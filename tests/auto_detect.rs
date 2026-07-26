@@ -26,7 +26,7 @@ fn unique_test_dir() -> PathBuf {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     PathBuf::from(format!(
-        "/tmp/herdr-autodetect-test-{}-{nanos}",
+        "/tmp/kitsune-autodetect-test-{}-{nanos}",
         std::process::id()
     ))
 }
@@ -87,11 +87,11 @@ fn spawn_server(
     api_socket_path: &Path,
     _client_socket_path: &Path,
 ) -> SpawnedHerdr {
-    fs::create_dir_all(config_home.join("herdr")).unwrap();
+    fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
     fs::write(
-        config_home.join("herdr/config.toml"),
+        config_home.join("kitsune/config.toml"),
         "onboarding = false\n",
     )
     .unwrap();
@@ -124,18 +124,18 @@ fn spawn_server(
     }
 }
 
-/// Spawn `herdr` (no subcommand) — the auto-detect launch path.
+/// Spawn `kitsune` (no subcommand) — the auto-detect launch path.
 fn spawn_herdr_auto(
     config_home: &Path,
     runtime_dir: &Path,
     api_socket_path: &Path,
     _client_socket_path: &Path,
 ) -> SpawnedHerdr {
-    fs::create_dir_all(config_home.join("herdr")).unwrap();
+    fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
     fs::write(
-        config_home.join("herdr/config.toml"),
+        config_home.join("kitsune/config.toml"),
         "onboarding = false\n",
     )
     .unwrap();
@@ -168,17 +168,17 @@ fn spawn_herdr_auto(
     }
 }
 
-/// Spawn `herdr --no-session` — the monolithic escape hatch.
+/// Spawn `kitsune --no-session` — the monolithic escape hatch.
 fn spawn_herdr_no_session(
     config_home: &Path,
     runtime_dir: &Path,
     api_socket_path: &Path,
 ) -> SpawnedHerdr {
-    fs::create_dir_all(config_home.join("herdr")).unwrap();
+    fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
     fs::write(
-        config_home.join("herdr/config.toml"),
+        config_home.join("kitsune/config.toml"),
         "onboarding = false\n",
     )
     .unwrap();
@@ -279,7 +279,7 @@ fn wait_for_pid_exit(pid: u32, timeout: Duration) -> bool {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// Running `herdr` with no server present starts a server
+/// Running `kitsune` with no server present starts a server
 /// and attaches as client.
 #[test]
 fn auto_detect_no_server_spawns_server_and_attaches() {
@@ -287,8 +287,8 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     // Ensure no server is running initially.
     assert!(
@@ -300,8 +300,8 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
         "client socket should not exist initially"
     );
 
-    // Run `herdr` (no subcommand) — should auto-detect, spawn server, attach as client.
-    let herdr = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    // Run `kitsune` (no subcommand) — should auto-detect, spawn server, attach as client.
+    let kitsune = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
 
     // Wait for both sockets to appear (server was spawned).
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -328,7 +328,7 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
     cleanup_spawned_herdr(herdr, base);
 }
 
-/// Running `herdr` with a server already running attaches
+/// Running `kitsune` with a server already running attaches
 /// as client directly (no second server).
 #[test]
 fn auto_detect_server_running_attaches_directly() {
@@ -336,8 +336,8 @@ fn auto_detect_server_running_attaches_directly() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     // Start a server explicitly.
     let server = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
@@ -349,7 +349,7 @@ fn auto_detect_server_running_attaches_directly() {
     // Verify server is running.
     assert!(process_exists(server_pid), "server should be running");
 
-    // Run `herdr` (no subcommand) — should detect the running server and attach.
+    // Run `kitsune` (no subcommand) — should detect the running server and attach.
     let client = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
 
     // Wait a moment for the client to attach.
@@ -388,11 +388,11 @@ fn auto_detect_socket_path_consistency() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
-    // Run `herdr` with custom socket paths.
-    let herdr = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    // Run `kitsune` with custom socket paths.
+    let kitsune = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
 
     // Wait for both sockets to appear at the custom paths.
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -423,7 +423,7 @@ fn auto_detect_socket_path_consistency() {
     cleanup_spawned_herdr(herdr, base);
 }
 
-/// `herdr --no-session` bypasses server/client and runs
+/// `kitsune --no-session` bypasses server/client and runs
 /// monolithically. No server process is spawned. No client socket is created.
 #[test]
 fn no_session_flag_runs_monolithically() {
@@ -431,11 +431,11 @@ fn no_session_flag_runs_monolithically() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
-    // Run `herdr --no-session` — monolithic mode, no server/client.
-    let herdr = spawn_herdr_no_session(&config_home, &runtime_dir, &api_socket);
+    // Run `kitsune --no-session` — monolithic mode, no server/client.
+    let kitsune = spawn_herdr_no_session(&config_home, &runtime_dir, &api_socket);
 
     // Wait for the API socket (monolithic mode creates it).
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -457,7 +457,7 @@ fn no_session_flag_runs_monolithically() {
     // Verify the API socket is served by the monolithic process itself,
     // not by a separate server. We can check this by verifying the client
     // PID matches what would be serving the socket — in monolithic mode,
-    // there is only one herdr process.
+    // there is only one kitsune process.
     let client_pid = herdr.child.process_id().expect("should have PID");
     assert!(
         process_exists(client_pid),
@@ -474,15 +474,15 @@ fn cli_subcommands_work_through_server() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     // Start a server.
     let server = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
-    // Test `herdr workspace list` through the server's API socket.
+    // Test `kitsune workspace list` through the server's API socket.
     let output = run_cli(&api_socket, &["workspace", "list"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -496,7 +496,7 @@ fn cli_subcommands_work_through_server() {
         "workspace list output should contain 'result': {stdout}"
     );
 
-    // Test `herdr pane list` through the server's API socket.
+    // Test `kitsune pane list` through the server's API socket.
     let output = run_cli(&api_socket, &["pane", "list"]);
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
@@ -513,17 +513,17 @@ fn cli_subcommands_work_through_server() {
 }
 
 /// Verify that the server spawned by auto-detect
-/// persists after the client exits, and a new `herdr` can reattach.
+/// persists after the client exits, and a new `kitsune` can reattach.
 #[test]
 fn auto_detect_server_persists_and_reattaches() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
-    // Run `herdr` — auto-detect spawns server + attaches client.
+    // Run `kitsune` — auto-detect spawns server + attaches client.
     let mut client1 = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
@@ -558,7 +558,7 @@ fn auto_detect_server_persists_and_reattaches() {
         "client socket should still exist after client exit"
     );
 
-    // Run `herdr` again — should detect the running server and reattach.
+    // Run `kitsune` again — should detect the running server and reattach.
     let client2 = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     thread::sleep(Duration::from_millis(500));
 
@@ -592,12 +592,12 @@ fn auto_detect_default_socket_path_from_config_dir() {
     // Don't set KITSUNE_SOCKET_PATH or KITSUNE_CLIENT_SOCKET_PATH.
     // The default paths should come from the app config directory, not XDG_RUNTIME_DIR.
     let app_dir_name = if cfg!(debug_assertions) {
-        "herdr-dev"
+        "kitsune-dev"
     } else {
-        "herdr"
+        "kitsune"
     };
-    let api_socket = config_home.join(app_dir_name).join("herdr.sock");
-    let client_socket = config_home.join(app_dir_name).join("herdr-client.sock");
+    let api_socket = config_home.join(app_dir_name).join("kitsune.sock");
+    let client_socket = config_home.join(app_dir_name).join("kitsune-client.sock");
 
     // Spawn server with XDG_RUNTIME_DIR set to a different directory to prove it is ignored.
     fs::create_dir_all(config_home.join(app_dir_name)).unwrap();
@@ -663,22 +663,22 @@ fn auto_detect_writes_client_and_server_logs_to_separate_files() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let spawned = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
     let app_dir_name = if cfg!(debug_assertions) {
-        "herdr-dev"
+        "kitsune-dev"
     } else {
-        "herdr"
+        "kitsune"
     };
     let log_dir = config_home.join(app_dir_name);
-    let client_log = log_dir.join("herdr-client.log");
-    let server_log = log_dir.join("herdr-server.log");
-    let monolith_log = log_dir.join("herdr.log");
+    let client_log = log_dir.join("kitsune-client.log");
+    let server_log = log_dir.join("kitsune-server.log");
+    let monolith_log = log_dir.join("kitsune.log");
 
     wait_for_log_contains(
         &client_log,
@@ -694,7 +694,7 @@ fn auto_detect_writes_client_and_server_logs_to_separate_files() {
     let monolith_content = fs::read_to_string(&monolith_log).unwrap_or_default();
     assert!(
         !monolith_content.contains("subsystem=\"client\""),
-        "persistent client logs should not land in herdr.log: {monolith_content}"
+        "persistent client logs should not land in kitsune.log: {monolith_content}"
     );
 
     cleanup_spawned_herdr(spawned, base);
@@ -706,18 +706,18 @@ fn no_session_writes_startup_logs_to_monolith_file() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
 
     let spawned = spawn_herdr_no_session(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
 
     let app_dir_name = if cfg!(debug_assertions) {
-        "herdr-dev"
+        "kitsune-dev"
     } else {
-        "herdr"
+        "kitsune"
     };
     let log_dir = config_home.join(app_dir_name);
-    let monolith_log = log_dir.join("herdr.log");
+    let monolith_log = log_dir.join("kitsune.log");
 
     wait_for_log_contains(
         &monolith_log,
@@ -734,8 +734,8 @@ fn auto_detect_respects_nested_guard_before_auto_attach() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -770,7 +770,7 @@ fn auto_detect_respects_nested_guard_before_auto_attach() {
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("nested herdr is disabled by default"),
+        stderr.contains("nested kitsune is disabled by default"),
         "stderr should mention nested-launch guard: {stderr}"
     );
 

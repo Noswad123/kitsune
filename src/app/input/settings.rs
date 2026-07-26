@@ -762,7 +762,7 @@ mod tests {
             label: "claude",
             command: "claude",
             available,
-            path: std::path::PathBuf::from("/tmp/herdr-test-integration"),
+            path: std::path::PathBuf::from("/tmp/kitsune-test-integration"),
             state,
         }
     }

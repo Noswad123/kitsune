@@ -25,7 +25,7 @@ fn unique_test_dir() -> PathBuf {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     PathBuf::from(format!(
-        "/tmp/herdr-multi-client-test-{}-{nanos}",
+        "/tmp/kitsune-multi-client-test-{}-{nanos}",
         std::process::id()
     ))
 }
@@ -103,11 +103,11 @@ fn wait_for_file(path: &Path, timeout: Duration) {
 }
 
 fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket_path: &Path) -> SpawnedHerdr {
-    fs::create_dir_all(config_home.join("herdr")).unwrap();
+    fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
     fs::write(
-        config_home.join("herdr/config.toml"),
+        config_home.join("kitsune/config.toml"),
         "onboarding = false\n",
     )
     .unwrap();
@@ -177,11 +177,11 @@ fn spawn_client_process(
 
 fn server_log_path(config_home: &Path) -> PathBuf {
     let app_dir = if cfg!(debug_assertions) {
-        "herdr-dev"
+        "kitsune-dev"
     } else {
-        "herdr"
+        "kitsune"
     };
-    config_home.join(app_dir).join("herdr-server.log")
+    config_home.join(app_dir).join("kitsune-server.log")
 }
 
 fn count_log_occurrences(path: &Path, needle: &str) -> usize {
@@ -753,8 +753,8 @@ fn multi_client_allows_multiple_simultaneous_connections() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -787,8 +787,8 @@ fn multi_client_effective_size_shrinks_when_smaller_client_joins() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -833,8 +833,8 @@ fn multi_client_broadcasts_frame_updates_to_all_clients() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -890,8 +890,8 @@ fn multi_client_disconnect_recalculates_to_next_smallest() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -950,8 +950,8 @@ fn multi_client_smallest_leaving_resizes_up_for_remaining_clients() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -997,8 +997,8 @@ fn multi_client_client_crash_sigkill_does_not_affect_server() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -1053,8 +1053,8 @@ fn multi_client_rapid_connect_disconnect_stress_10_cycles() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));

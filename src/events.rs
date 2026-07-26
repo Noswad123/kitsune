@@ -115,6 +115,8 @@ pub enum AppEvent {
         seq: Option<u64>,
     },
     /// A new version is available through the active installation manager.
+    #[allow(dead_code)]
+    // Hosted update checks are removed, but tests still exercise saved release-note UI behavior through this internal event.
     UpdateReady {
         version: String,
         install_command: String,
@@ -125,7 +127,7 @@ pub enum AppEvent {
         status: crate::detect::manifest_update::ManifestUpdateStatus,
     },
     /// A pane child emitted a valid OSC 52 clipboard write. The main loop
-    /// re-emits it through herdr's own clipboard writer.
+    /// re-emits it through kitsune's own clipboard writer.
     ClipboardWrite { content: Vec<u8> },
     /// Prefix-mode ASCII input-source request, emitted on entering/leaving the ASCII input
     /// realm. The foreground process applies the host-local TIS switch (`active = true`) /
@@ -142,15 +144,6 @@ pub enum AppEvent {
     GitStatusRefreshed {
         results: Vec<WorkspaceGitStatus>,
         cache_updates: Vec<(std::path::PathBuf, GitStatusCacheEntry)>,
-    },
-    /// A plugin action or event command finished.
-    PluginCommandFinished {
-        log_id: String,
-        finished_unix_ms: u64,
-        exit_code: Option<i32>,
-        stdout: String,
-        stderr: String,
-        error: Option<String>,
     },
     /// Background `git worktree add` completed.
     WorktreeAddFinished(Box<WorktreeAddResult>),

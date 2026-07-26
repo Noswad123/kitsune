@@ -1,11 +1,12 @@
 APP_NAME = kitsune
+ALIASES = kitsune kit
 INSTALL_DIR = ~/.local/bin
 
 .PHONY: build check fmt test run install
 
 build:
-	@echo "🔨 Building $(APP_NAME)..."
-	cargo build --bin $(APP_NAME)
+	@echo "🔨 Building $(ALIASES)..."
+	cargo build $(foreach bin,$(ALIASES),--bin $(bin))
 
 check:
 	cargo check --tests
@@ -23,7 +24,9 @@ run: build
 	    ./target/debug/$(APP_NAME)
 
 install: build
-	@echo "📦 Installing to $(INSTALL_DIR)/$(APP_NAME)"
+	@echo "📦 Installing to $(INSTALL_DIR)"
 	@mkdir -p $(INSTALL_DIR)
-	cp target/debug/$(APP_NAME) $(INSTALL_DIR)/$(APP_NAME)
-	@echo "✅ Installed. Run with: $(APP_NAME)"
+	@for bin in $(ALIASES); do \
+		cp target/debug/$$bin $(INSTALL_DIR)/$$bin; \
+	done
+	@echo "✅ Installed. Run with: kit or kitsune"

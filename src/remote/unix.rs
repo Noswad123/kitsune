@@ -1,6 +1,5 @@
 //! Remote thin-client launcher over SSH command stdio.
 
-use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{self, IsTerminal, Write as _};
 use std::os::unix::net::{UnixListener, UnixStream};
@@ -15,13 +14,15 @@ use std::sync::{
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
+#[cfg(test)]
+use std::collections::BTreeMap;
+
 const BRIDGE_ACCEPT_POLL: Duration = Duration::from_millis(50);
 const BRIDGE_SOCKET_PERMISSION_MODE: u32 = 0o600;
 const REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT: Duration = Duration::from_secs(5);
 const REMOTE_SERVER_SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const CURRENT_PROTOCOL: u32 = crate::protocol::PROTOCOL_VERSION;
-const STABLE_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/latest.json";
-const PREVIEW_UPDATE_MANIFEST_URL: &str = "https://herdr.dev/preview.json";
+const RELEASE_DOWNLOAD_BASE_URL: &str = "https://github.com/Noswad123/kitsune/releases/download";
 const REMOTE_BINARY_ENV_VAR: &str = "KITSUNE_REMOTE_BINARY";
 const SSH_CONTROL_SOCKET_NAME: &str = "ctl";
 pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "KITSUNE_REATTACH_COMMAND";
@@ -308,6 +309,7 @@ impl RemoteHerdr {
     }
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 enum RemoteAssetRef {
@@ -315,6 +317,7 @@ enum RemoteAssetRef {
     Object { url: String, sha256: Option<String> },
 }
 
+#[cfg(test)]
 impl RemoteAssetRef {
     fn url(&self) -> &str {
         match self {
@@ -333,6 +336,7 @@ impl RemoteAssetRef {
     }
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct RemoteUpdateManifest {
     version: String,
@@ -342,6 +346,7 @@ struct RemoteUpdateManifest {
     releases: BTreeMap<String, RemoteReleaseMetadata>,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct RemoteReleaseMetadata {
     protocol: Option<u32>,
@@ -349,6 +354,7 @@ struct RemoteReleaseMetadata {
     assets: BTreeMap<String, RemoteAssetRef>,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct RemotePreviewManifest {
     build_id: String,
@@ -358,12 +364,14 @@ struct RemotePreviewManifest {
     builds: BTreeMap<String, RemotePreviewBuildMetadata>,
 }
 
+#[cfg(test)]
 #[derive(Deserialize)]
 struct RemotePreviewBuildMetadata {
     protocol: u32,
     assets: BTreeMap<String, RemoteAssetRef>,
 }
 
+#[cfg(test)]
 fn deserialize_remote_manifest_releases<'de, D>(
     deserializer: D,
 ) -> Result<BTreeMap<String, RemoteReleaseMetadata>, D::Error>
@@ -384,6 +392,7 @@ where
     })
 }
 
+#[cfg(test)]
 impl RemoteUpdateManifest {
     fn release_for_version(&self, version: &str) -> Option<RemoteManifestReleaseRef<'_>> {
         if self.version.trim_start_matches('v') == version {
@@ -402,6 +411,7 @@ impl RemoteUpdateManifest {
     }
 }
 
+#[cfg(test)]
 #[derive(Clone, Copy)]
 struct RemoteManifestReleaseRef<'a> {
     protocol: Option<u32>,
@@ -823,7 +833,7 @@ fi
         r#"if [ -n "$home" ]; then
     emit "$home/.local/share/mise/installs/kitsune/$version/bin/kitsune"
     emit "$home/.local/share/mise/installs/kitsune/$version/kitsune"
-    emit "$home/.local/share/mise/installs/github-Noswad123-herdr/$version/kitsune"
+    emit "$home/.local/share/mise/installs/github-Noswad123-kitsune/$version/kitsune"
     emit "$home/.nix-profile/bin/kitsune"
 fi
 if [ -n "$user" ]; then
@@ -989,9 +999,7 @@ fn resolve_install_source(
 
     if *platform == RemotePlatform::local() {
         let path = std::env::current_exe()?;
-        if !crate::update::is_package_manager_managed_exe_path(&path) {
-            return Ok(InstallSource::persistent(path));
-        }
+        return Ok(InstallSource::persistent(path));
     }
 
     download_release_asset(platform)
@@ -1002,9 +1010,7 @@ fn local_binary_can_seed_remote(platform: &RemotePlatform) -> bool {
         return false;
     }
 
-    std::env::current_exe()
-        .map(|path| !crate::update::is_package_manager_managed_exe_path(&path))
-        .unwrap_or(false)
+    std::env::current_exe().is_ok()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1483,33 +1489,7 @@ fn download_release_asset(platform: &RemotePlatform) -> io::Result<InstallSource
     Ok(InstallSource::temporary(path, dir))
 }
 
-fn fetch_remote_manifest(url: &str) -> io::Result<Vec<u8>> {
-    let output = crate::noninteractive_process::curl_command()
-        .args([
-            "-sfL",
-            "--retry",
-            "3",
-            "--connect-timeout",
-            "10",
-            "--max-time",
-            "20",
-            url,
-        ])
-        .output()
-        .map_err(|err| io::Error::new(err.kind(), format!("curl failed: {err}")))?;
-    if !output.status.success() {
-        return Err(command_failed("failed to fetch update manifest", &output));
-    }
-    Ok(output.stdout)
-}
-
-fn remote_asset_info(asset: &RemoteAssetRef) -> RemoteReleaseAsset {
-    RemoteReleaseAsset {
-        url: asset.url().to_string(),
-        sha256: asset.sha256().map(str::to_string),
-    }
-}
-
+#[cfg(test)]
 fn preview_assets_for_build<'a>(
     manifest: &'a RemotePreviewManifest,
     build_id: &str,
@@ -1527,53 +1507,18 @@ fn preview_assets_for_build<'a>(
 
 fn remote_release_asset(asset_key: &str) -> io::Result<RemoteReleaseAsset> {
     if crate::build_info::is_preview() {
-        let build_id = crate::build_info::build_id().ok_or_else(|| {
-            io::Error::other("preview client has no build id; set KITSUNE_REMOTE_BINARY or install Kitsune on the remote manually")
-        })?;
-        let manifest_bytes = fetch_remote_manifest(PREVIEW_UPDATE_MANIFEST_URL)?;
-        let manifest: RemotePreviewManifest =
-            serde_json::from_slice(&manifest_bytes).map_err(|err| {
-                io::Error::other(format!("failed to parse preview manifest JSON: {err}"))
-            })?;
-        let (protocol, assets) = preview_assets_for_build(&manifest, build_id)?;
-        if protocol != CURRENT_PROTOCOL {
-            return Err(io::Error::other(format!(
-                "preview manifest has build {build_id} protocol {protocol}, but this client needs protocol {CURRENT_PROTOCOL}; set {REMOTE_BINARY_ENV_VAR}=target/release/kitsune or install a matching Kitsune on the remote host manually"
-            )));
-        }
-        return assets.get(asset_key).map(remote_asset_info).ok_or_else(|| {
-            io::Error::other(format!(
-                "no {asset_key} binary in the preview manifest for build {build_id}"
-            ))
-        });
+        return Err(io::Error::other(format!(
+            "preview remote helper downloads are not available in this Kitsune fork; set {REMOTE_BINARY_ENV_VAR}=target/release/kitsune or install a matching Kitsune on the remote host manually"
+        )));
     }
 
     let current_version = current_version();
-    let manifest_bytes = fetch_remote_manifest(STABLE_UPDATE_MANIFEST_URL)?;
-    let manifest: RemoteUpdateManifest = serde_json::from_slice(&manifest_bytes)
-        .map_err(|err| io::Error::other(format!("failed to parse update manifest JSON: {err}")))?;
-    let release = manifest.release_for_version(&current_version).ok_or_else(|| {
-        io::Error::other(format!(
-            "release manifest does not include kitsune {current_version}; build kitsune for {} or install it there manually",
-            asset_key
-        ))
-    })?;
-    if let Some(protocol) = release.protocol {
-        if protocol != CURRENT_PROTOCOL {
-            return Err(io::Error::other(format!(
-                "release manifest has kitsune {current_version} protocol {protocol}, but this client needs protocol {CURRENT_PROTOCOL}; set {REMOTE_BINARY_ENV_VAR}=target/release/kitsune or install a matching kitsune on the remote host manually"
-            )));
-        }
-    }
-    release
-        .assets
-        .get(asset_key)
-        .map(remote_asset_info)
-        .ok_or_else(|| {
-            io::Error::other(format!(
-                "no {asset_key} binary in the release manifest for kitsune {current_version}"
-            ))
-        })
+    let tag = format!("v{}", current_version.trim_start_matches('v'));
+    let asset_name = format!("kitsune-{asset_key}");
+    Ok(RemoteReleaseAsset {
+        url: format!("{RELEASE_DOWNLOAD_BASE_URL}/{tag}/{asset_name}"),
+        sha256: None,
+    })
 }
 
 fn private_download_dir(asset_key: &str) -> io::Result<PathBuf> {
@@ -2542,7 +2487,7 @@ mod tests {
             script.contains("emit \"$home/.local/share/mise/installs/kitsune/$version/kitsune\"")
         );
         assert!(script.contains(
-            "emit \"$home/.local/share/mise/installs/github-Noswad123-herdr/$version/kitsune\""
+            "emit \"$home/.local/share/mise/installs/github-Noswad123-kitsune/$version/kitsune\""
         ));
         assert!(script.contains("emit \"$home/.nix-profile/bin/kitsune\""));
         assert!(script.contains("emit \"/etc/profiles/per-user/$user/bin/kitsune\""));

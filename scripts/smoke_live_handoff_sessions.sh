@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-KITSUNE_BIN="${KITSUNE_BIN:-$ROOT/target/debug/herdr}"
-BASE="${BASE:-$(mktemp -d /tmp/herdr-handoff-smoke.XXXXXX)}"
+KITSUNE_BIN="${KITSUNE_BIN:-$ROOT/target/debug/kitsune}"
+BASE="${BASE:-$(mktemp -d /tmp/kitsune-handoff-smoke.XXXXXX)}"
 CONFIG_HOME="$BASE/config"
 RUNTIME_DIR="$BASE/runtime"
 STATE_DIR="$BASE/state"
@@ -47,24 +47,24 @@ run_herdr() {
 session_dir() {
   local session="$1"
   if [[ "$session" == "default" ]]; then
-    printf '%s/herdr-dev' "$CONFIG_HOME"
+    printf '%s/kitsune-dev' "$CONFIG_HOME"
   else
-    printf '%s/herdr-dev/sessions/%s' "$CONFIG_HOME" "$session"
+    printf '%s/kitsune-dev/sessions/%s' "$CONFIG_HOME" "$session"
   fi
 }
 
 api_socket() {
-  printf '%s/herdr.sock' "$(session_dir "$1")"
+  printf '%s/kitsune.sock' "$(session_dir "$1")"
 }
 
 client_socket() {
-  printf '%s/herdr-client.sock' "$(session_dir "$1")"
+  printf '%s/kitsune-client.sock' "$(session_dir "$1")"
 }
 
 assert_smoke_socket() {
   local socket="$1"
   case "$socket" in
-    "$CONFIG_HOME"/herdr-dev/herdr.sock | "$CONFIG_HOME"/herdr-dev/sessions/*/herdr.sock)
+    "$CONFIG_HOME"/kitsune-dev/kitsune.sock | "$CONFIG_HOME"/kitsune-dev/sessions/*/kitsune.sock)
       ;;
     *)
       echo "refusing to use non-smoke socket: $socket" >&2
@@ -178,12 +178,12 @@ smoke_http_count() {
   printf '%s\n' "$count"
 }
 
-echo "using herdr: $KITSUNE_BIN"
+echo "using kitsune: $KITSUNE_BIN"
 echo "smoke base: $BASE"
 
 cargo build --locked --manifest-path "$ROOT/Cargo.toml" >/dev/null
-mkdir -p "$CONFIG_HOME/herdr-dev" "$RUNTIME_DIR" "$STATE_DIR"
-printf 'onboarding = false\n' > "$CONFIG_HOME/herdr-dev/config.toml"
+mkdir -p "$CONFIG_HOME/kitsune-dev" "$RUNTIME_DIR" "$STATE_DIR"
+printf 'onboarding = false\n' > "$CONFIG_HOME/kitsune-dev/config.toml"
 
 for session in "${sessions[@]}"; do
   echo "starting smoke session $session at $(api_socket "$session")"

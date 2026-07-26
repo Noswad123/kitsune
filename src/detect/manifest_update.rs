@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 use super::{agent_label, parse_agent_label, Agent};
 
 pub(crate) const MANIFEST_ENGINE_VERSION: u32 = 3;
-const DEFAULT_CATALOG_URL: &str = "https://herdr.dev/agent-detection/index.toml";
 const CATALOG_URL_ENV: &str = "KITSUNE_AGENT_DETECTION_MANIFEST_CATALOG_URL";
 const MAX_FETCH_BYTES: usize = 256 * 1024;
 
@@ -200,7 +199,19 @@ pub(crate) struct ManifestUpdateOutput {
 }
 
 pub(crate) fn check_and_update() -> Result<ManifestUpdateOutput, String> {
-    check_and_update_from_url(&catalog_url())
+    let Some(url) = catalog_url() else {
+        let mut status = load_status();
+        status.last_check_unix = Some(now_unix());
+        status.last_result = Some(format!(
+            "skipped: set {CATALOG_URL_ENV} to enable remote updates"
+        ));
+        save_status(&status)?;
+        return Ok(ManifestUpdateOutput {
+            updated: Vec::new(),
+            status,
+        });
+    };
+    check_and_update_from_url(&url)
 }
 
 fn check_and_update_from_url(url: &str) -> Result<ManifestUpdateOutput, String> {
@@ -460,12 +471,11 @@ fn state_root() -> PathBuf {
     crate::config::state_dir().join("agent-detection")
 }
 
-fn catalog_url() -> String {
+fn catalog_url() -> Option<String> {
     std::env::var(CATALOG_URL_ENV)
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| DEFAULT_CATALOG_URL.to_string())
 }
 
 fn fetch_text(url: &str) -> Result<String, String> {
@@ -570,7 +580,7 @@ contains = ["{contains}"]
         let old_config = std::env::var_os("XDG_CONFIG_HOME");
         let old_state = std::env::var_os("XDG_STATE_HOME");
         let dir = std::env::temp_dir().join(format!(
-            "herdr-manifest-update-{name}-{}",
+            "kitsune-manifest-update-{name}-{}",
             std::process::id()
         ));
         let config_dir = dir.join("config");
@@ -635,8 +645,10 @@ contains = ["{contains}"]
     fn auto_update_reloads_manifest_cache_after_remote_commit() {
         with_state_dir("auto-update-reloads-cache", || {
             let old_catalog_url = std::env::var_os(CATALOG_URL_ENV);
-            let web_dir = std::env::temp_dir()
-                .join(format!("herdr-manifest-update-web-{}", std::process::id()));
+            let web_dir = std::env::temp_dir().join(format!(
+                "kitsune-manifest-update-web-{}",
+                std::process::id()
+            ));
             let _ = fs::remove_dir_all(&web_dir);
             fs::create_dir_all(&web_dir).unwrap();
             fs::write(

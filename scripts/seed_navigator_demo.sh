@@ -5,13 +5,13 @@ usage() {
   cat <<'USAGE'
 usage: scripts/seed_navigator_demo.sh [--allow-main]
 
-Seeds a running herdr server with navigator demo workspaces, tabs, panes,
+Seeds a running kitsune server with navigator demo workspaces, tabs, panes,
 and fake agent states for recording the session navigator.
 
 Environment:
-  KITSUNE_NAV_SOCKET_PATH  API socket to target. Defaults to $HOME/.config/herdr-dev/herdr.sock.
+  KITSUNE_NAV_SOCKET_PATH  API socket to target. Defaults to $HOME/.config/kitsune-dev/kitsune.sock.
   KITSUNE_NAV_CWD          Workspace cwd for created panes. Defaults to the repo root.
-  KITSUNE_NAV_BIN          Herdr binary to call. Defaults to cargo run from the repo.
+  KITSUNE_NAV_BIN          Kitsune binary to call. Defaults to cargo run from the repo.
 USAGE
 }
 
@@ -38,18 +38,18 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_dir="$(cd -- "$script_dir/.." && pwd)"
 workspace_cwd="${KITSUNE_NAV_CWD:-$repo_dir}"
 config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
-dev_socket="$config_home/herdr-dev/herdr.sock"
-main_socket="$config_home/herdr/herdr.sock"
+dev_socket="$config_home/kitsune-dev/kitsune.sock"
+main_socket="$config_home/kitsune/kitsune.sock"
 export KITSUNE_SOCKET_PATH="${KITSUNE_NAV_SOCKET_PATH:-$dev_socket}"
 
 if [[ "$allow_main" != 1 && "$KITSUNE_SOCKET_PATH" == "$main_socket" ]]; then
-  echo "refusing to seed main herdr session: $KITSUNE_SOCKET_PATH" >&2
+  echo "refusing to seed main kitsune session: $KITSUNE_SOCKET_PATH" >&2
   echo "use KITSUNE_NAV_SOCKET_PATH for a dev socket, or pass --allow-main intentionally" >&2
   exit 1
 fi
 
 if [[ ! -S "$KITSUNE_SOCKET_PATH" ]]; then
-  echo "herdr socket not found: $KITSUNE_SOCKET_PATH" >&2
+  echo "kitsune socket not found: $KITSUNE_SOCKET_PATH" >&2
   echo "start a dev server first, or set KITSUNE_NAV_SOCKET_PATH" >&2
   exit 1
 fi

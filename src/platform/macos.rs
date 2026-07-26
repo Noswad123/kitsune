@@ -523,7 +523,7 @@ pub fn open_url(url: &str) -> std::io::Result<()> {
 
 pub fn read_clipboard_image() -> Option<ClipboardImage> {
     let path = std::env::temp_dir().join(format!(
-        "herdr-clipboard-image-{}-{}.png",
+        "kitsune-clipboard-image-{}-{}.png",
         std::process::id(),
         unique_timestamp_nanos()
     ));
@@ -783,7 +783,7 @@ fn process_argv(pid: u32) -> Option<Vec<String>> {
     procargs2_argv(&buf)
 }
 
-/// Read a Herdr agent identity hint from a process environment.
+/// Read a Kitsune agent identity hint from a process environment.
 pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
     if pid == 0 {
         return None;
@@ -1138,7 +1138,7 @@ mod tests {
     #[test]
     fn terminal_notifier_success_skips_osascript() {
         let path = std::env::temp_dir().join(format!(
-            "herdr-terminal-notifier-args-{}",
+            "kitsune-terminal-notifier-args-{}",
             std::process::id()
         ));
         let script = "printf '%s:%s\\n' \"$0\" \"$*\" >> \"$KITSUNE_NOTIFY_ARGS\"";
@@ -1170,7 +1170,7 @@ mod tests {
     #[test]
     fn desktop_notification_falls_back_to_osascript_when_terminal_notifier_fails() {
         let path =
-            std::env::temp_dir().join(format!("herdr-osascript-args-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kitsune-osascript-args-{}", std::process::id()));
         let script = r#"
 if [ "$0" = "terminal-notifier" ]; then
   exit 1
@@ -1199,12 +1199,12 @@ printf '%s\n' "$@" > "$KITSUNE_NOTIFY_ARGS"
 
     #[test]
     fn scrollback_editor_argv_preserves_unix_editor_shell_semantics() {
-        let path = std::path::Path::new("/tmp/herdr scrollback.txt");
+        let path = std::path::Path::new("/tmp/kitsune scrollback.txt");
         let argv = scrollback_editor_argv(path).unwrap();
 
         assert_eq!(argv[0], "/bin/sh");
         assert_eq!(argv[1], "-c");
         assert!(argv[2].contains("EDITOR:-vi"));
-        assert!(argv[2].contains("/tmp/herdr scrollback.txt"));
+        assert!(argv[2].contains("/tmp/kitsune scrollback.txt"));
     }
 }

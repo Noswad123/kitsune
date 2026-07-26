@@ -14,7 +14,7 @@ static RUNTIME_DIR_REGISTRY: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new()
 static INIT: Once = Once::new();
 static CLEANUP_GUARD: OnceLock<CleanupGuard> = OnceLock::new();
 const WATCHDOG_SCAN_INTERVAL: Duration = Duration::from_secs(1);
-const RUNTIME_OWNER_MARKER: &str = ".herdr-test-owner-pid";
+const RUNTIME_OWNER_MARKER: &str = ".kitsune-test-owner-pid";
 pub const CURRENT_PROTOCOL: u32 = 18;
 
 pub fn register_spawned_herdr_pid(pid: Option<u32>) {
@@ -459,7 +459,7 @@ fn start_global_watchdog() {
         thread::sleep(WATCHDOG_SCAN_INTERVAL);
 
         if let Err(err) = cleanup_servers_with_missing_runtime_dir() {
-            eprintln!("herdr test cleanup watchdog error: {err}");
+            eprintln!("kitsune test cleanup watchdog error: {err}");
         }
     });
 }
@@ -606,7 +606,7 @@ fn current_checkout_root() -> &'static Path {
 }
 
 fn is_test_herdr_binary(path: &Path) -> bool {
-    path.ends_with("target/debug/herdr") && path.starts_with(current_checkout_root())
+    path.ends_with("target/debug/kitsune") && path.starts_with(current_checkout_root())
 }
 
 extern "C" fn run_atexit_cleanup() {
@@ -700,7 +700,7 @@ mod tests {
             .unwrap_or_default()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "herdr-watchdog-scoping-{label}-{}-{unique}",
+            "kitsune-watchdog-scoping-{label}-{}-{unique}",
             std::process::id()
         ))
     }
@@ -730,7 +730,7 @@ mod tests {
 
     #[test]
     fn test_binary_matcher_accepts_current_checkout_debug_binary() {
-        let binary = current_checkout_root().join("target/debug/herdr");
+        let binary = current_checkout_root().join("target/debug/kitsune");
         assert!(
             is_test_herdr_binary(&binary),
             "current checkout debug binary should be considered test-owned"
@@ -740,7 +740,7 @@ mod tests {
     #[test]
     fn test_binary_matcher_rejects_installed_binary() {
         assert!(
-            !is_test_herdr_binary(Path::new("/home/can/.local/bin/herdr")),
+            !is_test_herdr_binary(Path::new("/home/can/.local/bin/kitsune")),
             "installed binaries must not be considered test-owned"
         );
     }

@@ -5,8 +5,8 @@ edition = "2021"
 build = "build.rs"
 description = "terminal workspace manager for AI coding agents"
 license = "Apache-2.0"
-repository = "https://github.com/Noswad123/herdr"
-homepage = "https://github.com/Noswad123/herdr"
+repository = "https://github.com/Noswad123/kitsune"
+homepage = "https://github.com/Noswad123/kitsune"
 keywords = ["terminal", "tui", "ai", "agents", "multiplexer"]
 categories = ["command-line-utilities"]
 include = [
@@ -19,8 +19,8 @@ include = [
 ]
 
 [[bin]]
-name = "kitsune"
-path = "src/main.rs"
+name = "kit"
+path = "src/bin/kit.rs"
 
 [dependencies]
 base64 = "0.22.1"

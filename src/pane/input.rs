@@ -62,7 +62,7 @@ pub(super) fn ghostty_mouse_encoder_for_terminal(
         .mode_get(crate::ghostty::MODE_MOUSE_SGR_PIXELS)
         .ok()?
     {
-        // Herdr receives host mouse positions in terminal cells. Downgrade
+        // Kitsune receives host mouse positions in terminal cells. Downgrade
         // SGR-pixels to normal SGR so forwarded coordinates stay cell-local.
         encoder.set_format(crate::ghostty::MOUSE_FORMAT_SGR);
     }

@@ -521,13 +521,6 @@ impl App {
 
         self.last_pane_click = None;
         self.pending_url_click_sources.insert(source_id);
-        match self.invoke_plugin_link_handler_for_url(&url, info.id) {
-            Ok(true) => return true,
-            Ok(false) => {}
-            Err(err) => {
-                tracing::warn!(err = %err, url = %url, "failed to invoke plugin link handler");
-            }
-        }
         if let Err(err) = crate::platform::open_url(&url) {
             tracing::warn!(err = %err, url = %url, "failed to open pane URL");
         }
@@ -811,7 +804,7 @@ fn unique_temp_path(name: &str) -> std::path::PathBuf {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    std::env::temp_dir().join(format!("herdr-{name}-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!("kitsune-{name}-{}-{nanos}", std::process::id()))
 }
 
 #[cfg(test)]
@@ -882,13 +875,13 @@ mod tests {
         app.state.name_input_replace_on_type = true;
         app.state.worktree_create = Some(crate::app::state::WorktreeCreateState {
             source_workspace_id: "source".into(),
-            source_checkout_path: "/repo/herdr".into(),
+            source_checkout_path: "/repo/kitsune".into(),
             source_existing_membership: None,
-            source_repo_root: "/repo/herdr".into(),
+            source_repo_root: "/repo/kitsune".into(),
             repo_key: "repo-key".into(),
-            repo_name: "herdr".into(),
+            repo_name: "kitsune".into(),
             branch: "generated-branch".into(),
-            checkout_path: "/repo/herdr-generated-branch".into(),
+            checkout_path: "/repo/kitsune-generated-branch".into(),
             error: None,
             creating: false,
         });

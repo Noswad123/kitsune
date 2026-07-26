@@ -306,13 +306,6 @@ impl App {
         self.start_git_status_refresh_if_due(now);
 
         if self
-            .next_auto_update_check
-            .is_some_and(|deadline| now >= deadline)
-        {
-            self.run_auto_update_check();
-        }
-
-        if self
             .next_agent_manifest_update_check
             .is_some_and(|deadline| now >= deadline)
         {
@@ -499,26 +492,6 @@ impl App {
         }
     }
 
-    pub(crate) fn run_auto_update_check(&mut self) {
-        if !background_update_check_enabled(self.no_session, self.update_version_check_enabled) {
-            self.next_auto_update_check = None;
-            return;
-        }
-
-        self.next_auto_update_check = self
-            .state
-            .update_available
-            .is_none()
-            .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL);
-
-        if self.state.update_available.is_some() {
-            return;
-        }
-
-        let update_tx = self.event_tx.clone();
-        std::thread::spawn(move || crate::update::auto_update(update_tx));
-    }
-
     pub(crate) fn run_agent_manifest_update_check(&mut self) {
         if !background_update_check_enabled(self.no_session, self.update_manifest_check_enabled) {
             self.next_agent_manifest_update_check = None;
@@ -570,7 +543,6 @@ impl App {
             include_git_refresh
                 .then(|| self.git_refresh_deadline())
                 .flatten(),
-            self.next_auto_update_check,
             self.next_agent_manifest_update_check,
             self.agent_metadata_deadline,
             self.pending_agent_resume_deadline,

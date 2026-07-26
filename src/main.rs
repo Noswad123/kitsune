@@ -76,8 +76,6 @@ mod noninteractive_process;
 mod pane;
 mod persist;
 mod platform;
-mod plugin_command;
-mod plugin_paths;
 mod popup_size;
 mod product;
 mod product_announcements;
@@ -146,16 +144,9 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # new_cwd = "follow"
 
 [update]
-# Update channel used by background version checks and `kitsune update`.
-# Defaults to "stable" on Linux/macOS and "preview" on Windows.
-# Set explicitly to choose stable releases or opt-in preview builds.
-# channel = "stable"
-
-# Check for new Kitsune versions in the background.
-# version_check = true
-
 # Check for remote agent-detection manifest updates in the background.
-# manifest_check = true
+# Disabled by default in this fork unless KITSUNE_AGENT_DETECTION_MANIFEST_CATALOG_URL is set.
+# manifest_check = false
 
 [keys]
 # Prefix key to enter prefix mode (default: "ctrl+b")
@@ -512,32 +503,6 @@ fn main() -> io::Result<()> {
         let loaded_config = config::Config::load();
         exit_if_nested_disabled(&loaded_config.config);
         return client::run_client();
-    }
-
-    if args.get(1).map(|s| s.as_str()) == Some("update") {
-        let options = match update::parse_self_update_args(&args[2..]) {
-            Ok(options) => options,
-            Err(err) if err.starts_with("usage:") => {
-                eprintln!("{err}");
-                std::process::exit(0);
-            }
-            Err(err) => {
-                eprintln!("{err}");
-                eprintln!("usage: {} update [--handoff]", crate::product::CLI_NAME);
-                std::process::exit(2);
-            }
-        };
-        match update::self_update(options) {
-            Ok(_) => return Ok(()),
-            Err(e) => {
-                if e.starts_with("self-update is disabled") {
-                    eprintln!("{e}");
-                } else {
-                    eprintln!("update failed: {e}");
-                }
-                std::process::exit(1);
-            }
-        }
     }
 
     if args.iter().any(|a| a == "--help" || a == "-h") {

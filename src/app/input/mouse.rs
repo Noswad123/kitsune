@@ -1860,8 +1860,8 @@ mod tests {
     fn mark_worktree_space_member(workspace: &mut Workspace, ws_idx: usize, key: &str) {
         workspace.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: key.into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
             checkout_path: format!("/repo/worktree-{ws_idx}").into(),
             is_linked_worktree: ws_idx != 0,
         });
@@ -1929,7 +1929,7 @@ mod tests {
         app.state.view.pane_infos = pane_infos;
         assert!(
             app.state.mouse_capture,
-            "reproduction must use the default Herdr mouse dispatcher"
+            "reproduction must use the default Kitsune mouse dispatcher"
         );
 
         let outer_column = info.inner_rect.x + 2;
@@ -2511,19 +2511,19 @@ mod tests {
         crate::app::state::WorktreeOpenState {
             source_workspace_id: "source".into(),
             source_existing_membership: None,
-            source_checkout_path: "/repo/herdr".into(),
-            source_repo_root: "/repo/herdr".into(),
+            source_checkout_path: "/repo/kitsune".into(),
+            source_repo_root: "/repo/kitsune".into(),
             repo_key: "repo-key".into(),
-            repo_name: "herdr".into(),
+            repo_name: "kitsune".into(),
             entries: vec![
                 crate::app::state::WorktreeOpenEntry {
-                    path: "/repo/herdr".into(),
+                    path: "/repo/kitsune".into(),
                     branch: Some("main".into()),
                     is_linked_worktree: false,
                     already_open_ws_idx: Some(0),
                 },
                 crate::app::state::WorktreeOpenEntry {
-                    path: "/repo/herdr-issue".into(),
+                    path: "/repo/kitsune-issue".into(),
                     branch: Some("worktree/issue".into()),
                     is_linked_worktree: true,
                     already_open_ws_idx: None,
@@ -2772,8 +2772,8 @@ mod tests {
         app.state.mode = Mode::ConfirmRemoveWorktree;
         app.state.worktree_remove = Some(crate::app::state::WorktreeRemoveState {
             workspace_id: "issue".into(),
-            repo_root: "/repo/herdr".into(),
-            path: "/repo/herdr-issue".into(),
+            repo_root: "/repo/kitsune".into(),
+            path: "/repo/kitsune-issue".into(),
             error: None,
             removing: false,
             force_confirmation: false,
@@ -2800,8 +2800,8 @@ mod tests {
         app.state.mode = Mode::ConfirmRemoveWorktree;
         app.state.worktree_remove = Some(crate::app::state::WorktreeRemoveState {
             workspace_id: "issue".into(),
-            repo_root: "/repo/herdr".into(),
-            path: "/repo/herdr-issue".into(),
+            repo_root: "/repo/kitsune".into(),
+            path: "/repo/kitsune-issue".into(),
             error: None,
             removing: false,
             force_confirmation: false,

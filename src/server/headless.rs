@@ -1,4 +1,4 @@
-//! Headless server mode — runs the herdr event loop without a real terminal.
+//! Headless server mode — runs the kitsune event loop without a real terminal.
 //!
 //! The server:
 //! - Does not enter raw mode or read stdin
@@ -239,7 +239,7 @@ const CLIENT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 // Headless server
 // ---------------------------------------------------------------------------
 
-/// The headless server — runs the herdr event loop without a real terminal.
+/// The headless server — runs the kitsune event loop without a real terminal.
 pub struct HeadlessServer {
     app: app::App,
     #[cfg(unix)]
@@ -1080,7 +1080,7 @@ impl HeadlessServer {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 format!(
-                    "live handoff supports at most {} panes in one update; close panes or restart herdr normally",
+                    "live handoff supports at most {} panes in one update; close panes or restart kitsune normally",
                     crate::server::handoff::MAX_FDS_PER_HANDOFF
                 ),
             ));
@@ -2814,7 +2814,7 @@ impl HeadlessServer {
                         kind: protocol::NotifyKind::Toast,
                         message: "Paste rejected".to_owned(),
                         body: Some(format!(
-                            "Input message is {size} bytes; Herdr's limit is {max} bytes"
+                            "Input message is {size} bytes; Kitsune's limit is {max} bytes"
                         )),
                     },
                 );
@@ -3173,7 +3173,7 @@ impl HeadlessServer {
         }
 
         // Forward new toast state only when a client-local delivery mode is selected.
-        // Herdr delivery renders the toast in-frame and must not ask clients to
+        // Kitsune delivery renders the toast in-frame and must not ask clients to
         // show a terminal or system notification.
         let toast_after = self.app.state.toast.clone();
         let forwarded_toast_from_state = if should_forward_toast_to_clients(
@@ -3980,14 +3980,6 @@ impl HeadlessServer {
 
         if self
             .app
-            .next_auto_update_check
-            .is_some_and(|deadline| now >= deadline)
-        {
-            self.app.run_auto_update_check();
-        }
-
-        if self
-            .app
             .next_agent_manifest_update_check
             .is_some_and(|deadline| now >= deadline)
         {
@@ -4307,8 +4299,6 @@ pub fn run_server() -> io::Result<()> {
             "kitsune server started"
         );
         print_ready_message(&api::socket_path(), &client_socket_path());
-        server.app.run_plugin_startup_hooks();
-
         server.run().await
     });
 
@@ -4410,7 +4400,6 @@ fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> 
         }
         info!("handoff import server started");
         print_ready_message(&api::socket_path(), &client_socket_path());
-        server.app.run_plugin_startup_hooks();
         server.run().await
     });
 
@@ -4680,7 +4669,7 @@ mod tests {
                 .event_tx
                 .try_send(AppEvent::UpdateReady {
                     version: format!("4.0.{i}"),
-                    install_command: "herdr install".into(),
+                    install_command: "kitsune install".into(),
                 })
                 .unwrap();
         }
@@ -4965,7 +4954,7 @@ new_tab = "prefix+t"
     #[test]
     fn local_keybinding_client_keeps_local_keybindings_after_settings_save() {
         let path = std::env::temp_dir().join(format!(
-            "herdr-headless-settings-{}-{}.toml",
+            "kitsune-headless-settings-{}-{}.toml",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -5032,7 +5021,7 @@ next_tab = ""
     fn invalid_server_keybindings_apply_valid_subset_after_settings_save_without_caching_local_keybindings(
     ) {
         let path = std::env::temp_dir().join(format!(
-            "herdr-headless-invalid-settings-{}-{}.toml",
+            "kitsune-headless-invalid-settings-{}-{}.toml",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -8958,7 +8947,7 @@ next_tab = ""
                 assert_eq!(message, "Paste rejected");
                 assert_eq!(
                     body.as_deref(),
-                    Some("Input message is 5000012 bytes; Herdr's limit is 1048576 bytes")
+                    Some("Input message is 5000012 bytes; Kitsune's limit is 1048576 bytes")
                 );
             }
             other => panic!("expected paste rejection notification, got {other:?}"),
@@ -9005,7 +8994,7 @@ next_tab = ""
             client_control_rx
                 .recv_timeout(Duration::from_millis(50))
                 .is_err(),
-            "herdr delivery should render in-frame instead of forwarding a client-local notification"
+            "kitsune delivery should render in-frame instead of forwarding a client-local notification"
         );
     }
 

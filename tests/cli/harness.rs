@@ -23,10 +23,6 @@ pub(super) fn unique_test_dir() -> PathBuf {
     PathBuf::from(format!("/tmp/hcli-{}-{nanos}", std::process::id()))
 }
 
-pub(super) fn managed_github_plugin_dir(config_home: &Path) -> PathBuf {
-    config_home.join("herdr-dev").join("plugins").join("github")
-}
-
 pub(super) fn path_missing_or_empty(path: &Path) -> bool {
     match fs::read_dir(path) {
         Ok(mut entries) => entries.next().is_none(),
@@ -53,8 +49,8 @@ pub(super) fn run_git(repo: &Path, args: &[&str]) {
 pub(super) fn create_committed_repo(path: &Path) {
     fs::create_dir_all(path).unwrap();
     run_git(path, &["init", "--quiet"]);
-    run_git(path, &["config", "user.email", "herdr@example.invalid"]);
-    run_git(path, &["config", "user.name", "Herdr Test"]);
+    run_git(path, &["config", "user.email", "kitsune@example.invalid"]);
+    run_git(path, &["config", "user.name", "Kitsune Test"]);
     fs::write(path.join("README.md"), "test\n").unwrap();
     run_git(path, &["add", "README.md"]);
     run_git(path, &["commit", "--quiet", "-m", "initial"]);
@@ -146,9 +142,9 @@ pub(super) fn spawn_herdr_with_pane_history(
 
 pub(super) fn app_dir_name() -> &'static str {
     if cfg!(debug_assertions) {
-        "herdr-dev"
+        "kitsune-dev"
     } else {
-        "herdr"
+        "kitsune"
     }
 }
 
@@ -157,7 +153,7 @@ pub(super) fn named_session_socket(config_home: &Path, session: &str) -> PathBuf
         .join(app_dir_name())
         .join("sessions")
         .join(session)
-        .join("herdr.sock")
+        .join("kitsune.sock")
 }
 
 pub(super) fn spawn_named_server(
@@ -250,7 +246,7 @@ pub(super) fn run_named_cli_json(
     let output = run_named_cli(config_home, runtime_dir, args);
     assert!(
         output.status.success(),
-        "command failed: herdr {}\nstatus: {:?}\nstderr: {}\nstdout: {}",
+        "command failed: kitsune {}\nstatus: {:?}\nstderr: {}\nstdout: {}",
         args.join(" "),
         output.status.code(),
         String::from_utf8_lossy(&output.stderr),
@@ -375,7 +371,7 @@ pub(super) fn parse_cli_json_output(
 ) -> serde_json::Value {
     assert!(
         output.status.success(),
-        "command failed: herdr {}\nstatus: {:?}\nstderr: {}\nstdout: {}",
+        "command failed: kitsune {}\nstatus: {:?}\nstderr: {}\nstdout: {}",
         args.join(" "),
         output.status.code(),
         String::from_utf8_lossy(&output.stderr),
@@ -384,7 +380,7 @@ pub(super) fn parse_cli_json_output(
 
     serde_json::from_slice(&output.stdout).unwrap_or_else(|err| {
         panic!(
-            "failed to parse JSON response for `herdr {}`: {}\nstdout: {}\nstderr: {}",
+            "failed to parse JSON response for `kitsune {}`: {}\nstdout: {}\nstderr: {}",
             args.join(" "),
             err,
             String::from_utf8_lossy(&output.stdout),

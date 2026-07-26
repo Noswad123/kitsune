@@ -16,7 +16,7 @@ These instructions are layered.
   cannot be verified, skip maintainer workflow and follow the external
   contributor guardrail instead.
 - Local Can machine workflow applies only on Can's own workstation or Windows
-  VM setup, for example when `/home/can/Projects/herdr`, `HERDR_ENV=1`, or the
+  VM setup, for example when `/home/can/Projects/herdr`, `KITSUNE_ENV=1`, or the
   `windows-wirt` SSH alias exists. If those facts are not true, skip local
   machine workflow.
 - External contributor guardrail applies whenever the acting GitHub account is
@@ -32,12 +32,12 @@ These instructions are layered.
 - **No god objects.** If a module is doing too many things, split it. `app/` is already split into state, actions, and input. Keep it that way.
 - **Platform code is isolated.** OS-specific behavior lives in the matching `src/platform/<os>.rs` file, with only shared traits, types, wrappers, and testable contracts in `src/platform/mod.rs`. Core modules don't have `#[cfg(target_os)]`.
 - **Detection is decoupled.** The detector reads a screen snapshot, never touches the parser or viewport state.
-- **Screen detection is evidence-based.** When changing `src/detect/manifests/`, first capture the relevant bottom-buffer state with `herdr agent read <pane> --source detection --format text` and, when styling or alternate screen behavior matters, `--format ansi`. Decide which visible controls are invariant, which are alternatives, and encode them as explicit AND/OR gates. Do not match whole-pane incidental text, and do not use the user-visible viewport for agent status because users can scroll it.
-- **UI patterns should be reused.** Herdr is a mouse-first TUI. New dialogs, onboarding, settings, and post-update flows should follow the existing UI/UX language and interaction patterns instead of inventing one-off screens. Prefer reusing existing modal/screen structure, affordances, and close actions so the app feels consistent.
+- **Screen detection is evidence-based.** When changing `src/detect/manifests/`, first capture the relevant bottom-buffer state with `kitsune agent read <pane> --source detection --format text` and, when styling or alternate screen behavior matters, `--format ansi`. Decide which visible controls are invariant, which are alternatives, and encode them as explicit AND/OR gates. Do not match whole-pane incidental text, and do not use the user-visible viewport for agent status because users can scroll it.
+- **UI patterns should be reused.** Kitsune is a mouse-first TUI. New dialogs, onboarding, settings, and post-update flows should follow the existing UI/UX language and interaction patterns instead of inventing one-off screens. Prefer reusing existing modal/screen structure, affordances, and close actions so the app feels consistent.
 
 ### Runtime/client boundary guardrail
 
-Herdr is migrating toward a server-owned runtime protocol with the TUI as one client. New work should not deepen the current server/TUI coupling.
+Kitsune is migrating toward a server-owned runtime protocol with the TUI as one client. New work should not deepen the current server/TUI coupling.
 
 Before adding state, API fields, events, commands, or socket messages, classify the feature:
 
@@ -101,13 +101,13 @@ Unit tests live next to the code (`#[cfg(test)] mod tests`). New `AppState` or `
 
 For broad refactors or release-risk regressions, classify the risk before editing. Treat changes as refactor-risk when they touch two or more core surfaces, persisted state, protocol/API IDs, workspace/tab/pane identity, restore/handoff, agent detection authority, or UI/input state projection. Before moving code, identify the protected behavior and add or name characterization tests. Identity/state refactors should use the test-only invariants `AppState::assert_invariants_for_test()` or `Workspace::assert_invariants_for_test()` with adversarial state from `AppState::test_with_adversarial_identity_state()` or `Workspace::test_adversarial_identity_state()`. Run a roundtable for broad refactors and release-risk regressions, not for routine local fixes.
 
-When testing a new Herdr build from inside an existing Herdr session, use
-`cargo run -- ...` and clear inherited Herdr socket overrides so the debug
-binary talks to the debug `herdr-dev` server instead of the installed stable
+When testing a new Kitsune build from inside an existing Kitsune session, use
+`cargo run -- ...` and clear inherited Kitsune socket overrides so the debug
+binary talks to the debug `kitsune-dev` server instead of the installed stable
 server:
 
 ```bash
-env -u HERDR_SOCKET_PATH -u HERDR_CLIENT_SOCKET_PATH cargo run -- <command>
+env -u KITSUNE_SOCKET_PATH -u KITSUNE_CLIENT_SOCKET_PATH cargo run -- <command>
 ```
 
 ## Local Can Machine Workflow
@@ -185,7 +185,7 @@ Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue
 - Rust: no `unwrap()` in production code. Use `tracing` for logging. Use `#[allow]` only with a comment explaining why.
 - Rust platform-specific code must be compile-gated. Put OS APIs and substantial OS behavior in `src/platform/`; when platform checks are needed elsewhere, use `#[cfg(windows)]`, `#[cfg(unix)]`, or target-specific `#[cfg(...)]` on imports, fields, functions, impls, and match arms so Windows-only code does not compile into Unix builds and Unix-only code does not compile into Windows builds. Use `cfg!(...)` only for pure cross-platform policy constants whose branches both compile on every target.
 - Don't add dependencies without a reason. Check whether existing dependencies cover the need first.
-- Integration asset versions (`HERDR_INTEGRATION_VERSION` markers and matching `*_INTEGRATION_VERSION` constants) are migration versions relative to the latest released tag, not per-commit counters on `master`. If an integration asset changes multiple times between releases, bump it once from the version in the latest release.
+- Integration asset versions (`KITSUNE_INTEGRATION_VERSION` markers and matching `*_INTEGRATION_VERSION` constants) are migration versions relative to the latest released tag, not per-commit counters on `master`. If an integration asset changes multiple times between releases, bump it once from the version in the latest release.
 - When changing the server/client wire protocol, compare `src/protocol/wire.rs::PROTOCOL_VERSION` against the latest released tag. Bump it only if the current source protocol is not already greater than the latest released protocol. Update hardcoded protocol expectations and manual protocol fixtures in tests.
 
 ## Release Channels

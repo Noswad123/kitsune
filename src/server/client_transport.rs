@@ -828,7 +828,7 @@ mod tests {
         }
         #[cfg(windows)]
         {
-            std::env::temp_dir().join(format!("herdr-{name}-{filename}"))
+            std::env::temp_dir().join(format!("kitsune-{name}-{filename}"))
         }
     }
 

@@ -25,7 +25,7 @@ fn unique_test_dir() -> PathBuf {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     PathBuf::from(format!(
-        "/tmp/herdr-detach-test-{}-{nanos}",
+        "/tmp/kitsune-detach-test-{}-{nanos}",
         std::process::id()
     ))
 }
@@ -75,11 +75,11 @@ fn spawn_server(
     api_socket_path: &PathBuf,
     _client_socket_path: &PathBuf,
 ) -> SpawnedHerdr {
-    fs::create_dir_all(config_home.join("herdr")).unwrap();
+    fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
     fs::write(
-        config_home.join("herdr/config.toml"),
+        config_home.join("kitsune/config.toml"),
         "onboarding = false\n",
     )
     .unwrap();
@@ -266,8 +266,8 @@ fn navigate_q_detaches_client_and_server_persists() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -328,8 +328,8 @@ fn explicit_detach_message_causes_clean_disconnect() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -387,8 +387,8 @@ fn reattach_after_detach_shows_current_state() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -499,8 +499,8 @@ fn processes_survive_during_and_after_detach() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -594,8 +594,8 @@ fn server_persists_after_client_connection_drop() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -644,8 +644,8 @@ fn detached_output_preserves_last_attached_pty_size() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -712,8 +712,8 @@ fn output_accumulated_while_detached_visible_on_reattach() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));

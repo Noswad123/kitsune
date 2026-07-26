@@ -246,7 +246,7 @@ impl App {
             .unwrap_or_default();
         self.state.selected = index;
         self.state.close_selected_workspace();
-        self.state.remove_plugin_pane_records(pane_ids);
+        self.state.remove_pane_api_records(pane_ids);
         self.shutdown_detached_terminal_runtimes();
         self.emit_event(EventEnvelope {
             event: EventKind::WorkspaceClosed,
@@ -321,7 +321,7 @@ mod tests {
         shutdown_test_runtimes(&mut app);
 
         let focused_cwd = std::env::temp_dir().join(format!(
-            "herdr-ws-follow-{}-{}",
+            "kitsune-ws-follow-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -376,9 +376,9 @@ mod tests {
         app.state.workspaces = vec![Workspace::test_new("issue")];
         app.state.workspaces[0].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr-issue".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
+            checkout_path: "/repo/kitsune-issue".into(),
             is_linked_worktree: true,
         });
         app

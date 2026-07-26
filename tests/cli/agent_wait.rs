@@ -5,9 +5,9 @@ fn agent_wait_exits_immediately_when_status_already_matches() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
 
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = send_request(
@@ -61,9 +61,9 @@ fn agent_wait_times_out_when_status_does_not_match() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
 
-    let herdr = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = send_request(
@@ -111,7 +111,7 @@ fn agent_wait_exits_when_done_status_matches() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("herdr.sock");
+    let socket_path = runtime_dir.join("kitsune.sock");
     let bin_dir = base.join("bin");
 
     fs::create_dir_all(&bin_dir).unwrap();
@@ -131,7 +131,7 @@ fn agent_wait_exits_when_done_status_matches() {
 
     let inherited_path = std::env::var("PATH").unwrap_or_default();
     let path_override = format!("{}:{}", bin_dir.display(), inherited_path);
-    let herdr = spawn_herdr_with_path(
+    let kitsune = spawn_herdr_with_path(
         &config_home,
         &runtime_dir,
         &socket_path,

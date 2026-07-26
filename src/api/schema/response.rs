@@ -11,10 +11,6 @@ use super::panes::{
     PaneMoveResult, PaneNeighborResult, PaneProcessInfo, PaneReadResult, PaneResizeResult,
     PaneSwapResult, PaneZoomResult,
 };
-use super::plugins::{
-    InstalledPluginInfo, PluginActionInfo, PluginCommandLogInfo, PluginInvocationContext,
-    PluginPaneInfo,
-};
 use super::server::ServerCapabilities;
 use super::session::SessionSnapshot;
 use super::tabs::TabInfo;
@@ -204,42 +200,6 @@ pub enum ResponseResult {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         last_result: Option<String>,
         manifests: Vec<AgentManifestInfo>,
-    },
-    PluginLinked {
-        plugin: InstalledPluginInfo,
-    },
-    PluginList {
-        plugins: Vec<InstalledPluginInfo>,
-    },
-    PluginUnlinked {
-        plugin_id: String,
-        removed: bool,
-    },
-    PluginEnabled {
-        plugin: InstalledPluginInfo,
-    },
-    PluginDisabled {
-        plugin: InstalledPluginInfo,
-    },
-    PluginActionList {
-        actions: Vec<PluginActionInfo>,
-    },
-    PluginActionInvoked {
-        action: PluginActionInfo,
-        context: PluginInvocationContext,
-        log: PluginCommandLogInfo,
-    },
-    PluginLogList {
-        logs: Vec<PluginCommandLogInfo>,
-    },
-    PluginPaneOpened {
-        plugin_pane: PluginPaneInfo,
-    },
-    PluginPaneFocused {
-        plugin_pane: PluginPaneInfo,
-    },
-    PluginPaneClosed {
-        pane_id: String,
     },
     ConfigReload {
         status: crate::config::ConfigReloadStatus,

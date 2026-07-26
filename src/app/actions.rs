@@ -1575,10 +1575,7 @@ impl AppState {
         }
     }
 
-    pub(crate) fn remove_plugin_pane_records(
-        &mut self,
-        pane_ids: impl IntoIterator<Item = PaneId>,
-    ) {
+    pub(crate) fn remove_pane_api_records(&mut self, pane_ids: impl IntoIterator<Item = PaneId>) {
         let pane_ids = pane_ids.into_iter().collect::<Vec<_>>();
         self.clear_copy_mode_for_removed_panes(pane_ids.iter().copied());
         if self
@@ -1589,7 +1586,6 @@ impl AppState {
             self.previous_pane_focus = None;
         }
         for pane_id in pane_ids {
-            self.plugin_panes.remove(&pane_id);
             self.pane_graphics_layers.remove(&pane_id);
             self.pane_graphics_streams.remove(&pane_id);
         }
@@ -1630,7 +1626,7 @@ impl AppState {
                 crate::logging::workspace_closed(&workspace_id);
             }
         }
-        self.remove_plugin_pane_records(pane_ids);
+        self.remove_pane_api_records(pane_ids);
         for idx in close_indices.iter().rev() {
             self.workspaces.remove(*idx);
         }
@@ -1979,7 +1975,7 @@ impl AppState {
         let should_close_workspace = active
             .and_then(|i| self.workspaces.get_mut(i))
             .is_some_and(|ws| ws.close_focused());
-        self.remove_plugin_pane_records(pane_ids);
+        self.remove_pane_api_records(pane_ids);
         if should_close_workspace {
             if let Some(active) = active {
                 self.selected = active;
@@ -2039,7 +2035,7 @@ impl AppState {
             let closing_tab_id =
                 public_tab_id_for_index(ws, ws.active_tab).unwrap_or_else(|| workspace_id.clone());
             ws.close_active_tab();
-            self.remove_plugin_pane_records(pane_ids);
+            self.remove_pane_api_records(pane_ids);
             self.remove_unattached_terminal_ids(terminal_ids);
             crate::logging::tab_closed(&workspace_id, &closing_tab_id);
             self.tab_scroll_follow_active = true;
@@ -2854,7 +2850,6 @@ impl AppState {
             }
             AppEvent::WorktreeAddFinished(_) => Vec::new(),
             AppEvent::WorktreeRemoveFinished(_) => Vec::new(),
-            AppEvent::PluginCommandFinished { .. } => Vec::new(),
         }
     }
 
@@ -3217,7 +3212,7 @@ impl AppState {
 
     fn handle_pane_died(&mut self, pane_id: PaneId) {
         self.pending_agent_notifications.remove(&pane_id);
-        self.remove_plugin_pane_records([pane_id]);
+        self.remove_pane_api_records([pane_id]);
         let ws_idx = self
             .workspaces
             .iter()
@@ -3322,8 +3317,8 @@ mod tests {
     fn mark_linked_worktree(state: &mut AppState, ws_idx: usize) {
         state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
             checkout_path: format!("/repo/worktree-{ws_idx}").into(),
             is_linked_worktree: true,
         });
@@ -3332,9 +3327,9 @@ mod tests {
     fn mark_parent_worktree(state: &mut AppState, ws_idx: usize) {
         state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
+            checkout_path: "/repo/kitsune".into(),
             is_linked_worktree: false,
         });
     }
@@ -3433,9 +3428,9 @@ mod tests {
                 "./src/app/actions.rs:795",
             ),
             (
-                "open ../herdr-worktrees/issue-1",
-                "herdr",
-                "../herdr-worktrees/issue-1",
+                "open ../kitsune-worktrees/issue-1",
+                "kitsune",
+                "../kitsune-worktrees/issue-1",
             ),
             (
                 "edit src/app/actions.rs,then",
@@ -3466,7 +3461,11 @@ mod tests {
             ),
             ("refs #123 and @owner/name", "#123", "#123"),
             ("refs #123 and @owner/name", "owner", "@owner/name"),
-            ("cargo test --package=herdr", "--package", "--package=herdr"),
+            (
+                "cargo test --package=kitsune",
+                "--package",
+                "--package=kitsune",
+            ),
             (
                 "cargo test app::actions::tests",
                 "app::",
@@ -3479,7 +3478,7 @@ mod tests {
             ),
             ("ERROR [worker-1] request_id=abc-123", "worker", "worker-1"),
             (
-                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|herdr",
+                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|kitsune",
                 "newhoo",
                 "newhoo",
             ),
@@ -3511,7 +3510,7 @@ mod tests {
     fn double_click_word_bounds_ignore_delimiters() {
         for (row, click) in [
             (
-                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|herdr",
+                "tmux|newhoo|fixhoo|newmoo|notification|window_bell|kitsune",
                 "|",
             ),
             ("alpha,beta;gamma", ","),
@@ -3576,7 +3575,7 @@ mod tests {
     #[tokio::test]
     async fn navigator_rows_match_live_root_runtime_cwd_workspace_label() {
         let unique = format!(
-            "herdr-navigator-runtime-cwd-{}-{}",
+            "kitsune-navigator-runtime-cwd-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -3585,7 +3584,7 @@ mod tests {
         );
         let root = std::env::temp_dir().join(unique);
         let stale_cwd = root.join("issue-264-nix-support");
-        let live_cwd = root.join("herdr");
+        let live_cwd = root.join("kitsune");
         std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
         std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
 
@@ -3623,7 +3622,7 @@ mod tests {
         let mut runtime_registry = crate::terminal::TerminalRuntimeRegistry::new();
         runtime_registry.insert(terminal_id, runtime);
         state.open_navigator_from(&runtime_registry);
-        state.navigator.query = "herdr".into();
+        state.navigator.query = "kitsune".into();
         let rows = state.navigator_rows_from(&runtime_registry);
 
         for (_, runtime) in runtime_registry.drain() {
@@ -3634,7 +3633,7 @@ mod tests {
         // The workspace matched by its live cwd label; its subtree cascades in
         // as context.
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0].label, "herdr (1)");
+        assert_eq!(rows[0].label, "kitsune (1)");
         assert!(rows[0].matched);
         assert!(!rows[1].matched);
     }
@@ -3746,7 +3745,7 @@ mod tests {
     #[test]
     fn navigator_search_only_matches_visible_row_text() {
         let mut state = app_with_workspaces(&["one"]);
-        state.workspaces[0].identity_cwd = "/tmp/herdr-worktrees/issue-work".into();
+        state.workspaces[0].identity_cwd = "/tmp/kitsune-worktrees/issue-work".into();
 
         state.open_navigator();
         state.navigator.query = "work".into();
@@ -4452,16 +4451,16 @@ mod tests {
         let mut state = app_with_workspaces(&["main", "issue", "notes"]);
         state.workspaces[0].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
+            checkout_path: "/repo/kitsune".into(),
             is_linked_worktree: false,
         });
         state.workspaces[1].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr-issue".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
+            checkout_path: "/repo/kitsune-issue".into(),
             is_linked_worktree: true,
         });
         state.selected = 0;
@@ -5226,7 +5225,7 @@ mod tests {
             .attached_terminal_id
             .clone();
         let cwd =
-            std::env::temp_dir().join(format!("herdr-cwd-report-test-{}", std::process::id()));
+            std::env::temp_dir().join(format!("kitsune-cwd-report-test-{}", std::process::id()));
         std::fs::create_dir_all(&cwd).unwrap();
         state.session_dirty = false;
 
@@ -5408,18 +5407,18 @@ mod tests {
 
         state.handle_app_event(AppEvent::UpdateReady {
             version: "0.5.0".into(),
-            install_command: "brew update && brew upgrade herdr".into(),
+            install_command: "brew update && brew upgrade kitsune".into(),
         });
 
         assert_eq!(
             state.update_install_command,
-            "brew update && brew upgrade herdr"
+            "brew update && brew upgrade kitsune"
         );
         let toast = state.toast.as_ref().expect("update toast");
         assert_eq!(
             toast.context,
             format!(
-                "detach, run `brew update && brew upgrade herdr`, then restart this {} session when ready",
+                "detach, run `brew update && brew upgrade kitsune`, then restart this {} session when ready",
                 crate::product::NAME
             )
         );
@@ -5586,18 +5585,10 @@ mod tests {
         let closed = state.workspaces[0].test_split(Direction::Horizontal);
         state.ensure_test_terminals();
         assert_eq!(state.workspaces[0].panes.len(), 2);
-        state.plugin_panes.insert(
-            closed,
-            crate::app::state::PluginPaneRecord {
-                plugin_id: "example.pane".into(),
-                entrypoint: "board".into(),
-            },
-        );
         insert_test_pane_graphics_state(&mut state, closed);
 
         state.close_pane();
         assert_eq!(state.workspaces[0].panes.len(), 1);
-        assert!(!state.plugin_panes.contains_key(&closed));
         assert!(!state.pane_graphics_layers.contains_key(&closed));
         assert!(!state.pane_graphics_streams.contains_key(&closed));
         state.assert_invariants_for_test();
@@ -5662,19 +5653,11 @@ mod tests {
         state.workspaces[0].switch_tab(tab_idx);
         let pane_id = state.workspaces[0].tabs[tab_idx].root_pane;
         let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
-        state.plugin_panes.insert(
-            pane_id,
-            crate::app::state::PluginPaneRecord {
-                plugin_id: "example.pane".into(),
-                entrypoint: "board".into(),
-            },
-        );
         insert_test_pane_graphics_state(&mut state, pane_id);
 
         state.close_tab();
 
         assert!(!state.terminals.contains_key(&terminal_id));
-        assert!(!state.plugin_panes.contains_key(&pane_id));
         assert!(!state.pane_graphics_layers.contains_key(&pane_id));
         assert!(!state.pane_graphics_streams.contains_key(&pane_id));
         state.assert_invariants_for_test();
@@ -5685,19 +5668,11 @@ mod tests {
         let mut state = app_with_workspaces(&["one", "two"]);
         let pane_id = state.workspaces[0].tabs[0].root_pane;
         let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
-        state.plugin_panes.insert(
-            pane_id,
-            crate::app::state::PluginPaneRecord {
-                plugin_id: "example.pane".into(),
-                entrypoint: "board".into(),
-            },
-        );
         insert_test_pane_graphics_state(&mut state, pane_id);
 
         state.close_selected_workspace();
 
         assert!(!state.terminals.contains_key(&terminal_id));
-        assert!(!state.plugin_panes.contains_key(&pane_id));
         assert!(!state.pane_graphics_layers.contains_key(&pane_id));
         assert!(!state.pane_graphics_streams.contains_key(&pane_id));
         state.assert_invariants_for_test();

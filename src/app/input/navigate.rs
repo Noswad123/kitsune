@@ -775,9 +775,6 @@ impl App {
                 self.spawn_pane_command(&binding.command, Vec::new())
             }
             crate::config::CustomCommandAction::Popup => self.spawn_custom_popup_command(&binding),
-            crate::config::CustomCommandAction::PluginAction => self
-                .invoke_plugin_action_from_keybind(binding.command.clone())
-                .map_err(std::io::Error::other),
         };
         match result {
             Ok(()) => finish_custom_command_context(&mut self.state, context, previous_mode),
@@ -872,7 +869,7 @@ impl App {
             "kit".to_string(),
             "tui".to_string(),
             "--backend".to_string(),
-            "herdr".to_string(),
+            "kitsune".to_string(),
         ];
         let result = self.spawn_popup_argv_command(
             &argv,
@@ -1121,7 +1118,7 @@ impl App {
             };
             ws.tabs
                 .get_mut(tab_idx)
-                .ok_or_else(|| std::io::Error::other("plugin overlay tab disappeared"))?
+                .ok_or_else(|| std::io::Error::other("overlay tab disappeared"))?
                 .zoomed = true;
             self.overlay_panes.insert(
                 new_pane.pane_id,
@@ -1878,7 +1875,7 @@ fn unique_scrollback_path(attempt: u32) -> std::path::PathBuf {
         .map(|duration| duration.as_nanos())
         .unwrap_or(0);
     std::env::temp_dir().join(format!(
-        "herdr-scrollback-{}-{nanos}-{attempt}.txt",
+        "kitsune-scrollback-{}-{nanos}-{attempt}.txt",
         std::process::id()
     ))
 }
@@ -1902,8 +1899,8 @@ mod tests {
     fn mark_worktree_space_member(state: &mut AppState, ws_idx: usize, key: &str) {
         state.workspaces[ws_idx].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: key.into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
             checkout_path: format!("/repo/worktree-{ws_idx}").into(),
             is_linked_worktree: ws_idx != 0,
         });
@@ -2039,9 +2036,9 @@ mod tests {
         state.confirm_close = false;
         state.workspaces[1].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr-issue".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
+            checkout_path: "/repo/kitsune-issue".into(),
             is_linked_worktree: true,
         });
 
@@ -3045,9 +3042,9 @@ navigate_pane_down = "ctrl+j"
         state.confirm_close = false;
         state.workspaces[1].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
-            checkout_path: "/repo/herdr-issue".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
+            checkout_path: "/repo/kitsune-issue".into(),
             is_linked_worktree: true,
         });
 

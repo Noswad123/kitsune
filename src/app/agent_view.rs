@@ -89,6 +89,7 @@ fn normalize_source(source: &str) -> Result<String, String> {
     let source = source.trim();
     if source.is_empty()
         || source.chars().count() > MAX_SOURCE_CHARS
+        || source.starts_with("plugin:")
         || !source
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, ':' | '.' | '_' | '-'))

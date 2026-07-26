@@ -735,7 +735,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        std::env::temp_dir().join(format!("herdr-{name}-{}-{nanos}", std::process::id()))
+        std::env::temp_dir().join(format!("kitsune-{name}-{}-{nanos}", std::process::id()))
     }
 
     fn run_git(repo: &Path, args: &[&str]) {
@@ -757,8 +757,8 @@ mod tests {
         let repo = unique_temp_path(name);
         std::fs::create_dir_all(&repo).unwrap();
         run_git(&repo, &["init", "--quiet"]);
-        run_git(&repo, &["config", "user.email", "herdr@example.invalid"]);
-        run_git(&repo, &["config", "user.name", "Herdr Test"]);
+        run_git(&repo, &["config", "user.email", "kitsune@example.invalid"]);
+        run_git(&repo, &["config", "user.name", "Kitsune Test"]);
         std::fs::write(repo.join("README.md"), "test\n").unwrap();
         run_git(&repo, &["add", "README.md"]);
         run_git(&repo, &["commit", "--quiet", "-m", "initial"]);
@@ -808,40 +808,6 @@ mod tests {
             );
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
-    }
-
-    fn install_event_plugin(app: &mut App, name: &str, event: &str) -> PathBuf {
-        let plugin_root = unique_temp_path(name);
-        std::fs::create_dir_all(&plugin_root).unwrap();
-        let manifest_path = plugin_root.join("herdr-plugin.toml");
-        std::fs::write(&manifest_path, format!("id = 'example.{name}'\n")).unwrap();
-        app.state.installed_plugins.insert(
-            format!("example.{name}"),
-            crate::api::schema::InstalledPluginInfo {
-                plugin_id: format!("example.{name}"),
-                name: name.into(),
-                version: "0.1.0".into(),
-                min_herdr_version: "0.7.0".into(),
-                description: None,
-                manifest_path: manifest_path.display().to_string(),
-                plugin_root: plugin_root.display().to_string(),
-                enabled: true,
-                platforms: None,
-                build: Vec::new(),
-                startup: Vec::new(),
-                actions: Vec::new(),
-                events: vec![crate::api::schema::PluginManifestEventHook {
-                    on: event.into(),
-                    platforms: None,
-                    command: vec!["sh".into(), "-c".into(), "true".into()],
-                }],
-                panes: Vec::new(),
-                link_handlers: Vec::new(),
-                source: crate::api::schema::PluginSourceInfo::default(),
-                warnings: Vec::new(),
-            },
-        );
-        plugin_root
     }
 
     fn response_channel() -> (
@@ -962,84 +928,6 @@ mod tests {
         crate::worktree::run_worktree_command(&remove).unwrap();
         let _ = std::fs::remove_dir_all(worktree_root);
         let _ = std::fs::remove_dir_all(repo);
-    }
-
-    #[tokio::test]
-    async fn deferred_api_worktree_create_preserves_event_and_plugin_context() {
-        let repo = create_committed_repo("api-worktree-create-deferred-repo");
-        let worktree_root = unique_temp_path("api-worktree-create-deferred-root");
-        let event_hub = crate::api::EventHub::default();
-        let mut app = test_app_with_event_hub(event_hub.clone());
-        let mut parent = Workspace::test_new("main");
-        parent.identity_cwd = repo.clone();
-        app.state.workspaces = vec![parent];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.worktree_directory = worktree_root.clone();
-        let plugin_root = install_event_plugin(&mut app, "deferred-create", "worktree.created");
-        let (respond_to, response_rx) = response_channel();
-
-        assert!(app.handle_deferred_worktree_api_request(
-            Request {
-                id: "req".into(),
-                method: crate::api::schema::Method::WorktreeCreate(WorktreeCreateParams {
-                    workspace_id: Some(app.state.workspaces[0].id.clone()),
-                    branch: Some("worktree/api-create-deferred".into()),
-                    ..WorktreeCreateParams::default()
-                }),
-            },
-            respond_to,
-        ));
-        assert!(response_rx.try_recv().is_err());
-
-        let event = wait_for_app_event(&mut app);
-        app.handle_internal_event(event);
-        let response = response_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("deferred worktree create should respond after completion event");
-        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
-        let ResponseResult::WorktreeCreated {
-            workspace,
-            worktree,
-            ..
-        } = success.result
-        else {
-            panic!("expected worktree_created response");
-        };
-        let event_kinds = event_hub
-            .events_after(0)
-            .into_iter()
-            .map(|(_, event)| event.event)
-            .collect::<Vec<_>>();
-        assert_eq!(
-            &event_kinds[event_kinds.len() - 5..],
-            &[
-                EventKind::WorkspaceCreated,
-                EventKind::TabCreated,
-                EventKind::PaneCreated,
-                EventKind::LayoutUpdated,
-                EventKind::WorktreeCreated,
-            ]
-        );
-        assert_eq!(
-            workspace
-                .worktree
-                .as_ref()
-                .map(|worktree| worktree.checkout_path.as_str()),
-            Some(worktree.path.as_str())
-        );
-        assert!(app.state.plugin_command_logs.iter().any(|log| {
-            log.event.as_deref() == Some("worktree.created")
-                && log.status == crate::api::schema::PluginCommandStatus::Running
-        }));
-
-        for (_, runtime) in app.terminal_runtimes.drain() {
-            runtime.shutdown();
-        }
-        let _ = std::fs::remove_dir_all(worktree_root);
-        let _ = std::fs::remove_dir_all(repo);
-        let _ = std::fs::remove_dir_all(plugin_root);
     }
 
     #[tokio::test]
@@ -1190,7 +1078,7 @@ mod tests {
                 source_checkout_path: repo.clone(),
                 source_repo_root: repo.clone(),
                 repo_key: "repo-key".into(),
-                repo_name: "herdr".into(),
+                repo_name: "kitsune".into(),
                 label: None,
                 focus: false,
                 respond_to,
@@ -1882,82 +1770,6 @@ mod tests {
     }
 
     #[test]
-    fn deferred_api_worktree_remove_preserves_event_and_plugin_context() {
-        let repo = create_committed_repo("api-worktree-remove-deferred-repo");
-        let checkout = unique_temp_path("api-worktree-remove-deferred-checkout");
-        run_git(
-            &repo,
-            &[
-                "worktree",
-                "add",
-                "--quiet",
-                "-b",
-                "worktree/api-remove-deferred",
-                checkout.to_str().unwrap(),
-                "HEAD",
-            ],
-        );
-
-        let event_hub = crate::api::EventHub::default();
-        let mut app = test_app_with_event_hub(event_hub.clone());
-        let mut child = Workspace::test_new("child");
-        child.identity_cwd = checkout.clone();
-        child.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
-            key: crate::workspace::git_space_metadata(&repo).unwrap().key,
-            label: "api-worktree-remove-deferred-repo".into(),
-            repo_root: repo.clone(),
-            checkout_path: checkout.clone(),
-            is_linked_worktree: true,
-        });
-        let child_id = child.id.clone();
-        app.state.workspaces.push(child);
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        let plugin_root = install_event_plugin(&mut app, "deferred-remove", "worktree.removed");
-        let (respond_to, response_rx) = response_channel();
-
-        assert!(app.handle_deferred_worktree_api_request(
-            Request {
-                id: "req".into(),
-                method: crate::api::schema::Method::WorktreeRemove(WorktreeRemoveParams {
-                    workspace_id: child_id.clone(),
-                    force: false,
-                }),
-            },
-            respond_to,
-        ));
-        assert!(response_rx.try_recv().is_err());
-
-        let event = wait_for_app_event(&mut app);
-        app.handle_internal_event(event);
-        let response = response_rx
-            .recv_timeout(std::time::Duration::from_secs(2))
-            .expect("deferred worktree remove should respond after completion event");
-        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
-        assert!(matches!(
-            success.result,
-            ResponseResult::WorktreeRemoved { .. }
-        ));
-        assert_eq!(
-            event_hub
-                .events_after(0)
-                .into_iter()
-                .map(|(_, event)| event.event)
-                .collect::<Vec<_>>(),
-            vec![EventKind::WorkspaceClosed, EventKind::WorktreeRemoved]
-        );
-        assert!(app.state.plugin_command_logs.iter().any(|log| {
-            log.event.as_deref() == Some("worktree.removed")
-                && log.status == crate::api::schema::PluginCommandStatus::Running
-        }));
-        assert!(app.state.workspaces.is_empty());
-
-        let _ = std::fs::remove_dir_all(repo);
-        let _ = std::fs::remove_dir_all(plugin_root);
-    }
-
-    #[test]
     fn deferred_api_worktree_remove_rejects_duplicate_in_flight_request() {
         let repo = create_committed_repo("api-worktree-remove-duplicate-repo");
         let checkout = unique_temp_path("api-worktree-remove-duplicate-checkout");
@@ -2184,12 +1996,12 @@ mod tests {
     fn deferred_api_worktree_remove_emits_removed_after_workspace_changes() {
         let event_hub = crate::api::EventHub::default();
         let mut app = test_app_with_event_hub(event_hub.clone());
-        let checkout = PathBuf::from("/repo/herdr-issue");
+        let checkout = PathBuf::from("/repo/kitsune-issue");
         let mut child = Workspace::test_new("child");
         child.worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
             checkout_path: checkout.clone(),
             is_linked_worktree: true,
         });
@@ -2203,8 +2015,8 @@ mod tests {
             .insert(crate::worktree::canonical_or_original(&checkout), 7);
         app.state.workspaces[0].worktree_space = Some(crate::workspace::WorktreeSpaceMembership {
             key: "repo-key".into(),
-            label: "herdr".into(),
-            repo_root: "/repo/herdr".into(),
+            label: "kitsune".into(),
+            repo_root: "/repo/kitsune".into(),
             checkout_path: "/repo/other".into(),
             is_linked_worktree: true,
         });

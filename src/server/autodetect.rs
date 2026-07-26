@@ -1,6 +1,6 @@
-//! Auto-detect launch behavior for the `herdr` command.
+//! Auto-detect launch behavior for the `kitsune` command.
 //!
-//! When the user runs `herdr` with no subcommand:
+//! When the user runs `kitsune` with no subcommand:
 //! 1. Check if a server is already listening on the client socket
 //! 2. If no server → spawn one as a background daemon → wait for socket readiness (up to 15s)
 //! 3. Attach as a thin client to the server
@@ -29,7 +29,7 @@ const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Private daemon-start hint used to seed a fresh headless server from the
-/// directory where the user ran `herdr`.
+/// directory where the user ran `kitsune`.
 pub(crate) const STARTUP_CWD_ENV_VAR: &str = "KITSUNE_STARTUP_CWD";
 
 // ---------------------------------------------------------------------------
@@ -289,7 +289,7 @@ pub fn wait_for_server_socket(socket_path: &Path, timeout: Duration) -> io::Resu
 /// Performs auto-detect launch: check for server, spawn if needed, then
 /// attach as a thin client.
 ///
-/// This is the entry point called from `main.rs` when the user runs `herdr`
+/// This is the entry point called from `main.rs` when the user runs `kitsune`
 /// without `--no-session` and without a subcommand.
 ///
 /// Flow:
@@ -357,13 +357,13 @@ mod tests {
         std::env::remove_var(crate::session::SESSION_ENV_VAR);
         crate::session::clear_explicit_session_for_test();
         let args = vec![
-            "herdr".to_string(),
+            "kitsune".to_string(),
             "--session".to_string(),
             "work".to_string(),
         ];
         crate::session::configure_from_args(&args).unwrap();
 
-        let command = build_server_daemon_command(PathBuf::from("/tmp/herdr-test"));
+        let command = build_server_daemon_command(PathBuf::from("/tmp/kitsune-test"));
         let envs: Vec<_> = command.get_envs().collect();
 
         assert!(envs.iter().any(|(key, value)| {
@@ -382,7 +382,7 @@ mod tests {
     #[test]
     fn server_daemon_command_passes_current_dir_as_startup_cwd() {
         let expected = std::env::current_dir().unwrap();
-        let command = build_server_daemon_command(PathBuf::from("/tmp/herdr-test"));
+        let command = build_server_daemon_command(PathBuf::from("/tmp/kitsune-test"));
         let envs: Vec<_> = command.get_envs().collect();
 
         assert!(envs.iter().any(|(key, value)| {

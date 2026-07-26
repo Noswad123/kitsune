@@ -76,10 +76,10 @@ class ChangelogScriptTests(unittest.TestCase):
         self.assertEqual(
             manifest["assets"],
             {
-                "linux-x86_64": "https://github.com/Noswad123/herdr/releases/download/v0.1.1/kitsune-linux-x86_64",
-                "linux-aarch64": "https://github.com/Noswad123/herdr/releases/download/v0.1.1/kitsune-linux-aarch64",
-                "macos-x86_64": "https://github.com/Noswad123/herdr/releases/download/v0.1.1/kitsune-macos-x86_64",
-                "macos-aarch64": "https://github.com/Noswad123/herdr/releases/download/v0.1.1/kitsune-macos-aarch64",
+                "linux-x86_64": "https://github.com/Noswad123/kitsune/releases/download/v0.1.1/kitsune-linux-x86_64",
+                "linux-aarch64": "https://github.com/Noswad123/kitsune/releases/download/v0.1.1/kitsune-linux-aarch64",
+                "macos-x86_64": "https://github.com/Noswad123/kitsune/releases/download/v0.1.1/kitsune-macos-x86_64",
+                "macos-aarch64": "https://github.com/Noswad123/kitsune/releases/download/v0.1.1/kitsune-macos-aarch64",
             },
         )
         self.assertEqual(manifest["releases"]["0.1.1"]["assets"], manifest["assets"])

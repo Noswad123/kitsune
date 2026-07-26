@@ -24,7 +24,7 @@ fn unique_test_dir() -> PathBuf {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     PathBuf::from(format!(
-        "/tmp/herdr-cross-area-test-{}-{nanos}",
+        "/tmp/kitsune-cross-area-test-{}-{nanos}",
         std::process::id()
     ))
 }
@@ -96,11 +96,11 @@ fn spawn_server_with_path(
     api_socket_path: &Path,
     path_override: Option<&Path>,
 ) -> SpawnedHerdr {
-    fs::create_dir_all(config_home.join("herdr")).unwrap();
+    fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
     fs::write(
-        config_home.join("herdr/config.toml"),
+        config_home.join("kitsune/config.toml"),
         "onboarding = false\n",
     )
     .unwrap();
@@ -678,8 +678,8 @@ fn cross_area_detach_and_reattach_preserves_state() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -690,7 +690,7 @@ fn cross_area_detach_and_reattach_preserves_state() {
     client_handshake(&mut client_a, CURRENT_PROTOCOL, 100, 30);
     assert!(wait_for_frame(&mut client_a, Duration::from_secs(2)));
 
-    // Use herdr: create a workspace and write output into its pane.
+    // Use kitsune: create a workspace and write output into its pane.
     let create = workspace_create(&api_socket, "cross-ssh-state");
     let workspace_id = create["result"]["workspace"]["workspace_id"]
         .as_str()
@@ -752,8 +752,8 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let bin_dir = base.join("bin");
     fs::create_dir_all(&bin_dir).unwrap();
@@ -874,8 +874,8 @@ fn cross_area_client_and_api_workspace_views_are_consistent() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -937,8 +937,8 @@ fn cross_area_two_clients_shared_view_and_single_detach_stability() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -1004,8 +1004,8 @@ fn cross_area_server_kill_then_restart_and_reconnect() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("herdr.sock");
-    let client_socket = runtime_dir.join("herdr-client.sock");
+    let api_socket = runtime_dir.join("kitsune.sock");
+    let client_socket = runtime_dir.join("kitsune-client.sock");
 
     let mut server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
