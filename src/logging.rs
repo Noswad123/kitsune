@@ -20,7 +20,7 @@ pub(crate) fn init_file_logging(file_name: &str) {
     };
 
     let filter = EnvFilter::try_from_env(crate::product::LOG_ENV_VAR)
-        .unwrap_or_else(|_| EnvFilter::new("herdr=info"));
+        .unwrap_or_else(|_| EnvFilter::new(format!("{}=info", crate::product::CLI_NAME)));
 
     let _ = tracing_subscriber::fmt()
         .with_env_filter(filter)
@@ -46,7 +46,7 @@ pub(crate) fn startup(role: &'static str) {
         subsystem = role,
         outcome = "started",
         pid = std::process::id(),
-        "herdr starting"
+        "kitsune starting"
     );
 }
 
@@ -56,7 +56,7 @@ pub(crate) fn shutdown(role: &'static str) {
         subsystem = role,
         outcome = "completed",
         pid = std::process::id(),
-        "herdr exiting"
+        "kitsune exiting"
     );
 }
 

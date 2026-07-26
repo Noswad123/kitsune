@@ -1023,9 +1023,10 @@ fn verify_plugin_link_source_response(
         || plugin.source.resolved_commit != expected.resolved_commit
         || plugin.source.managed_path != expected.managed_path
     {
-        return Err(std::io::Error::other(
-            "running Herdr server did not persist GitHub plugin source metadata",
-        ));
+        return Err(std::io::Error::other(format!(
+            "running {} server did not persist GitHub plugin source metadata",
+            crate::product::NAME
+        )));
     }
     Ok(())
 }

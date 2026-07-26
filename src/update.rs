@@ -917,9 +917,10 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
             name: None,
             label: socket_path.display().to_string(),
             stop_command: format!(
-                "{}={} herdr server stop",
+                "{}={} {}",
                 crate::api::SOCKET_PATH_ENV_VAR,
-                socket_path.display()
+                socket_path.display(),
+                crate::product::command("server stop")
             ),
             attach_command: None,
             client_socket_path: crate::server::socket_paths::client_socket_path_from_overrides(
@@ -932,7 +933,7 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
     }
 
     let sessions = crate::session::list_sessions()
-        .map_err(|err| format!("failed to list herdr sessions: {err}"))?;
+        .map_err(|err| format!("failed to list {} sessions: {err}", crate::product::NAME))?;
     Ok(sessions
         .into_iter()
         .map(|session| RunningUpdateTarget {
@@ -947,9 +948,9 @@ fn running_update_targets() -> Result<Vec<RunningUpdateTarget>, String> {
                 Some(&session.name)
             }),
             attach_command: Some(if session.default {
-                "herdr".to_string()
+                crate::product::CLI_NAME.to_string()
             } else {
-                format!("herdr session attach {}", session.name)
+                crate::product::command(&format!("session attach {}", session.name))
             }),
             label: session.name.clone(),
             client_socket_path: crate::session::client_socket_path_for(if session.default {
@@ -972,7 +973,7 @@ fn target_client_protocol_server_is_running() -> Result<bool, String> {
     }
 
     let sessions = crate::session::list_sessions()
-        .map_err(|err| format!("failed to list herdr sessions: {err}"))?;
+        .map_err(|err| format!("failed to list {} sessions: {err}", crate::product::NAME))?;
     Ok(sessions.into_iter().any(|session| {
         let client_socket = crate::session::client_socket_path_for(if session.default {
             None
@@ -1141,7 +1142,8 @@ fn prompt_to_complete_plain_update(
     let (singular, plural) = target_group_nouns(&plans);
     let noun = if plans.len() == 1 { singular } else { plural };
     eprintln!(
-        "To complete the update, Herdr must stop {} running {}.",
+        "To complete the update, {} must stop {} running {}.",
+        crate::product::NAME,
         plans.len(),
         noun
     );
@@ -1284,7 +1286,8 @@ fn prompt_to_stop_old_server_after_failed_handoff(
     eprintln!("  server: v{}", version_label(status.version.as_deref()));
     eprintln!("  installed: {}", release.label());
     eprintln!(
-        "you can keep using the old server, or stop it now so the next `herdr` start uses {}.",
+        "you can keep using the old server, or stop it now so the next `{}` start uses {}.",
+        crate::product::CLI_NAME,
         release.label()
     );
     eprintln!("stopping the old server will exit its pane processes.");
@@ -1351,13 +1354,15 @@ fn recover_failed_live_handoff_for_update(
         FailedHandoffServerState::NoServerResponding => {
             if let Some(command) = plan.attach_command() {
                 eprintln!(
-                    "no herdr server is responding for session {}. the binary was updated; run `{command}` to start {}.",
+                    "no {} server is responding for session {}. the binary was updated; run `{command}` to start {}.",
+                    crate::product::NAME,
                     plan.label(),
                     release.label()
                 );
             } else {
                 eprintln!(
-                    "no herdr server is responding at {}. the binary was updated; restart with the same socket override to use {}.",
+                    "no {} server is responding at {}. the binary was updated; restart with the same socket override to use {}.",
+                    crate::product::NAME,
                     plan.socket_path().display(),
                     release.label()
                 );
@@ -1366,7 +1371,8 @@ fn recover_failed_live_handoff_for_update(
         }
         FailedHandoffServerState::Unknown(status_error) => {
             eprintln!(
-                "herdr could not determine server state for {} {} after the failed handoff: {status_error}",
+                "{} could not determine server state for {} {} after the failed handoff: {status_error}",
+                crate::product::NAME,
                 plan.target_noun(),
                 plan.label()
             );

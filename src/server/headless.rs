@@ -4251,7 +4251,7 @@ pub fn run_server() -> io::Result<()> {
     let _api_server = match api::start_server(api_tx.clone(), event_hub.clone()) {
         Ok(server) => server,
         Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-            eprintln!("error: herdr server is already running");
+            eprintln!("error: {} server is already running", crate::product::NAME);
             eprintln!("api socket: {}", api::socket_path().display());
             std::process::exit(1);
         }
@@ -4294,7 +4294,7 @@ pub fn run_server() -> io::Result<()> {
         ) {
             Ok(server) => server,
             Err(err) if err.kind() == io::ErrorKind::AddrInUse => {
-                eprintln!("error: herdr server is already running");
+                eprintln!("error: {} server is already running", crate::product::NAME);
                 eprintln!("client socket: {}", client_socket_path().display());
                 std::process::exit(1);
             }
@@ -4304,7 +4304,7 @@ pub fn run_server() -> io::Result<()> {
         info!(
             api_socket = %api::socket_path().display(),
             client_socket = %client_socket_path().display(),
-            "herdr server started"
+            "kitsune server started"
         );
         print_ready_message(&api::socket_path(), &client_socket_path());
         server.app.run_plugin_startup_hooks();

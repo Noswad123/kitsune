@@ -36,7 +36,7 @@ pub(crate) const STARTUP_CWD_ENV_VAR: &str = "HERDR_STARTUP_CWD";
 // Server detection
 // ---------------------------------------------------------------------------
 
-/// Checks whether a herdr server is currently listening on the client socket.
+/// Checks whether a Kitsune server is currently listening on the client socket.
 ///
 /// This works by attempting to connect to the client socket. If the connection
 /// succeeds, a server is running. If the socket file doesn't exist or the
@@ -48,7 +48,7 @@ pub fn is_server_listening() -> bool {
     is_server_listening_at(&client_socket_path())
 }
 
-/// Checks whether a herdr server is listening at a specific socket path.
+/// Checks whether a Kitsune server is listening at a specific socket path.
 fn is_server_listening_at(socket_path: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -178,7 +178,7 @@ fn validate_running_server_compatibility() -> io::Result<()> {
 // Server spawning
 // ---------------------------------------------------------------------------
 
-/// Spawns the herdr server as a background daemon process.
+/// Spawns the Kitsune server as a background daemon process.
 ///
 /// The server process is fully detached:
 /// - Runs in its own session (setsid) so it survives the client exiting
@@ -192,7 +192,10 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
     let exe = std::env::current_exe().map_err(|err| {
         io::Error::new(
             err.kind(),
-            format!("failed to determine herdr executable path: {err}"),
+            format!(
+                "failed to determine {} executable path: {err}",
+                crate::product::CLI_NAME
+            ),
         )
     })?;
 
@@ -201,7 +204,10 @@ pub fn spawn_server_daemon() -> io::Result<u32> {
     let mut command = build_server_daemon_command(exe);
 
     let child = command.spawn().map_err(|err: io::Error| {
-        io::Error::new(err.kind(), format!("failed to spawn herdr server: {err}"))
+        io::Error::new(
+            err.kind(),
+            format!("failed to spawn {} server: {err}", crate::product::NAME),
+        )
     })?;
 
     let pid = child.id();

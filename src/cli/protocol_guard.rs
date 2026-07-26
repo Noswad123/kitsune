@@ -25,11 +25,13 @@ pub(super) fn mismatch_response(
 
     let message = if client_protocol > server_protocol {
         format!(
-            "client protocol {client_protocol} is newer than server protocol {server_protocol}; restart the Herdr server before using this command. {restart_guidance}"
+            "client protocol {client_protocol} is newer than server protocol {server_protocol}; restart the {} server before using this command. {restart_guidance}",
+            crate::product::NAME
         )
     } else {
         format!(
-            "client protocol {client_protocol} is older than server protocol {server_protocol}; upgrade the Herdr client before using this command"
+            "client protocol {client_protocol} is older than server protocol {server_protocol}; upgrade the {} client before using this command",
+            crate::product::NAME
         )
     };
 
@@ -96,7 +98,7 @@ mod tests {
             .error
             .message
             .contains("older than server protocol"));
-        assert!(response.error.message.contains("upgrade the Herdr client"));
+        assert!(response.error.message.contains("upgrade the Kitsune client"));
         assert!(!response.error.message.contains("unused restart guidance"));
     }
 
