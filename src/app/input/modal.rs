@@ -164,6 +164,11 @@ pub(crate) fn handle_navigator_key(
     terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     key: KeyEvent,
 ) {
+    if key.code == KeyCode::Tab && key.modifiers.is_empty() {
+        state.toggle_navigator_scope_from(terminal_runtimes);
+        return;
+    }
+
     if state.navigator.search_focused {
         match key.code {
             KeyCode::Esc => {
@@ -241,6 +246,9 @@ pub(crate) fn handle_navigator_key(
             state.navigator.state_filter = Some(NavigatorStateFilter::Done);
             state.select_first_navigator_match_from(terminal_runtimes);
         }
+        KeyCode::Char('r') if key.modifiers.is_empty() => {
+            open_rename_selected_navigator_agent_pane(state, terminal_runtimes);
+        }
         KeyCode::Char('j') | KeyCode::Down => {
             state.move_navigator_selection_from(terminal_runtimes, 1)
         }
@@ -270,6 +278,42 @@ pub(crate) fn handle_navigator_key(
             state.ensure_navigator_selection_visible_from(terminal_runtimes);
         }
         _ => {}
+    }
+}
+
+fn open_rename_selected_navigator_agent_pane(
+    state: &mut AppState,
+    terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+) {
+    if state.navigator.scope != crate::app::state::NavigatorScope::Agents {
+        return;
+    }
+    let Some(row) = state
+        .navigator_rows_from(terminal_runtimes)
+        .get(state.navigator.selected)
+        .cloned()
+    else {
+        return;
+    };
+    let crate::app::state::NavigatorTarget::Pane {
+        ws_idx,
+        tab_idx: _,
+        pane_id,
+    } = row.target.clone()
+    else {
+        return;
+    };
+    if !state
+        .workspaces
+        .get(ws_idx)
+        .and_then(|ws| ws.pane_state(pane_id))
+        .and_then(|pane| state.terminals.get(&pane.attached_terminal_id))
+        .is_some_and(|terminal| terminal.effective_agent_label().is_some())
+    {
+        return;
+    }
+    if state.focus_navigator_target(row.target) {
+        open_rename_pane(state, pane_id);
     }
 }
 
@@ -1979,6 +2023,78 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::Terminal);
+    }
+
+    #[test]
+    fn navigator_tab_toggles_between_tree_and_agent_scope() {
+        let mut state = state_with_workspaces(&["alpha", "beta"]);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        state.ensure_test_terminals();
+        let alpha_pane = state.workspaces[0].tabs[0].root_pane;
+        let alpha_terminal = state.workspaces[0].tabs[0].panes[&alpha_pane]
+            .attached_terminal_id
+            .clone();
+        state
+            .terminals
+            .get_mut(&alpha_terminal)
+            .unwrap()
+            .detected_agent = Some(crate::detect::Agent::Codex);
+        state.mode = Mode::Navigator;
+
+        handle_navigator_key(
+            &mut state,
+            &terminal_runtimes,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            state.navigator.scope,
+            crate::app::state::NavigatorScope::Agents
+        );
+        let rows = state.navigator_rows_from(&terminal_runtimes);
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(
+            rows[0].target,
+            crate::app::state::NavigatorTarget::Pane { .. }
+        ));
+
+        handle_navigator_key(
+            &mut state,
+            &terminal_runtimes,
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::empty()),
+        );
+
+        assert_eq!(
+            state.navigator.scope,
+            crate::app::state::NavigatorScope::Tree
+        );
+        assert!(state.navigator_rows_from(&terminal_runtimes).len() > 1);
+    }
+
+    #[test]
+    fn navigator_agent_scope_r_opens_pane_rename_for_selected_agent() {
+        let mut state = state_with_workspaces(&["alpha"]);
+        let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        state.ensure_test_terminals();
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = state.terminals.get_mut(&terminal_id).unwrap();
+        terminal.detected_agent = Some(crate::detect::Agent::OpenCode);
+        terminal.set_manual_label("old pane".to_string());
+        state.mode = Mode::Navigator;
+        state.navigator.scope = crate::app::state::NavigatorScope::Agents;
+
+        handle_navigator_key(
+            &mut state,
+            &terminal_runtimes,
+            KeyEvent::new(KeyCode::Char('r'), KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.mode, Mode::RenamePane);
+        assert_eq!(state.rename_pane_target, Some(pane_id));
+        assert_eq!(state.name_input, "old pane");
     }
 
     #[test]

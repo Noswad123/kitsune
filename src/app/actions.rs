@@ -17,7 +17,7 @@ use crate::workspace::WorkspaceGitStatus;
 use super::api_helpers::pane_agent_status;
 use super::state::{
     navigator_display_index_of_row, navigator_display_lines, navigator_first_row_at_or_after,
-    text_matches_query, AgentNotificationDelivery, AppState, Mode, NavigatorRow,
+    text_matches_query, AgentNotificationDelivery, AppState, Mode, NavigatorRow, NavigatorScope,
     NavigatorStateFilter, NavigatorTarget, PaneFocusTarget, PendingAgentNotification, ToastKind,
     ToastNotification, ToastTarget, ViewLayout,
 };
@@ -355,7 +355,16 @@ impl AppState {
         &mut self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) {
+        self.open_navigator_with_scope_from(terminal_runtimes, NavigatorScope::Tree);
+    }
+
+    fn open_navigator_with_scope_from(
+        &mut self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+        scope: NavigatorScope,
+    ) {
         self.navigator.query.clear();
+        self.navigator.scope = scope;
         self.navigator.search_focused = false;
         self.navigator.state_filter = None;
         self.navigator.scroll = 0;
@@ -372,6 +381,36 @@ impl AppState {
         self.ensure_navigator_selection_visible_from(terminal_runtimes);
     }
 
+    pub(crate) fn toggle_navigator_scope_from(
+        &mut self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) {
+        let selected_target = self
+            .navigator_rows_from(terminal_runtimes)
+            .get(self.navigator.selected)
+            .map(|row| row.target.clone());
+        self.navigator.scope = match self.navigator.scope {
+            NavigatorScope::Tree => NavigatorScope::Agents,
+            NavigatorScope::Agents => NavigatorScope::Tree,
+        };
+
+        let rows = self.navigator_rows_from(terminal_runtimes);
+        if rows.is_empty() {
+            self.navigator.selected = 0;
+            self.navigator.scroll = 0;
+            return;
+        }
+        self.navigator.selected = selected_target
+            .and_then(|target| rows.iter().position(|row| row.target == target))
+            .or_else(|| {
+                rows.iter().position(|row| {
+                    matches!(row.target, NavigatorTarget::Pane { .. }) && row.is_current
+                })
+            })
+            .unwrap_or(0);
+        self.ensure_navigator_selection_visible_from(terminal_runtimes);
+    }
+
     #[cfg(test)]
     pub(crate) fn navigator_rows(&self) -> Vec<NavigatorRow> {
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
@@ -382,6 +421,10 @@ impl AppState {
         &self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) -> Vec<NavigatorRow> {
+        if self.navigator.scope == NavigatorScope::Agents {
+            return self.navigator_agent_rows(terminal_runtimes);
+        }
+
         let query = self.navigator.query.trim().to_lowercase();
         let query_kind = navigator_query_kind(&query, self.navigator.state_filter);
         let mut rows = Vec::new();
@@ -427,6 +470,101 @@ impl AppState {
             }
         }
         rows
+    }
+
+    fn navigator_agent_rows(
+        &self,
+        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
+    ) -> Vec<NavigatorRow> {
+        let query = self.navigator.query.trim().to_lowercase();
+        let query_kind = navigator_query_kind(&query, self.navigator.state_filter);
+        let mut rows = Vec::new();
+        for (ws_idx, ws) in self.workspaces.iter().enumerate() {
+            let workspace_label = ws.display_name_from(&self.terminals, terminal_runtimes);
+            for tab_idx in 0..ws.tabs.len() {
+                let Some(tab) = ws.tabs.get(tab_idx) else {
+                    continue;
+                };
+                let tab_label = ws
+                    .tab_display_name(tab_idx)
+                    .unwrap_or_else(|| (tab_idx + 1).to_string());
+                for pane_id in tab.layout.pane_ids() {
+                    let Some(row) = self.navigator_agent_row(
+                        ws_idx,
+                        tab_idx,
+                        pane_id,
+                        &workspace_label,
+                        &tab_label,
+                    ) else {
+                        continue;
+                    };
+                    let matched = match query_kind {
+                        NavigatorQueryKind::Empty => true,
+                        NavigatorQueryKind::State(filter) => {
+                            navigator_state_filter_matches(filter, row.status, row.seen)
+                        }
+                        NavigatorQueryKind::Text => navigator_matches(&query, &row.search_text),
+                    };
+                    if matched {
+                        rows.push(NavigatorRow { matched, ..row });
+                    }
+                }
+            }
+        }
+        rows
+    }
+
+    fn navigator_agent_row(
+        &self,
+        ws_idx: usize,
+        tab_idx: usize,
+        pane_id: PaneId,
+        workspace_label: &str,
+        tab_label: &str,
+    ) -> Option<NavigatorRow> {
+        let ws = self.workspaces.get(ws_idx)?;
+        let tab = ws.tabs.get(tab_idx)?;
+        let pane = tab.panes.get(&pane_id)?;
+        let terminal = self.terminals.get(&pane.attached_terminal_id)?;
+        let agent_label = terminal.effective_agent_label()?;
+        let pane_number = ws.public_pane_number(pane_id).unwrap_or(0);
+        let label = terminal
+            .manual_label
+            .clone()
+            .or_else(|| terminal.agent_name.clone())
+            .or_else(|| terminal.effective_display_agent())
+            .unwrap_or_else(|| agent_label.to_string());
+        let state = terminal.state;
+        let status_label = terminal
+            .effective_presentation()
+            .state_labels
+            .get(state_label_text(state, pane.seen))
+            .cloned()
+            .unwrap_or_else(|| state_label_text(state, pane.seen).to_string());
+        let meta = format!(
+            "{agent_label} · {status_label} · {workspace_label} / {tab_label} / pane {pane_number}"
+        );
+        let is_current = self.is_active_pane(ws_idx, tab_idx, pane_id);
+        let search_text = format!("{label} {meta}").to_lowercase();
+
+        Some(NavigatorRow {
+            target: NavigatorTarget::Pane {
+                ws_idx,
+                tab_idx,
+                pane_id,
+            },
+            depth: 0,
+            label,
+            meta,
+            status: state,
+            seen: pane.seen,
+            is_current,
+            is_workspace: false,
+            is_tab: false,
+            expanded: false,
+            search_text,
+            matched: true,
+        })
     }
 
     fn navigator_child_rows(

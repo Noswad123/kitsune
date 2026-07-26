@@ -13,8 +13,8 @@ use super::{
     widgets::{panel_contrast_fg, render_panel_shell},
 };
 use crate::app::state::{
-    navigator_display_lines, AppState, NavigatorDisplayLine, NavigatorRow, NavigatorStateFilter,
-    NavigatorTarget,
+    navigator_display_lines, AppState, NavigatorDisplayLine, NavigatorRow, NavigatorScope,
+    NavigatorStateFilter, NavigatorTarget,
 };
 use crate::terminal::TerminalRuntimeRegistry;
 
@@ -33,7 +33,7 @@ pub(super) fn render_navigator_overlay(
     let body = app.navigator_body_rect();
     let detail = app.navigator_detail_rect();
     let footer = app.navigator_footer_rect();
-    render_search(app, frame, search);
+    render_search(app, terminal_runtimes, frame, search);
 
     if body.height > 0 {
         let rows = app.navigator_rows_from(terminal_runtimes);
@@ -46,19 +46,30 @@ pub(super) fn render_navigator_overlay(
     render_footer(app, frame, footer);
 }
 
-fn render_search(app: &AppState, frame: &mut Frame, area: Rect) {
+fn render_search(
+    app: &AppState,
+    terminal_runtimes: &TerminalRuntimeRegistry,
+    frame: &mut Frame,
+    area: Rect,
+) {
     let p = &app.palette;
     let focus_style = if app.navigator.search_focused {
         Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(p.overlay0)
     };
-    let count = app
-        .workspaces
-        .iter()
-        .flat_map(|workspace| workspace.tabs.iter())
-        .map(|tab| tab.panes.len())
-        .sum::<usize>();
+    let (count, noun) = if app.navigator.scope == NavigatorScope::Agents {
+        (app.navigator_rows_from(terminal_runtimes).len(), "agents")
+    } else {
+        (
+            app.workspaces
+                .iter()
+                .flat_map(|workspace| workspace.tabs.iter())
+                .map(|tab| tab.panes.len())
+                .sum::<usize>(),
+            "panes",
+        )
+    };
     let mut spans = vec![Span::styled(" / ", focus_style)];
     let query = app.navigator.query.trim();
     match app.navigator.state_filter {
@@ -95,14 +106,14 @@ fn render_search(app: &AppState, frame: &mut Frame, area: Rect) {
             app,
         ),
         None if query.is_empty() => spans.push(Span::styled(
-            "search panes",
+            format!("search {noun}"),
             Style::default().fg(p.overlay0),
         )),
         None => spans.push(Span::styled(query.to_string(), Style::default().fg(p.text))),
     }
     spans.push(Span::styled(
         format!(
-            "{count:>width$} panes",
+            "{count:>width$} {noun}",
             width = area.width.saturating_sub(16) as usize
         ),
         Style::default().fg(p.overlay0),
@@ -555,10 +566,27 @@ fn render_footer(app: &AppState, frame: &mut Frame, area: Rect) {
             Span::styled("esc", key),
             Span::styled(" back", dim),
         ])
+    } else if app.navigator.scope == NavigatorScope::Agents {
+        Line::from(vec![
+            Span::styled(" enter", key),
+            Span::styled(" switch  ", dim),
+            Span::styled("r", key),
+            Span::styled(" rename pane  ", dim),
+            Span::styled("tab", key),
+            Span::styled(" full tree  ", dim),
+            Span::styled("/", key),
+            Span::styled(" search  ", dim),
+            Span::styled("b/w/i/d/a", key),
+            Span::styled(" states  ", dim),
+            Span::styled("esc", key),
+            Span::styled(" close", dim),
+        ])
     } else {
         Line::from(vec![
             Span::styled(" enter", key),
             Span::styled(" switch  ", dim),
+            Span::styled("tab", key),
+            Span::styled(" agents  ", dim),
             Span::styled("/", key),
             Span::styled(" search  ", dim),
             Span::styled("b/w/i/d/a", key),

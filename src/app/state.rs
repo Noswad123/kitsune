@@ -913,8 +913,16 @@ pub(crate) enum NavigatorStateFilter {
     Done,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum NavigatorScope {
+    #[default]
+    Tree,
+    Agents,
+}
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct NavigatorState {
+    pub scope: NavigatorScope,
     pub query: String,
     pub selected: usize,
     pub scroll: usize,
