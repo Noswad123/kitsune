@@ -148,6 +148,7 @@ pub(super) fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: R
     let help = prefix_rhs_label(&kb.help);
     let settings = prefix_rhs_label(&kb.settings);
     let goto = prefix_rhs_label(&kb.goto);
+    let agent_selector = prefix_rhs_label(&kb.agent_selector);
     let detach = prefix_rhs_label(&kb.detach);
     let workspace_nav = format!(
         "{} / {}",
@@ -165,6 +166,8 @@ pub(super) fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: R
         Span::styled(" pane  ", dim),
         Span::styled(goto, key),
         Span::styled(" navigator  ", dim),
+        Span::styled(agent_selector, key),
+        Span::styled(" agents  ", dim),
         Span::styled(new_tab, key),
         Span::styled(" new tab  ", dim),
         Span::styled(split_vertical, key),

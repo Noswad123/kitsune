@@ -283,10 +283,9 @@ impl App {
                 self.state.toast_config.delivery,
                 crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System
             )
+            && self.state.toast_config.delay_seconds == 0
         {
-            if self.state.toast_config.delay_seconds == 0 {
-                self.emit_terminal_or_system_agent_notifications(&pane_updates);
-            }
+            self.emit_terminal_or_system_agent_notifications(&pane_updates);
         }
 
         self.sync_toast_deadline(previous_toast);

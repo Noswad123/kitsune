@@ -412,6 +412,9 @@ impl App {
             NavigateAction::OpenNavigator => {
                 self.state.open_navigator_from(&self.terminal_runtimes)
             }
+            NavigateAction::OpenAgentNavigator => self
+                .state
+                .open_agent_navigator_from(&self.terminal_runtimes),
         }
 
         finish_action_context(&mut self.state, context, previous_mode);
@@ -1408,6 +1411,7 @@ pub(crate) enum NavigateAction {
     OpenNotificationTarget,
     Detach,
     OpenNavigator,
+    OpenAgentNavigator,
 }
 
 fn copy_mode_survives_prefix_action(action: NavigateAction) -> bool {
@@ -1543,6 +1547,7 @@ fn non_indexed_action_for_key(
         ),
         (&kb.detach, NavigateAction::Detach),
         (&kb.goto, NavigateAction::OpenNavigator),
+        (&kb.agent_selector, NavigateAction::OpenAgentNavigator),
     ] {
         if action_matches(bindings, key, dispatch) {
             return Some(action);
@@ -1800,6 +1805,7 @@ pub(super) fn execute_navigate_action_in_context(
             leave_navigate_mode(state);
         }
         NavigateAction::OpenNavigator => state.open_navigator_from(terminal_runtimes),
+        NavigateAction::OpenAgentNavigator => state.open_agent_navigator_from(terminal_runtimes),
     }
 
     finish_action_context(state, context, previous_mode);
@@ -1927,7 +1933,11 @@ mod tests {
     use super::super::{state_with_workspaces, unique_temp_path};
     use super::*;
     use crate::{
-        app::App, config::Config, input::TerminalKey, terminal::TerminalState, workspace::Workspace,
+        app::{state::NavigatorScope, App},
+        config::Config,
+        input::TerminalKey,
+        terminal::TerminalState,
+        workspace::Workspace,
     };
 
     fn mark_worktree_space_member(state: &mut AppState, ws_idx: usize, key: &str) {
@@ -2060,6 +2070,19 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::Navigator);
+    }
+
+    #[test]
+    fn default_agent_selector_key_opens_agent_navigator_scope() {
+        let mut state = state_with_workspaces(&["test"]);
+
+        handle_navigate_key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty()),
+        );
+
+        assert_eq!(state.mode, Mode::Navigator);
+        assert_eq!(state.navigator.scope, NavigatorScope::Agents);
     }
 
     #[test]

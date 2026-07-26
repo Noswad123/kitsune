@@ -303,12 +303,12 @@ fn open_rename_selected_navigator_agent_pane(
     else {
         return;
     };
-    if !state
+    if state
         .workspaces
         .get(ws_idx)
         .and_then(|ws| ws.pane_state(pane_id))
         .and_then(|pane| state.terminals.get(&pane.attached_terminal_id))
-        .is_some_and(|terminal| terminal.effective_agent_label().is_some())
+        .is_none_or(|terminal| terminal.effective_agent_label().is_none())
     {
         return;
     }

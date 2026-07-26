@@ -320,6 +320,7 @@ pub struct Keybinds {
     pub workspace_picker: ActionKeybinds,
     pub session_recall: ActionKeybinds,
     pub goto: ActionKeybinds,
+    pub agent_selector: ActionKeybinds,
     pub detach: ActionKeybinds,
     pub reload_config: ActionKeybinds,
     pub open_notification_target: ActionKeybinds,
@@ -483,6 +484,7 @@ impl Config {
             workspace_picker: empty_action!(),
             session_recall: empty_action!(),
             goto: empty_action!(),
+            agent_selector: empty_action!(),
             detach: empty_action!(),
             reload_config: empty_action!(),
             open_notification_target: empty_action!(),
@@ -606,6 +608,7 @@ impl Config {
             apply_action!(keybinds.workspace_picker, workspace_picker, source);
             apply_action!(keybinds.session_recall, session_recall, source);
             apply_action!(keybinds.goto, goto, source);
+            apply_action!(keybinds.agent_selector, agent_selector, source);
             apply_action!(keybinds.detach, detach, source);
             apply_action!(keybinds.reload_config, reload_config, source);
             apply_action!(
@@ -1605,6 +1608,18 @@ next_tab = "prefix+n"
             binding_triggers(&kb.goto),
             vec![BindingTrigger::Prefix((
                 KeyCode::Char('g'),
+                KeyModifiers::empty()
+            ))]
+        );
+    }
+
+    #[test]
+    fn agent_selector_defaults_to_prefix_a() {
+        let kb = Config::default().keybinds();
+        assert_eq!(
+            binding_triggers(&kb.agent_selector),
+            vec![BindingTrigger::Prefix((
+                KeyCode::Char('a'),
                 KeyModifiers::empty()
             ))]
         );

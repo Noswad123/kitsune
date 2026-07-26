@@ -165,6 +165,7 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # open_notification_target = "prefix+o"
 # workspace_picker = "prefix+w"
 # goto = "prefix+g"
+# agent_selector = "prefix+a"
 # new_workspace = "prefix+shift+n"
 # new_worktree = "prefix+shift+g"
 # open_worktree = ""    # optional, unset by default

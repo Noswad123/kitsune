@@ -11,20 +11,12 @@ use super::{
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
 
-#[derive(Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(default)]
 pub struct UpdateConfig {
     /// Check for remote agent-detection manifest updates in the background.
     /// This is disabled by default and requires an explicit manifest catalog URL.
     pub manifest_check: bool,
-}
-
-impl Default for UpdateConfig {
-    fn default() -> Self {
-        Self {
-            manifest_check: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
@@ -306,6 +298,8 @@ pub struct KeysConfig {
     pub session_recall: BindingConfig,
     /// Open the session navigator. Default: "prefix+g"
     pub goto: BindingConfig,
+    /// Open the session navigator directly in agents-only scope. Default: "prefix+a"
+    pub agent_selector: BindingConfig,
     /// Move workspace selection up in navigate mode. Default: "up".
     pub navigate_workspace_up: BindingConfig,
     /// Move workspace selection down in navigate mode. Default: "down".
@@ -428,6 +422,8 @@ pub(crate) struct KeysConfigOverlay {
     #[serde(skip_serializing_if = "Option::is_none")]
     goto: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    agent_selector: Option<BindingConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     navigate_workspace_up: Option<BindingConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     navigate_workspace_down: Option<BindingConfig>,
@@ -546,6 +542,7 @@ impl<'de> Deserialize<'de> for KeysConfig {
         apply_field!(workspace_picker);
         apply_field!(session_recall);
         apply_field!(goto);
+        apply_field!(agent_selector);
         apply_field!(navigate_workspace_up);
         apply_field!(navigate_workspace_down);
         apply_field!(navigate_pane_left);
@@ -645,6 +642,7 @@ impl KeysConfig {
         copy_effective_action_field!(workspace_picker, keybinds.workspace_picker);
         copy_effective_action_field!(session_recall, keybinds.session_recall);
         copy_effective_action_field!(goto, keybinds.goto);
+        copy_effective_action_field!(agent_selector, keybinds.agent_selector);
         copy_effective_action_field!(navigate_workspace_up, keybinds.navigate.workspace_up);
         copy_effective_action_field!(navigate_workspace_down, keybinds.navigate.workspace_down);
         copy_effective_action_field!(navigate_pane_left, keybinds.navigate.pane_left);
@@ -915,6 +913,7 @@ impl Default for KeysConfig {
             workspace_picker: BindingConfig::one("prefix+w"),
             session_recall: BindingConfig::one("prefix+shift+s"),
             goto: BindingConfig::one("prefix+g"),
+            agent_selector: BindingConfig::one("prefix+a"),
             navigate_workspace_up: BindingConfig::one("up"),
             navigate_workspace_down: BindingConfig::one("down"),
             navigate_pane_left: BindingConfig::one("h"),
