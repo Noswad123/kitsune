@@ -39,7 +39,6 @@ Completed in this phase:
 
 Remaining candidate work:
 
-- Add Kitsune-specific workflows and defaults.
 - Remove features that do not fit Kitsune's product direction.
 - Rename internal modules/types only when it reduces confusion more than it
   increases merge pain.
