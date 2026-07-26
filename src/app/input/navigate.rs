@@ -864,13 +864,49 @@ impl App {
                 .display()
                 .to_string(),
         ));
+        // The session-recall UI is still provided by the standalone legacy
+        // Kitsune companion. Default recall is launched for the current Kitsune
+        // session without an explicit backend flag; provide a narrow Herdr-env
+        // compatibility shim only for that child process so the companion can
+        // talk to this server while it gains first-class Kitsune backend names.
+        // Kitsune itself still ignores HERDR_* variables.
+        env.push(("HERDR_ENV".to_string(), "1".to_string()));
+        env.push((
+            "HERDR_BIN_PATH".to_string(),
+            std::env::current_exe()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|_| crate::product::CLI_NAME.to_string()),
+        ));
+        env.push((
+            "HERDR_SOCKET_PATH".to_string(),
+            crate::api::socket_path().display().to_string(),
+        ));
+        env.push((
+            "HERDR_CLIENT_SOCKET_PATH".to_string(),
+            crate::server::socket_paths::client_socket_path()
+                .display()
+                .to_string(),
+        ));
+        if let Some((_, pane_id)) = env
+            .iter()
+            .find(|(key, _)| key == "KITSUNE_ACTIVE_PANE_ID")
+            .cloned()
+        {
+            env.push(("HERDR_ACTIVE_PANE_ID".to_string(), pane_id));
+        }
 
-        let argv = vec![
-            "kit".to_string(),
+        let mut argv = vec![
+            std::env::var("KITSUNE_SESSION_RECALL_BIN")
+                .unwrap_or_else(|_| "kitsune-session-recall".to_string()),
             "tui".to_string(),
-            "--backend".to_string(),
-            "kitsune".to_string(),
         ];
+        if let Ok(backend) = std::env::var("KITSUNE_SESSION_RECALL_BACKEND") {
+            let backend = backend.trim();
+            if !backend.is_empty() && backend != "kitsune" {
+                argv.push("--backend".to_string());
+                argv.push(backend.to_string());
+            }
+        }
         let result = self.spawn_popup_argv_command(
             &argv,
             cwd,

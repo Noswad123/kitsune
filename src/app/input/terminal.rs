@@ -1,5 +1,6 @@
 use bytes::Bytes;
 use crossterm::event::KeyCode;
+use regex::Regex;
 use tracing::{debug, warn};
 
 use crate::{
@@ -13,6 +14,9 @@ struct PreparedPaneInput {
     target: TerminalInputTarget,
     bytes: Bytes,
 }
+
+const DEFAULT_SMART_NAV_PASSTHROUGH_REGEX: &str =
+    "(^|/)(g?view|l?n?vim?x?|fzf|hx|helix|lazygit)(diff)?$";
 
 enum PreparedPopupInput {
     NotOpen,
@@ -76,19 +80,34 @@ impl App {
 
         if let Some(action) = super::terminal_direct_non_indexed_navigation_action(&self.state, key)
         {
-            debug!(
-                code = ?key_event.code,
-                modifiers = ?key_event.modifiers,
-                kind = ?key_event.kind,
-                action = ?action,
-                "intercepted terminal direct keybinding before forwarding to pane"
-            );
-            if action == super::navigate::NavigateAction::EditScrollback {
-                self.launch_focused_scrollback_editor();
+            if smart_pane_focus_action_direction(action).is_some()
+                && self.focused_pane_foreground_matches_smart_nav_passthrough()
+            {
+                debug!(
+                    code = ?key_event.code,
+                    modifiers = ?key_event.modifiers,
+                    kind = ?key_event.kind,
+                    action = ?action,
+                    "passing smart pane navigation key through to focused pane foreground process"
+                );
             } else {
-                self.execute_tui_navigate_action(action, super::navigate::ActionContext::Direct);
+                debug!(
+                    code = ?key_event.code,
+                    modifiers = ?key_event.modifiers,
+                    kind = ?key_event.kind,
+                    action = ?action,
+                    "intercepted terminal direct keybinding before forwarding to pane"
+                );
+                if action == super::navigate::NavigateAction::EditScrollback {
+                    self.launch_focused_scrollback_editor();
+                } else {
+                    self.execute_tui_navigate_action(
+                        action,
+                        super::navigate::ActionContext::Direct,
+                    );
+                }
+                return None;
             }
-            return None;
         }
 
         if let Some(binding) = super::navigate::command_for_key(
@@ -389,6 +408,62 @@ impl App {
         };
         sent.then_some(input.target)
     }
+
+    fn focused_pane_foreground_matches_smart_nav_passthrough(&self) -> bool {
+        let Some(ws_idx) = self.state.active else {
+            return false;
+        };
+        let Some(pane_id) = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|workspace| workspace.focused_pane_id())
+        else {
+            return false;
+        };
+        let Some(runtime) = self.lookup_runtime_sender(ws_idx, pane_id) else {
+            return false;
+        };
+        let Some(shell_pid) = runtime.child_pid() else {
+            return false;
+        };
+        let Some(job) = crate::detect::foreground_job(shell_pid) else {
+            return false;
+        };
+        foreground_processes_match_smart_nav_passthrough(&job.processes)
+    }
+}
+
+fn smart_pane_focus_action_direction(
+    action: super::navigate::NavigateAction,
+) -> Option<crate::layout::NavDirection> {
+    match action {
+        super::navigate::NavigateAction::FocusPaneLeft => Some(crate::layout::NavDirection::Left),
+        super::navigate::NavigateAction::FocusPaneDown => Some(crate::layout::NavDirection::Down),
+        super::navigate::NavigateAction::FocusPaneUp => Some(crate::layout::NavDirection::Up),
+        super::navigate::NavigateAction::FocusPaneRight => Some(crate::layout::NavDirection::Right),
+        _ => None,
+    }
+}
+
+fn foreground_processes_match_smart_nav_passthrough(
+    processes: &[crate::platform::ForegroundProcess],
+) -> bool {
+    let pattern = std::env::var("KITSUNE_NAV_PASSTHROUGH")
+        .unwrap_or_else(|_| DEFAULT_SMART_NAV_PASSTHROUGH_REGEX.to_string());
+    let Ok(regex) = Regex::new(&pattern) else {
+        warn!(
+            pattern,
+            "invalid KITSUNE_NAV_PASSTHROUGH regex; smart pane navigation passthrough disabled"
+        );
+        return false;
+    };
+    processes.iter().any(|process| {
+        [Some(process.name.as_str()), process.argv0.as_deref()]
+            .into_iter()
+            .flatten()
+            .any(|name| regex.is_match(name))
+    })
 }
 
 #[cfg(test)]
@@ -401,6 +476,32 @@ mod tests {
     use super::super::{unique_temp_path, wait_for_file};
     use super::*;
     use crate::{config::Config, events::AppEvent, workspace::Workspace};
+
+    fn foreground_process(name: &str, argv0: Option<&str>) -> crate::platform::ForegroundProcess {
+        crate::platform::ForegroundProcess {
+            pid: 42,
+            name: name.to_string(),
+            argv0: argv0.map(str::to_string),
+            argv: None,
+            cmdline: None,
+        }
+    }
+
+    #[test]
+    fn smart_nav_passthrough_matches_common_modal_terminal_apps() {
+        assert!(foreground_processes_match_smart_nav_passthrough(&[
+            foreground_process("vim", None),
+        ]));
+        assert!(foreground_processes_match_smart_nav_passthrough(&[
+            foreground_process("node", Some("/opt/homebrew/bin/nvim")),
+        ]));
+        assert!(foreground_processes_match_smart_nav_passthrough(&[
+            foreground_process("lazygit", None),
+        ]));
+        assert!(!foreground_processes_match_smart_nav_passthrough(&[
+            foreground_process("bash", None),
+        ]));
+    }
 
     #[cfg(unix)]
     fn app_with_spawned_workspace() -> App {

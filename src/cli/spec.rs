@@ -128,6 +128,7 @@ fn config_command() -> Command {
     Command::new("config")
         .about("Manage local configuration")
         .subcommand(Command::new("check").about("Validate config.toml and print diagnostics"))
+        .subcommand(Command::new("path").about("Print the active config.toml path"))
         .subcommand(Command::new("reset-keys").about("Reset custom keybindings"))
 }
 

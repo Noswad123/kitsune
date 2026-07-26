@@ -33,6 +33,39 @@ pub fn config_dir() -> PathBuf {
     platform_config_dir()
 }
 
+fn config_file_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("XDG_CONFIG_HOME") {
+        return PathBuf::from(dir).join(crate::product::CONFIG_DIR_NAME);
+    }
+    platform_config_file_dir()
+}
+
+#[cfg(windows)]
+fn platform_config_file_dir() -> PathBuf {
+    if let Ok(dir) = std::env::var("APPDATA") {
+        return PathBuf::from(dir).join(crate::product::CONFIG_DIR_NAME);
+    }
+    if let Ok(profile) = std::env::var("USERPROFILE") {
+        return PathBuf::from(profile)
+            .join("AppData")
+            .join("Roaming")
+            .join(crate::product::CONFIG_DIR_NAME);
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        return PathBuf::from(home).join(format!(".config/{}", crate::product::CONFIG_DIR_NAME));
+    }
+    std::env::temp_dir().join(crate::product::CONFIG_DIR_NAME)
+}
+
+#[cfg(not(windows))]
+fn platform_config_file_dir() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(format!(".config/{}", crate::product::CONFIG_DIR_NAME))
+    } else {
+        std::env::temp_dir().join(crate::product::CONFIG_DIR_NAME)
+    }
+}
+
 pub fn state_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("XDG_STATE_HOME") {
         return PathBuf::from(dir).join(app_dir_name());
@@ -169,7 +202,7 @@ pub fn config_path() -> PathBuf {
     if let Ok(path) = std::env::var(CONFIG_PATH_ENV_VAR) {
         return PathBuf::from(path);
     }
-    config_dir().join("config.toml")
+    config_file_dir().join("config.toml")
 }
 
 pub fn config_diagnostic_summary(diagnostics: &[String]) -> Option<String> {

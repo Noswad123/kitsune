@@ -113,6 +113,7 @@ fn run_config_command(args: &[String]) -> std::io::Result<i32> {
 
     match subcommand {
         "check" => config_check(&args[1..]),
+        "path" => config_path(&args[1..]),
         "reset-keys" => config_reset_keys(&args[1..]),
         "help" | "--help" | "-h" => {
             print_config_help();
@@ -123,6 +124,15 @@ fn run_config_command(args: &[String]) -> std::io::Result<i32> {
             Ok(2)
         }
     }
+}
+
+fn config_path(args: &[String]) -> std::io::Result<i32> {
+    if !args.is_empty() {
+        eprintln!("{}", crate::product::usage("config path"));
+        return Ok(2);
+    }
+    println!("{}", crate::config::config_path().display());
+    Ok(0)
 }
 
 fn config_check(args: &[String]) -> std::io::Result<i32> {
