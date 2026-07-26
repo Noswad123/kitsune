@@ -97,10 +97,7 @@ fn print_full_status(json: bool) -> std::io::Result<i32> {
 
     println!("client:");
     println!("  version: {}", crate::build_info::version());
-    println!(
-        "  channel: {}",
-        crate::config::Config::load().config.update.channel.as_str()
-    );
+    println!("  channel: {}", crate::build_info::channel());
     println!("  protocol: {}", crate::protocol::PROTOCOL_VERSION);
     println!();
     println!("server:");
@@ -129,10 +126,7 @@ fn print_client_status(json: bool) -> std::io::Result<()> {
     }
 
     println!("version: {}", crate::build_info::version());
-    println!(
-        "channel: {}",
-        crate::config::Config::load().config.update.channel.as_str()
-    );
+    println!("channel: {}", crate::build_info::channel());
     println!("protocol: {}", crate::protocol::PROTOCOL_VERSION);
     println!("binary: {}", current_exe_label());
     Ok(())
@@ -256,7 +250,7 @@ struct UpdateStatusJson {
 fn client_status_json() -> ClientStatusJson {
     ClientStatusJson {
         version: crate::build_info::version(),
-        channel: crate::config::Config::load().config.update.channel.as_str(),
+        channel: crate::build_info::channel(),
         protocol: crate::protocol::PROTOCOL_VERSION,
         binary: current_exe_label(),
         session: crate::session::active_name(),
@@ -328,7 +322,7 @@ fn current_exe_label() -> String {
 }
 
 fn print_status_help() {
-    eprintln!("{} status commands:", crate::product::CLI_NAME);
+    eprintln!("{} status commands:", crate::product::cli_name());
     eprintln!(
         "  {:<30} show local client and running server status",
         crate::product::command("status [--json]")

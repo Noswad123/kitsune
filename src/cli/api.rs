@@ -100,7 +100,7 @@ fn schema_summary_text() -> std::io::Result<String> {
 }
 
 fn print_api_help() {
-    eprintln!("{} api commands:", crate::product::CLI_NAME);
+    eprintln!("{} api commands:", crate::product::cli_name());
     eprintln!("  {}", crate::product::command("api snapshot"));
     eprintln!(
         "  {}",

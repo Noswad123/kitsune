@@ -16,8 +16,24 @@ pub(crate) const SESSION_ENV_VAR: &str = "KITSUNE_SESSION";
 pub(crate) const RUNTIME_ENV_VAR: &str = "KITSUNE_ENV";
 pub(crate) const RUNTIME_ENV_VALUE: &str = "1";
 
+pub(crate) fn cli_name() -> &'static str {
+    std::env::args()
+        .next()
+        .and_then(|arg0| {
+            std::path::Path::new(&arg0)
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .map(|name| match name {
+                    "kit" => "kit",
+                    "kitsune" => "kitsune",
+                    _ => CLI_NAME,
+                })
+        })
+        .unwrap_or(CLI_NAME)
+}
+
 pub(crate) fn command(command: &str) -> String {
-    format!("{CLI_NAME} {command}")
+    format!("{} {command}", cli_name())
 }
 
 pub(crate) fn usage(command: &str) -> String {

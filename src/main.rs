@@ -450,12 +450,13 @@ fn exit_if_nested_disabled(config: &config::Config) {
 }
 
 fn main() -> io::Result<()> {
+    let cli_name = crate::product::cli_name();
     let raw_args: Vec<String> = std::env::args().collect();
     let args = match session::configure_from_args(&raw_args) {
         Ok(args) => args,
         Err(err) => {
             eprintln!("error: {err}");
-            eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
+            eprintln!("run '{cli_name} --help' for usage");
             std::process::exit(2);
         }
     };
@@ -463,7 +464,7 @@ fn main() -> io::Result<()> {
         Ok(parsed) => parsed,
         Err(err) => {
             eprintln!("error: {err}");
-            eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
+            eprintln!("run '{cli_name} --help' for usage");
             std::process::exit(2);
         }
     };
@@ -478,7 +479,7 @@ fn main() -> io::Result<()> {
         })
     {
         eprintln!("error: --remote can only be used with the default launch command");
-        eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
+        eprintln!("run '{cli_name} --help' for usage");
         std::process::exit(2);
     }
 
@@ -508,135 +509,93 @@ fn main() -> io::Result<()> {
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("{} — {}", crate::product::NAME, crate::product::DESCRIPTION);
         println!();
-        println!("Usage: {} [options]", crate::product::CLI_NAME);
-        println!(
-            "       {} --session <name> [options]",
-            crate::product::CLI_NAME
-        );
-        println!(
-            "       {} --remote <ssh-target> [--session <name>]",
-            crate::product::CLI_NAME
-        );
-        println!("       {} session attach <name>", crate::product::CLI_NAME);
-        println!("       {} completion zsh", crate::product::CLI_NAME);
-        println!("       {} update [--handoff]", crate::product::CLI_NAME);
-        println!(
-            "       {} channel set <stable|preview>",
-            crate::product::CLI_NAME
-        );
-        println!("       {} server stop", crate::product::CLI_NAME);
-        println!("       {} server reload-config", crate::product::CLI_NAME);
-        println!("       {} api <subcommand> ...", crate::product::CLI_NAME);
-        println!("       {} completion <shell>", crate::product::CLI_NAME);
-        println!(
-            "       {} config <subcommand> ...",
-            crate::product::CLI_NAME
-        );
-        println!(
-            "       {} channel <subcommand> ...",
-            crate::product::CLI_NAME
-        );
-        println!(
-            "       {} workspace <subcommand> ...",
-            crate::product::CLI_NAME
-        );
-        println!(
-            "       {} worktree <subcommand> ...",
-            crate::product::CLI_NAME
-        );
-        println!("       {} tab <subcommand> ...", crate::product::CLI_NAME);
-        println!(
-            "       {} notification <subcommand> ...",
-            crate::product::CLI_NAME
-        );
-        println!("       {} agent <subcommand> ...", crate::product::CLI_NAME);
-        println!("       {} pane <subcommand> ...", crate::product::CLI_NAME);
-        println!(
-            "       {} session <subcommand> ...",
-            crate::product::CLI_NAME
-        );
-        println!(
-            "       {} integration <subcommand> ...",
-            crate::product::CLI_NAME
-        );
+        println!("Usage: {cli_name} [options]");
+        println!("       {cli_name} --session <name> [options]");
+        println!("       {cli_name} --remote <ssh-target> [--session <name>]");
+        println!("       {cli_name} session attach <name>");
+        println!("       {cli_name} completion zsh");
+        println!("       {cli_name} update");
+        println!("       {cli_name} server stop");
+        println!("       {cli_name} server reload-config");
+        println!("       {cli_name} api <subcommand> ...");
+        println!("       {cli_name} completion <shell>");
+        println!("       {cli_name} config <subcommand> ...");
+        println!("       {cli_name} channel status");
+        println!("       {cli_name} workspace <subcommand> ...");
+        println!("       {cli_name} worktree <subcommand> ...");
+        println!("       {cli_name} tab <subcommand> ...");
+        println!("       {cli_name} notification <subcommand> ...");
+        println!("       {cli_name} agent <subcommand> ...");
+        println!("       {cli_name} pane <subcommand> ...");
+        println!("       {cli_name} session <subcommand> ...");
+        println!("       {cli_name} integration <subcommand> ...");
         println!();
         println!("Common commands:");
         for (command, description) in [
+            ("", "Launch or attach to the persistent session"),
             (
-                crate::product::CLI_NAME,
-                "Launch or attach to the persistent session",
-            ),
-            (
-                "kitsune status [server|client]",
+                "status [server|client]",
                 "Show local client and running server status",
             ),
-            ("kitsune update", "Download and install the latest version"),
+            ("update", "Show manual update guidance"),
+            ("completion zsh", "Generate shell completions for zsh"),
+            ("server stop", "Stop the running server via the API socket"),
             (
-                "kitsune completion zsh",
-                "Generate shell completions for zsh",
-            ),
-            (
-                "kitsune server stop",
-                "Stop the running server via the API socket",
-            ),
-            (
-                "kitsune channel set <stable|preview>",
-                "Choose the stable or preview update channel",
-            ),
-            (
-                "kitsune server reload-config",
+                "server reload-config",
                 "Reload config.toml in the running server",
             ),
             (
-                "kitsune config reset-keys",
+                "config reset-keys",
                 "Back up config.toml and remove custom keybindings",
             ),
             (
-                "kitsune channel <subcommand>",
-                "Manage the stable or preview update channel",
+                "channel status",
+                "Show the build channel and hosted update status",
             ),
             (
-                "kitsune api <subcommand>",
+                "api <subcommand>",
                 "Inspect socket API metadata and live runtime state",
             ),
             (
-                "kitsune workspace <subcommand>",
+                "workspace <subcommand>",
                 "Workspace helpers over the socket API",
             ),
             (
-                "kitsune worktree <subcommand>",
+                "worktree <subcommand>",
                 "Git worktree helpers over the socket API",
             ),
+            ("tab <subcommand>", "Tab helpers over the socket API"),
             (
-                "kitsune tab <subcommand>",
-                "Tab helpers over the socket API",
-            ),
-            (
-                "kitsune notification <subcommand>",
+                "notification <subcommand>",
                 "Notification helpers over the socket API",
             ),
             (
-                "kitsune agent <subcommand>",
+                "agent <subcommand>",
                 "Agent/terminal helpers over the socket API",
             ),
             (
-                "kitsune pane <subcommand>",
+                "pane <subcommand>",
                 "Pane control helpers over the socket API",
             ),
+            ("session <subcommand>", "Manage named persistent sessions"),
             (
-                "kitsune session <subcommand>",
-                "Manage named persistent sessions",
-            ),
-            (
-                "kitsune integration <subcommand>",
+                "integration <subcommand>",
                 "Manage built-in agent integrations",
             ),
         ] {
+            let command = if command.is_empty() {
+                cli_name.to_string()
+            } else {
+                format!("{cli_name} {command}")
+            };
             println!("  {command:<32} {description}");
         }
         println!();
         println!("Advanced commands:");
-        println!("  {:<32} Run as headless server", "kitsune server");
+        println!(
+            "  {:<32} Run as headless server",
+            format!("{cli_name} server")
+        );
         println!();
         println!("Options:");
         println!("  --no-session        Run monolithically (no server/client, escape hatch)");
@@ -644,7 +603,7 @@ fn main() -> io::Result<()> {
         println!("  --remote <target>   Attach through SSH to a remote Kitsune server");
         println!("  --remote-keybindings <local|server>");
         println!("                      Keybindings for --remote app attach (default: local)");
-        println!("  --handoff           Opt into live handoff for update or remote attach");
+        println!("  --handoff           Opt into live handoff for remote attach");
         println!("  --default-config    Print default configuration and exit");
         println!("  --version, -V       Print version and exit");
         println!("  --help, -h          Show this help");
@@ -659,11 +618,7 @@ fn main() -> io::Result<()> {
     }
 
     if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!(
-            "{} {}",
-            crate::product::CLI_NAME,
-            crate::build_info::version()
-        );
+        println!("{cli_name} {}", crate::build_info::version());
         return Ok(());
     }
 
@@ -688,7 +643,7 @@ fn main() -> io::Result<()> {
         let arg_name = arg.split_once('=').map(|(name, _)| name).unwrap_or(arg);
         if arg.starts_with('-') && !known_flags.contains(&arg_name) {
             eprintln!("unknown option: {arg}");
-            eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
+            eprintln!("run '{cli_name} --help' for usage");
             std::process::exit(2);
         }
         if !arg.starts_with('-')
@@ -709,7 +664,7 @@ fn main() -> io::Result<()> {
             .contains(&arg.as_str())
         {
             eprintln!("unknown command: {arg}");
-            eprintln!("run '{} --help' for usage", crate::product::CLI_NAME);
+            eprintln!("run '{cli_name} --help' for usage");
             std::process::exit(2);
         }
     }
@@ -733,7 +688,7 @@ fn main() -> io::Result<()> {
     // Check if a server is running, spawn one if needed, then attach as client.
     if !no_session {
         if let Err(err) = server::autodetect::auto_detect_launch() {
-            eprintln!("{}: {err}", crate::product::CLI_NAME);
+            eprintln!("{cli_name}: {err}");
             std::process::exit(1);
         }
         return Ok(());

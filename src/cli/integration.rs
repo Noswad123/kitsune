@@ -148,7 +148,7 @@ fn parse_integration_target(
 }
 
 fn print_integration_help() {
-    eprintln!("{} integration commands:", crate::product::CLI_NAME);
+    eprintln!("{} integration commands:", crate::product::cli_name());
     for target in [
         "pi",
         "omp",

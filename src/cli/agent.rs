@@ -830,7 +830,7 @@ fn agent_read(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_agent_help() {
-    eprintln!("{} agent commands:", crate::product::CLI_NAME);
+    eprintln!("{} agent commands:", crate::product::cli_name());
     eprintln!("  {}", crate::product::command("agent list"));
     eprintln!("  {}", crate::product::command("agent get <target>"));
     eprintln!(

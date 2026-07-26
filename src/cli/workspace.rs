@@ -253,7 +253,7 @@ fn workspace_close(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_workspace_help() {
-    eprintln!("{} workspace commands:", crate::product::CLI_NAME);
+    eprintln!("{} workspace commands:", crate::product::cli_name());
     eprintln!("  {}", crate::product::command("workspace list"));
     eprintln!(
         "  {}",

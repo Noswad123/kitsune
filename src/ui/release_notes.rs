@@ -495,15 +495,12 @@ mod tests {
 
         assert_eq!(lines.len(), 2);
         assert_eq!(line_text(&lines[0]), " ● update ready");
-        assert_eq!(
-            line_text(&lines[1]),
-            format!(" detach, run {update_command}, then follow its restart guidance")
-        );
+        assert_eq!(line_text(&lines[1]), format!(" {update_command}"));
         assert_eq!(lines[0].spans[1].style.fg, Some(palette.accent));
         assert_eq!(lines[0].spans[2].style.fg, Some(palette.text));
-        assert_eq!(lines[1].spans[2].content.as_ref(), update_command);
-        assert_eq!(lines[1].spans[2].style.fg, Some(palette.accent));
-        assert_eq!(lines[1].spans[2].style.bg, Some(palette.surface0));
+        assert_eq!(lines[1].spans[1].content.as_ref(), update_command);
+        assert_eq!(lines[1].spans[1].style.fg, Some(palette.text));
+        assert_eq!(lines[1].spans[1].style.bg, None);
     }
 
     #[test]
@@ -520,10 +517,7 @@ mod tests {
         let lines = release_notes_display_lines(&notes, &update_command, &palette);
 
         assert_eq!(line_text(&lines[0].1), " ● update ready");
-        assert_eq!(
-            line_text(&lines[1].1),
-            format!(" detach, run {update_command}, then follow its restart guidance")
-        );
+        assert_eq!(line_text(&lines[1].1), format!(" {update_command}"));
         assert_eq!(line_text(&lines[2].1), "");
         assert_eq!(line_text(&lines[3].1), " ADDED");
         assert_eq!(line_text(&lines[4].1), " • One");

@@ -260,7 +260,7 @@ fn parse_live_handoff_params(args: &[String]) -> Option<ServerLiveHandoffParams>
 }
 
 fn print_server_help() {
-    eprintln!("{} server commands:", crate::product::CLI_NAME);
+    eprintln!("{} server commands:", crate::product::cli_name());
     eprintln!(
         "  {}                run as headless server",
         crate::product::command("server")

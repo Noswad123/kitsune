@@ -5391,13 +5391,7 @@ mod tests {
         let toast = state.toast.as_ref().expect("update toast");
         assert_eq!(toast.kind, ToastKind::UpdateInstalled);
         assert_eq!(toast.title, "v0.5.0 available");
-        assert_eq!(
-            toast.context,
-            format!(
-                "detach, run `{}`, then follow its restart guidance",
-                crate::product::command("update")
-            )
-        );
+        assert_eq!(toast.context, crate::product::command("update"));
     }
 
     #[test]
@@ -5415,13 +5409,7 @@ mod tests {
             "brew update && brew upgrade kitsune"
         );
         let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(
-            toast.context,
-            format!(
-                "detach, run `brew update && brew upgrade kitsune`, then restart this {} session when ready",
-                crate::product::NAME
-            )
-        );
+        assert_eq!(toast.context, "brew update && brew upgrade kitsune");
     }
 
     #[test]

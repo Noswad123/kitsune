@@ -175,7 +175,7 @@ fn tab_close(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_tab_help() {
-    eprintln!("{} tab commands:", crate::product::CLI_NAME);
+    eprintln!("{} tab commands:", crate::product::cli_name());
     eprintln!(
         "  {}",
         crate::product::command("tab list [--workspace <workspace_id>]")

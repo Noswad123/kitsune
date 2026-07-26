@@ -1513,7 +1513,7 @@ fn pane_report_metadata(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_pane_help() {
-    eprintln!("{} pane commands:", crate::product::CLI_NAME);
+    eprintln!("{} pane commands:", crate::product::cli_name());
     eprintln!(
         "  {}",
         cli_command("pane list [--workspace <workspace_id>]")

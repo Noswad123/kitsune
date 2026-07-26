@@ -133,7 +133,7 @@ fn parse_notification_sound(
 }
 
 fn print_notification_help() {
-    eprintln!("{} notification commands:", crate::product::CLI_NAME);
+    eprintln!("{} notification commands:", crate::product::cli_name());
     eprintln!(
         "  {}",
         crate::product::command("notification show <title> [--body TEXT] [--position top-left|top-right|bottom-left|bottom-right] [--sound none|done|request]")

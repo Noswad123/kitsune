@@ -28,16 +28,22 @@ defaults and workflows that make Kitsune its own product.
 
 Goal: make Kitsune its own product while preserving a working runtime.
 
-Candidate work:
+Completed in this phase:
 
-- Finish replacing Herdr release/update surfaces with Kitsune-owned channels.
-- Replace or remove remaining Herdr-branded docs, assets, integration text, and
-  package metadata.
+- Replaced Herdr release/update surfaces with Kitsune manual-update guidance;
+  hosted stable/preview channels are explicitly unavailable in this fork.
+- Replaced low-risk Herdr-branded docs, assets, integration text, and package
+  metadata while keeping historical Herdr references where context matters.
+- Aligned `kit` and `kitsune` help/completion surfaces so generated shell
+  completions and command examples follow the invoked entry point.
+
+Remaining candidate work:
+
 - Add Kitsune-specific workflows and defaults.
 - Remove features that do not fit Kitsune's product direction.
 - Rename internal modules/types only when it reduces confusion more than it
   increases merge pain.
-- Keep `kit` and `kitsune` behavior aligned so editor integrations, shell
+- Continue auditing `kit` and `kitsune` behavior so editor integrations, shell
   aliases, and remote workflows can use either entry point predictably.
 
 ## Agent selector

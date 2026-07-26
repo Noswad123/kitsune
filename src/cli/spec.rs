@@ -3,7 +3,7 @@ use std::io::Write;
 use clap::{Arg, ArgAction, ArgGroup, Command, ValueHint};
 
 pub(super) fn command() -> Command {
-    let command = Command::new(crate::product::CLI_NAME)
+    let command = Command::new(crate::product::cli_name())
         .about(crate::product::DESCRIPTION)
         .disable_help_flag(true)
         .disable_version_flag(true)
@@ -26,6 +26,8 @@ pub(super) fn command() -> Command {
                 .help("Print version and exit"),
         )
         .subcommand(completion_command())
+        .subcommand(update_command())
+        .subcommand(channel_command())
         .subcommand(status_command())
         .subcommand(config_command())
         .subcommand(server_command())
@@ -75,7 +77,7 @@ fn write_requested_help(args: &[String], output: &mut impl Write) -> std::io::Re
     let mut root = command();
     root.build();
     let mut selected = &mut root;
-    let mut path = vec![crate::product::CLI_NAME.to_string()];
+    let mut path = vec![crate::product::cli_name().to_string()];
     for segment in &args[1..help_index] {
         if selected.find_subcommand(segment).is_none() {
             break;
@@ -93,6 +95,23 @@ fn write_requested_help(args: &[String], output: &mut impl Write) -> std::io::Re
     selected.write_long_help(&mut *output)?;
     writeln!(output)?;
     Ok(true)
+}
+
+fn update_command() -> Command {
+    Command::new("update")
+        .about("Show manual update guidance")
+        .arg(flag("handoff").help("Accepted for compatibility; self-update is unavailable"))
+}
+
+fn channel_command() -> Command {
+    Command::new("channel")
+        .about("Show build channel status")
+        .subcommand(Command::new("status").about("Show the build channel"))
+        .subcommand(
+            Command::new("set")
+                .about("Unsupported hosted update channel selection")
+                .arg(required("channel", "CHANNEL").value_parser(["stable", "preview"])),
+        )
 }
 
 fn completion_command() -> Command {

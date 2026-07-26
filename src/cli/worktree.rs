@@ -292,7 +292,7 @@ fn worktree_remove(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn print_worktree_help() {
-    eprintln!("{} worktree commands:", crate::product::CLI_NAME);
+    eprintln!("{} worktree commands:", crate::product::cli_name());
     eprintln!(
         "  {}",
         crate::product::command("worktree list [--workspace ID | --cwd PATH] [--json]")
