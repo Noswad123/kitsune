@@ -81,10 +81,9 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 installed.plugin_path.display()
             )]
         }
-        crate::api::schema::IntegrationTarget::Djinn => vec![
-            "djinn integration is reserved for first-class support but has no installer yet"
-                .to_string(),
-        ],
+        crate::api::schema::IntegrationTarget::Djinn => {
+            vec!["djinn integration is built in; no external installer is required".to_string()]
+        }
     };
 
     if let Some(warning) = version_warning {
@@ -211,10 +210,9 @@ pub(crate) fn uninstall_target(
                 )]
             }
         }
-        crate::api::schema::IntegrationTarget::Djinn => vec![
-            "djinn integration is reserved for first-class support but has no installer yet"
-                .to_string(),
-        ],
+        crate::api::schema::IntegrationTarget::Djinn => {
+            vec!["djinn integration is built in; no external files were removed".to_string()]
+        }
     };
 
     crate::logging::integration_action("uninstall", integration_target_label(target), "ok");

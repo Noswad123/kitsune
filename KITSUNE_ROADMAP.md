@@ -38,6 +38,8 @@ Completed in this phase:
 - Deleted dead supporting code for removed updater, remote auto-install, and
   inherited integration targets so Kitsune only carries supported integration
   plumbing.
+- Added Djinn as a built-in first-class agent kind for process detection,
+  interactive `agent start --kind djinn`, and integration status.
 
 Remaining candidate work:
 
@@ -53,6 +55,9 @@ Remaining candidate work:
 ## Support djinn agent harness
 - my djinn harness can be found ~/projects/djinn
 - It needs to be treated like a first class harness akin to opencode, pi, etc
+- Status: Djinn is now recognized as a first-class built-in agent kind. Future
+  work can add deeper Djinn-specific lifecycle reporting if the harness exposes
+  stable hooks/events for working and blocked states.
 
 ## Near-term working branch
 

@@ -298,14 +298,14 @@ fn uninstall_opencode_removes_plugin() {
 }
 
 #[test]
-fn djinn_install_and_uninstall_are_placeholders() {
+fn djinn_install_and_uninstall_are_built_in_noops() {
     let messages = install_target(crate::api::schema::IntegrationTarget::Djinn).unwrap();
     assert_eq!(messages.len(), 1);
-    assert!(messages[0].contains("reserved for first-class support"));
+    assert!(messages[0].contains("built in"));
 
     let messages = uninstall_target(crate::api::schema::IntegrationTarget::Djinn).unwrap();
     assert_eq!(messages.len(), 1);
-    assert!(messages[0].contains("reserved for first-class support"));
+    assert!(messages[0].contains("built in"));
 }
 
 #[test]
