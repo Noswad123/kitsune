@@ -29,14 +29,8 @@ class WindowsConptyPackageTests(unittest.TestCase):
         loader = (
             package.PROJECT_ROOT / "vendor/portable-pty/src/win/psuedocon.rs"
         ).read_text(encoding="utf-8")
-        installer = (package.PROJECT_ROOT / "website/install.ps1").read_text(
-            encoding="utf-8"
-        )
         for item in metadata["bundles"]["x86_64"]["files"]:
             self.assertIn(item["sha256"], loader)
-            self.assertNotIn(item["sha256"], installer)
-        self.assertIn('Get-Content -LiteralPath $markerPath -Raw', installer)
-        self.assertIn('$filesProperty.Value.PSObject.Properties[$relative]', installer)
         for notice in metadata["notices"]:
             source = package.PROJECT_ROOT / notice["source"]
             self.assertEqual(package.sha256_file(source), notice["sha256"])
@@ -110,13 +104,13 @@ class WindowsConptyPackageTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            herdr = root / "input-herdr.exe"
-            herdr.write_bytes(b"herdr")
+            kitsune = root / "input-kitsune.exe"
+            kitsune.write_bytes(b"kitsune")
             stage = root / "stage"
-            package.stage_bundle(metadata_path, "x86_64", nupkg, herdr, stage)
+            package.stage_bundle(metadata_path, "x86_64", nupkg, kitsune, stage)
             package.validate_stage(metadata_path, "x86_64", stage)
 
-            output = root / "herdr.zip"
+            output = root / "kitsune.zip"
             package.archive_bundle(metadata_path, "x86_64", stage, output)
             with zipfile.ZipFile(output) as archive:
                 self.assertEqual(

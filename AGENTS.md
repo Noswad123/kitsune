@@ -157,13 +157,10 @@ When updating libghostty-vt, check every active patch in `vendor/libghostty-vt.p
 
 ## Docs
 
-Stable public docs live in `website/src/content/docs/`. They are the currently released herdr.dev docs. Do not document unreleased behavior there during normal feature or fix work.
-
-Unreleased docs live in `docs/next/website/src/content/docs/`. Update those when a user-facing change needs docs before the next release. `docs/next/README.md` and `docs/next/CHANGELOG.md` stage root README and changelog changes.
-
-The website build runs `website/scripts/prepare-docs.mjs`. It keeps stable docs at `/docs/`, generates next docs at `/docs/preview/` from `docs/next/website/src/content/docs/`, and generates immutable release docs from `docs/versions/`. Do not edit generated `website/src/content/docs/preview/` or `website/src/content/docs/_versions/`.
-
-During release review, finalize `docs/next` and run `just release-docs-check`. Do not copy next docs into the stable website manually. After the GitHub Release succeeds, release CI snapshots the tagged next docs, promotes them to stable, updates `latest.json`, and deploys them together. Normal feature/fix work should not edit root `README.md`, root `CHANGELOG.md`, stable website docs, or `website/latest.json` unless explicitly requested.
+Kitsune no longer carries Herdr's public website, versioned website docs, or
+website release machinery. Keep durable project notes in root docs or
+`.local/prd/` as appropriate, and keep the bundled API schema under
+`docs/next/api/` because `kitsune api schema` embeds it.
 
 Put local PRDs, planning notes, and exploratory specs under `.local/prd/`; `.local/` is ignored and locally controlled.
 
@@ -198,25 +195,8 @@ account is not a verified maintainer, do not run release commands, push release
 assets, or modify release channel files; follow the external contributor
 guardrail.
 
-Herdr has one main branch and two update channels. Stable and preview both build from `master`; there is no long-lived preview branch.
-
-Normal users default to stable. Stable docs are `/docs/`, stable updates use `website/latest.json`, and Homebrew/Nix stay stable-only.
-
-Preview is opt-in for direct Herdr installs:
-
-```bash
-herdr channel set preview
-herdr update
-```
-
-Switch back with:
-
-```bash
-herdr channel set stable
-herdr update
-```
-
-Preview releases are GitHub prereleases produced by `.github/workflows/preview.yml` on manual dispatch and the Wednesday/Friday schedule. The workflow updates `website/preview.json`, which the website build publishes as `/preview.json`. Do not hand-edit `website/preview.json`; fix the workflow or `scripts/preview.py` and rerun Preview.
+Kitsune is maintained as a personal fork. Herdr's public website, preview
+manifest, and stable website-manifest release jobs have been removed.
 
 Stable releases use:
 
@@ -225,7 +205,8 @@ just check
 just release 0.x.y
 ```
 
-Before stable release, run `/pre-release-audit`, finalize `docs/next`, and let `just release-docs-check` validate the staged docs and website build. `just release` prepares the changelog and release commit, tags it, and pushes the tag. GitHub Actions builds binaries, creates the GitHub release, closes released issues, snapshots and promotes the tagged docs, and updates `website/latest.json`.
+`just release` prepares the changelog and release commit, tags it, and pushes
+the tag. GitHub Actions builds binaries and creates the GitHub release.
 
 The release workflows must publish these four assets:
 

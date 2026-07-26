@@ -133,7 +133,7 @@ function Send-RawAndObserve {
 }
 
 $script:Exe = (Resolve-Path $ExePath).Path
-$workDir = Join-Path ([System.IO.Path]::GetTempPath()) "herdr-conpty-input-$([guid]::NewGuid().ToString('N'))"
+$workDir = Join-Path ([System.IO.Path]::GetTempPath()) "kitsune-conpty-input-$([guid]::NewGuid().ToString('N'))"
 $probeSource = Join-Path $workDir "probe.rs"
 $script:ProbeExe = Join-Path $workDir "probe.exe"
 $oldSession = $env:KITSUNE_SESSION

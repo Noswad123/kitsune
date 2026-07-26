@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import re
 import sys
 import tomllib
@@ -52,18 +51,6 @@ MAX_TOTAL_GATES = 512
 MAX_MATCHERS_PER_GATE = 32
 MAX_TOTAL_MATCHERS = 1024
 MAX_MATCHER_CHARS = 512
-
-# Keep engine-2 clients on the OSC-capable manifest until an engine-3 release
-# can consume top_non_empty_lines. Remove this entry when the website publishes
-# the bundled Grok manifest.
-STAGED_WEBSITE_MANIFESTS = {
-    "grok": (
-        "2026.07.16.2",
-        "2026.07.16.1",
-        "1f35b3271a96cf830c64bed78751619bfd8013c277c0d7c0f999b7a433895f28",
-    ),
-}
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -322,15 +309,7 @@ def validate_catalog(
 
         bundled_path, bundled_manifest = bundled[agent_id]
         cmp = compare_versions(manifest["version"], bundled_manifest["version"], manifest_path)
-        staged_manifest = STAGED_WEBSITE_MANIFESTS.get(agent_id)
-        website_digest = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-        stages_new_engine_manifest = (
-            staged_manifest
-            == (bundled_manifest["version"], manifest["version"], website_digest)
-            and bundled_manifest["min_engine_version"] == engine_version
-            and manifest["min_engine_version"] < bundled_manifest["min_engine_version"]
-        )
-        if cmp < 0 and not stages_new_engine_manifest:
+        if cmp < 0:
             raise CheckError(
                 f"{manifest_path}: website version {manifest['version']} is lower than bundled "
                 f"{bundled_manifest['version']} in {bundled_path}"

@@ -6,7 +6,6 @@ on:
   push:
     branches: [master, windows]
     paths-ignore:
-      - "website/**"
       - ".github/APPROVED_CONTRIBUTORS"
 
 permissions:
@@ -161,9 +160,9 @@ jobs:
             Invoke-Checked cargo $Arguments
           }
           Invoke-Checked cargo @("fmt", "--check")
-          Invoke-CargoWithZigCacheRecovery @("clippy", "--bin", "herdr", "--locked", "--target", "x86_64-pc-windows-msvc", "--", "-D", "warnings")
-          Invoke-Checked cargo @("test", "--locked", "--target", "x86_64-pc-windows-msvc", "--bin", "herdr", "windows_")
-          Invoke-Checked cargo @("test", "--locked", "--target", "x86_64-pc-windows-msvc", "--bin", "herdr", "server::client_transport::tests")
+          Invoke-CargoWithZigCacheRecovery @("clippy", "--bin", "kitsune", "--locked", "--target", "x86_64-pc-windows-msvc", "--", "-D", "warnings")
+          Invoke-Checked cargo @("test", "--locked", "--target", "x86_64-pc-windows-msvc", "--bin", "kitsune", "windows_")
+          Invoke-Checked cargo @("test", "--locked", "--target", "x86_64-pc-windows-msvc", "--bin", "kitsune", "server::client_transport::tests")
           Invoke-Checked cargo @("build", "--locked", "--target", "x86_64-pc-windows-msvc")
 
       - name: Smoke ConPTY pane
@@ -171,7 +170,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $exe = Join-Path $PWD "target\x86_64-pc-windows-msvc\debug\herdr.exe"
+          $exe = Join-Path $PWD "target\x86_64-pc-windows-msvc\debug\kitsune.exe"
           .\scripts\windows_smoke_conpty_path.ps1 -ExePath $exe -Session "ci-windows-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
 
   windows-conpty-package:
@@ -213,7 +212,7 @@ jobs:
           $exe = Join-Path $PWD "target\x86_64-pc-windows-msvc\debug\kitsune.exe"
           $bundle = Join-Path (Split-Path -Parent $exe) "conpty"
           New-Item -ItemType Directory -Force -Path (Join-Path $bundle "x64"), (Join-Path $bundle "arm64") | Out-Null
-          Set-Content -LiteralPath (Join-Path $bundle "herdr-conpty.json") -Value "{}" -Encoding ascii
+          Set-Content -LiteralPath (Join-Path $bundle "kitsune-conpty.json") -Value "{}" -Encoding ascii
           [System.IO.File]::WriteAllBytes((Join-Path $bundle "conpty.dll"), [byte[]](0x48, 0x45, 0x52, 0x44, 0x52))
           [System.IO.File]::WriteAllBytes((Join-Path $bundle "x64\OpenConsole.exe"), [byte[]](0x48, 0x45, 0x52, 0x44, 0x52))
           [System.IO.File]::WriteAllBytes((Join-Path $bundle "arm64\OpenConsole.exe"), [byte[]](0x48, 0x45, 0x52, 0x44, 0x52))
@@ -250,7 +249,7 @@ jobs:
           $stage = Join-Path $env:RUNNER_TEMP "kitsune-windows-x86_64"
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
           .\scripts\package_windows_conpty.ps1 `
-            -HerdrExe target\x86_64-pc-windows-msvc\debug\kitsune.exe `
+            -KitsuneExe target\x86_64-pc-windows-msvc\debug\kitsune.exe `
             -PackagePath $package `
             -StageDir $stage `
             -OutputPath artifacts\kitsune-windows-x86_64.zip
@@ -266,13 +265,3 @@ jobs:
             -ExePath $exe `
             -Session "ci-conpty-bundled-windows-2022-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT" `
             -ExpectedConsoleHostPath $consoleHost
-
-      - name: Test packaged installer and repair with Windows PowerShell 5.1
-        shell: pwsh
-        run: |
-          & powershell.exe -NoProfile -ExecutionPolicy Bypass -File `
-            .\scripts\windows_install_conpty_package_test.ps1 `
-            -ArchivePath artifacts\herdr-windows-x86_64.zip
-          if ($LASTEXITCODE -ne 0) {
-            throw "Windows PowerShell installer test failed with exit code $LASTEXITCODE"
-          }

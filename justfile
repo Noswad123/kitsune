@@ -3,7 +3,7 @@
 # Run tests
 test:
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_config_reference_check scripts.test_docs_translation_parity scripts.test_hermes_integration_asset scripts.test_package_windows_conpty scripts.test_preview scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_hermes_integration_asset scripts.test_package_windows_conpty scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
     just integration-assets-test
     just plugin-marketplace-test
 
@@ -29,8 +29,7 @@ windows-lint:
 
 # Check formatting + run unit tests + Windows target lint + maintenance script tests
 check: ci windows-lint
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_config_reference_check scripts.test_docs_translation_parity scripts.test_hermes_integration_asset scripts.test_package_windows_conpty scripts.test_preview scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
-    @echo "docs reminder: if this changes user-facing behavior, make sure the relevant release docs are updated or called out before release."
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_hermes_integration_asset scripts.test_package_windows_conpty scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
 
 # Install repo-local git hooks
 install-hooks:
@@ -42,10 +41,6 @@ install-hooks:
 # Build release binary
 build:
     cargo build --release --locked
-
-# Build the website and documentation
-website-build:
-    cd website && bun install --frozen-lockfile && bun run build
 
 # Test bundled agent integration assets
 integration-assets-test:
@@ -59,43 +54,6 @@ plugin-marketplace-test:
 # Build the vendored libghostty-vt source dist
 build-libghostty-vt:
     scripts/build_vendored_libghostty_vt.sh
-
-# Check that release docs and changelog have been finalized from docs/next before release
-release-docs-check:
-    python3 scripts/agent_detection_manifest_check.py --require-website
-    python3 scripts/config_reference_check.py
-    node website/scripts/docs-versions.mjs check
-    @test -f docs/next/README.md
-    @if ! diff -u CHANGELOG.md docs/next/CHANGELOG.md; then \
-        echo "error: CHANGELOG.md differs from docs/next/CHANGELOG.md; finalize release notes before releasing"; \
-        exit 1; \
-    fi
-    @for file in CONFIGURATION.md INTEGRATIONS.md SOCKET_API.md; do \
-        if [ -e "$file" ]; then \
-            echo "error: $file was replaced by website docs; remove the root copy"; \
-            exit 1; \
-        fi; \
-    done
-    @test -d docs/next/website/src/content/docs
-    @for file in docs/next/website/src/content/docs/*.mdx; do \
-        for locale in ja zh-cn; do \
-            translated="docs/next/website/src/content/docs/$locale/$(basename "$file")"; \
-            if [ ! -f "$translated" ]; then \
-                echo "error: $translated is missing; translate next docs before releasing"; \
-                exit 1; \
-            fi; \
-        done; \
-    done
-    @for file in docs/next/website/src/content/docs/ja/*.mdx docs/next/website/src/content/docs/zh-cn/*.mdx; do \
-        staged="docs/next/website/src/content/docs/$(basename "$file")"; \
-        if [ ! -f "$staged" ]; then \
-            echo "error: $file has no matching english doc; remove the stale translation"; \
-            exit 1; \
-        fi; \
-    done
-    python3 scripts/docs_translation_parity.py --docs-root docs/next/website/src/content/docs
-    python3 scripts/docs_translation_parity.py --docs-root website/src/content/docs
-    just website-build
 
 # Prepare the release commit without tagging or pushing (usage: just release-prepare 0.1.1)
 release-prepare version:
@@ -112,7 +70,6 @@ release-prepare version:
         echo "error: tag v{{version}} already exists"; \
         exit 1; \
     fi
-    just release-docs-check
     python3 scripts/changelog.py prepare --version {{version}}
     cp CHANGELOG.md docs/next/CHANGELOG.md
     sed -i.bak 's/^version = ".*"/version = "{{version}}"/' Cargo.toml && rm -f Cargo.toml.bak
@@ -147,7 +104,6 @@ release-publish version:
         echo "error: Cargo.toml version $cargo_version does not match {{version}}"; \
         exit 1; \
     fi
-    just release-docs-check
     python3 scripts/changelog.py extract --version {{version}} --output /tmp/herdr-release-notes-check.md
     rm -f /tmp/herdr-release-notes-check.md
     @local_head="$(git rev-parse HEAD)"; \
@@ -162,7 +118,7 @@ release-publish version:
     fi
     git tag -a v{{version}} -m "v{{version}}"
     git push origin v{{version}}
-    @echo "v{{version}} released — GitHub Actions building binaries and updating website/latest.json"
+    @echo "v{{version}} released — GitHub Actions building binaries"
 
 # Prepare, verify, tag, push, and trigger the GitHub Release workflow (usage: just release 0.1.1)
 release version:
