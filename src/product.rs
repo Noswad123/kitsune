@@ -10,6 +10,7 @@ pub(crate) const LOG_ENV_VAR: &str = "KITSUNE_LOG";
 pub(crate) const API_SOCKET_FILE_NAME: &str = "kitsune.sock";
 pub(crate) const CLIENT_SOCKET_FILE_NAME: &str = "kitsune-client.sock";
 pub(crate) const CONFIG_PATH_ENV_VAR: &str = "KITSUNE_CONFIG_PATH";
+pub(crate) const BIN_PATH_ENV_VAR: &str = "KITSUNE_BIN_PATH";
 pub(crate) const SOCKET_PATH_ENV_VAR: &str = "KITSUNE_SOCKET_PATH";
 pub(crate) const CLIENT_SOCKET_PATH_ENV_VAR: &str = "KITSUNE_CLIENT_SOCKET_PATH";
 pub(crate) const SESSION_ENV_VAR: &str = "KITSUNE_SESSION";

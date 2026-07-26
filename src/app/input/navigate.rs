@@ -815,7 +815,7 @@ impl App {
         )];
         if let Ok(current_exe) = std::env::current_exe() {
             env.push((
-                "KITSUNE_BIN_PATH".to_string(),
+                crate::product::BIN_PATH_ENV_VAR.to_string(),
                 current_exe.display().to_string(),
             ));
         }
@@ -919,7 +919,10 @@ impl App {
         // runtime identity here so the recall helper targets this exact
         // Kitsune session even when another binary/server is installed.
         env.push(("KITSUNE_ENV".to_string(), "1".to_string()));
-        env.push(("KITSUNE_BIN_PATH".to_string(), current_exe.clone()));
+        env.push((
+            crate::product::BIN_PATH_ENV_VAR.to_string(),
+            current_exe.clone(),
+        ));
         env.push((
             crate::api::SOCKET_PATH_ENV_VAR.to_string(),
             api_socket_path.clone(),

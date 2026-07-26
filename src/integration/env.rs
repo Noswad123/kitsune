@@ -15,6 +15,12 @@ pub(crate) const CODEX_HOME_ENV_VAR: &str = "CODEX_HOME";
 pub(crate) const COPILOT_HOME_ENV_VAR: &str = "COPILOT_HOME";
 
 pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
+    if let Ok(current_exe) = std::env::current_exe() {
+        cmd.env(
+            crate::product::BIN_PATH_ENV_VAR,
+            current_exe.display().to_string(),
+        );
+    }
     cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
 }
 
