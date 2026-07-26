@@ -17,7 +17,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
 
 Windows ベータビルドはプレビューチャンネルでのみ提供されます。Windows では Herdr が設定を変更せずにデフォルトでプレビューを使います。インストーラーはリリースを `%USERPROFILE%\.herdr\packages\standalone\releases` に保存し、`%LOCALAPPDATA%\Programs\Herdr\bin` を現在のリリースに向け、実行中のプロセスがアップデートを妨げないよう少数の古いリリースを保持します。
 
-内部ベータテスト向けに、`HERDR_MANIFEST_URL` でインストーラーを Herdr の安定版/プレビューマニフェストではなくカスタムマニフェストに向けられます。
+内部ベータテスト向けに、`KITSUNE_MANIFEST_URL` でインストーラーを Herdr の安定版/プレビューマニフェストではなくカスタムマニフェストに向けられます。
 
 ## ベータでサポート
 
@@ -79,7 +79,7 @@ host_cursor = "native"
 
 Windows のターミナルは、修飾キー付きのキーをすべて同じ形で報告するわけではありません。Herdr は Windows Terminal と Windows 上の Alacritty ではマウス報告と `ctrl+j` を保持しますが、`shift+enter` は外側ターミナルが修飾付き Enter として区別して報告する場合にだけ動作します。Windows またはターミナルがそれを通常の Enter として報告する場合、Herdr は通常の Enter を転送します。
 
-古い Windows 10 ビルドのシステム ConPTY は、Kimi や Pi などのエージェントが使用する Kitty キーボードプロトコルのシーケンスを失うため、プレビューパッケージには Microsoft の最新のアプリローカル ConPTY ランタイムが含まれます。バンドル版ランタイムとの互換性問題を診断する場合に限り、Herdr を起動する前に `HERDR_WINDOWS_CONPTY=system` を設定してください。
+古い Windows 10 ビルドのシステム ConPTY は、Kimi や Pi などのエージェントが使用する Kitty キーボードプロトコルのシーケンスを失うため、プレビューパッケージには Microsoft の最新のアプリローカル ConPTY ランタイムが含まれます。バンドル版ランタイムとの互換性問題を診断する場合に限り、Herdr を起動する前に `KITSUNE_WINDOWS_CONPTY=system` を設定してください。
 
 ## コピーと貼り付け
 
@@ -119,6 +119,6 @@ Windows のアップデートは Windows インストーラー経由で行われ
 - Windows のバージョン。
 - ターミナルアプリ。
 - シェル (PowerShell、cmd など)。
-- 名前付き `HERDR_SESSION` を使っていたかどうか。
+- 名前付き `KITSUNE_SESSION` を使っていたかどうか。
 - 関連する Herdr のログ。
 - 正確な再現手順。

@@ -79,10 +79,10 @@ herdr --remote workbox --handoff
 
 ローカルとリモートのプラットフォームが一致する場合、直接インストールでは Herdr は現在のローカルバイナリをコピーできます。Homebrew、mise、Nix のインストールの場合、またはプラットフォームが異なる場合は、`https://herdr.dev/latest.json` から現在のクライアントバージョンに一致するリリースアセットをダウンロードします。
 
-ローカルビルドやカスタムバイナリの場合は、リモートアタッチの前に `HERDR_REMOTE_BINARY` にローカルファイルパスを設定してください。
+ローカルビルドやカスタムバイナリの場合は、リモートアタッチの前に `KITSUNE_REMOTE_BINARY` にローカルファイルパスを設定してください。
 
 ```bash
-HERDR_REMOTE_BINARY=target/release/herdr herdr --remote workbox
+KITSUNE_REMOTE_BINARY=target/release/herdr herdr --remote workbox
 ```
 
 ## リモートの名前付きセッション

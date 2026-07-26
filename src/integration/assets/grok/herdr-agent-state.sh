@@ -2,8 +2,8 @@
 # installed by herdr
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# HERDR_INTEGRATION_ID=grok
-# HERDR_INTEGRATION_VERSION=1
+# KITSUNE_INTEGRATION_ID=grok
+# KITSUNE_INTEGRATION_VERSION=1
 
 set -eu
 
@@ -17,12 +17,12 @@ case "$action" in
   *) exit 0 ;;
 esac
 
-[ "${HERDR_ENV:-}" = "1" ] || exit 0
-[ -n "${HERDR_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HERDR_PANE_ID:-}" ] || exit 0
+[ "${KITSUNE_ENV:-}" = "1" ] || exit 0
+[ -n "${KITSUNE_SOCKET_PATH:-}" ] || exit 0
+[ -n "${KITSUNE_PANE_ID:-}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
-HERDR_ACTION="$action" HERDR_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
+KITSUNE_ACTION="$action" KITSUNE_HOOK_INPUT_FILE="$hook_input_file" python3 - <<'PY'
 import json
 import os
 import random
@@ -30,9 +30,9 @@ import socket
 import time
 
 source = "herdr:grok"
-pane_id = os.environ.get("HERDR_PANE_ID")
-socket_path = os.environ.get("HERDR_SOCKET_PATH")
-hook_input_file = os.environ.get("HERDR_HOOK_INPUT_FILE")
+pane_id = os.environ.get("KITSUNE_PANE_ID")
+socket_path = os.environ.get("KITSUNE_SOCKET_PATH")
+hook_input_file = os.environ.get("KITSUNE_HOOK_INPUT_FILE")
 
 if not pane_id or not socket_path:
     raise SystemExit(0)

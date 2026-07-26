@@ -817,7 +817,7 @@ impl App {
         )];
         if let Ok(current_exe) = std::env::current_exe() {
             env.push((
-                "HERDR_BIN_PATH".to_string(),
+                "KITSUNE_BIN_PATH".to_string(),
                 current_exe.display().to_string(),
             ));
         }
@@ -825,23 +825,23 @@ impl App {
         let mut cwd = None;
         if let Some(ws_idx) = self.state.active {
             env.push((
-                "HERDR_ACTIVE_WORKSPACE_ID".to_string(),
+                "KITSUNE_ACTIVE_WORKSPACE_ID".to_string(),
                 self.public_workspace_id(ws_idx),
             ));
             if let Some(workspace) = self.state.workspaces.get(ws_idx) {
                 let tab_idx = workspace.active_tab_index();
                 if let Some(tab_id) = self.public_tab_id(ws_idx, tab_idx) {
-                    env.push(("HERDR_ACTIVE_TAB_ID".to_string(), tab_id));
+                    env.push(("KITSUNE_ACTIVE_TAB_ID".to_string(), tab_id));
                 }
                 if let Some(pane_id) = workspace.focused_pane_id() {
                     if let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) {
-                        env.push(("HERDR_ACTIVE_PANE_ID".to_string(), public_pane_id));
+                        env.push(("KITSUNE_ACTIVE_PANE_ID".to_string(), public_pane_id));
                     }
                     if let Some(pane_cwd) = workspace.active_tab().and_then(|tab| {
                         tab.cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
                     }) {
                         env.push((
-                            "HERDR_ACTIVE_PANE_CWD".to_string(),
+                            "KITSUNE_ACTIVE_PANE_CWD".to_string(),
                             pane_cwd.display().to_string(),
                         ));
                         if pane_cwd.is_dir() {
@@ -857,15 +857,12 @@ impl App {
     fn launch_session_recall_popup(&mut self) {
         let previous_toast = self.state.toast.clone();
         let (mut env, cwd) = self.custom_command_env();
-        // The current standalone Kitsune recall helper still talks to Herdr's
-        // backend name. Mirror the Kitsune socket into Herdr's legacy override
-        // so it controls this forked session instead of any installed Herdr.
+        // The current standalone Kitsune recall helper still uses the
+        // historical backend name, but this fork only exports Kitsune runtime
+        // variables. `custom_command_env` already includes KITSUNE_SOCKET_PATH;
+        // add the client socket path so the helper targets this session.
         env.push((
-            "HERDR_SOCKET_PATH".to_string(),
-            crate::api::socket_path().display().to_string(),
-        ));
-        env.push((
-            "HERDR_CLIENT_SOCKET_PATH".to_string(),
+            "KITSUNE_CLIENT_SOCKET_PATH".to_string(),
             crate::server::socket_paths::client_socket_path()
                 .display()
                 .to_string(),
@@ -3129,7 +3126,7 @@ navigate_pane_down = "ctrl+j"
         let output_path = unique_temp_path("custom-command-keybind");
         let release_path = unique_temp_path("custom-command-release");
         let command = format!(
-            "printf '%s\\n%s\\n%s\\n%s\\n' \"$$\" \"$HERDR_ACTIVE_WORKSPACE_ID\" \"$HERDR_ACTIVE_TAB_ID\" \"$HERDR_ACTIVE_PANE_ID\" > '{}'; i=0; while [ ! -e '{}' ] && [ \"$i\" -lt 250 ]; do sleep 0.02; i=$((i + 1)); done",
+            "printf '%s\\n%s\\n%s\\n%s\\n' \"$$\" \"$KITSUNE_ACTIVE_WORKSPACE_ID\" \"$KITSUNE_ACTIVE_TAB_ID\" \"$KITSUNE_ACTIVE_PANE_ID\" > '{}'; i=0; while [ ! -e '{}' ] && [ \"$i\" -lt 250 ]; do sleep 0.02; i=$((i + 1)); done",
             output_path.display(),
             release_path.display(),
         );

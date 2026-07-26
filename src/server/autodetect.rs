@@ -30,7 +30,7 @@ const STATUS_REQUEST_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Private daemon-start hint used to seed a fresh headless server from the
 /// directory where the user ran `herdr`.
-pub(crate) const STARTUP_CWD_ENV_VAR: &str = "HERDR_STARTUP_CWD";
+pub(crate) const STARTUP_CWD_ENV_VAR: &str = "KITSUNE_STARTUP_CWD";
 
 // ---------------------------------------------------------------------------
 // Server detection

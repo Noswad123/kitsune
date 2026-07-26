@@ -534,7 +534,7 @@ fn enable_windows_virtual_terminal_input() -> WindowsVirtualTerminalInputSetup {
 
 #[cfg(windows)]
 fn windows_vti_input_backend_enabled() -> bool {
-    std::env::var("HERDR_WINDOWS_INPUT_BACKEND")
+    std::env::var("KITSUNE_WINDOWS_INPUT_BACKEND")
         .map(|backend| !backend.eq_ignore_ascii_case("crossterm"))
         .unwrap_or(true)
 }
@@ -634,7 +634,7 @@ fn pop_keyboard_enhancement_flags() -> io::Result<()> {
 
 #[cfg(windows)]
 fn windows_win32_input_mode_enabled() -> bool {
-    std::env::var("HERDR_WINDOWS_INPUT_PROBE")
+    std::env::var("KITSUNE_WINDOWS_INPUT_PROBE")
         .map(|probe| probe.eq_ignore_ascii_case("win32"))
         .unwrap_or(true)
 }
@@ -667,7 +667,7 @@ impl Drop for TerminalGuard {
 // ---------------------------------------------------------------------------
 
 fn requested_render_encoding() -> RenderEncoding {
-    match std::env::var("HERDR_RENDER_ENCODING").ok().as_deref() {
+    match std::env::var("KITSUNE_RENDER_ENCODING").ok().as_deref() {
         Some("terminal-ansi" | "terminal_ansi" | "ansi") => RenderEncoding::TerminalAnsi,
         _ => RenderEncoding::SemanticFrame,
     }

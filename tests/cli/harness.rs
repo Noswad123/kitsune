@@ -179,9 +179,9 @@ pub(super) fn spawn_named_server(
         .args(["--session", session, "server"])
         .env("XDG_CONFIG_HOME", config_home)
         .env("XDG_RUNTIME_DIR", runtime_dir)
-        .env_remove("HERDR_SOCKET_PATH")
-        .env_remove("HERDR_CLIENT_SOCKET_PATH")
-        .env_remove("HERDR_ENV")
+        .env_remove("KITSUNE_SOCKET_PATH")
+        .env_remove("KITSUNE_CLIENT_SOCKET_PATH")
+        .env_remove("KITSUNE_ENV")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
@@ -229,15 +229,15 @@ pub(super) fn run_named_cli_with_env_and_socket_override(
         .args(args)
         .env("XDG_CONFIG_HOME", config_home)
         .env("XDG_RUNTIME_DIR", runtime_dir)
-        .env_remove("HERDR_CLIENT_SOCKET_PATH")
-        .env_remove("HERDR_ENV");
+        .env_remove("KITSUNE_CLIENT_SOCKET_PATH")
+        .env_remove("KITSUNE_ENV");
     for (key, value) in envs {
         command.env(key, value);
     }
     if let Some(socket_override) = socket_override {
-        command.env("HERDR_SOCKET_PATH", socket_override);
+        command.env("KITSUNE_SOCKET_PATH", socket_override);
     } else {
-        command.env_remove("HERDR_SOCKET_PATH");
+        command.env_remove("KITSUNE_SOCKET_PATH");
     }
     command.output().unwrap()
 }
@@ -303,10 +303,10 @@ pub(super) fn spawn_herdr_with_config(
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HERDR_SOCKET_PATH", socket_path);
-    cmd.env_remove("HERDR_CLIENT_SOCKET_PATH");
+    cmd.env("KITSUNE_SOCKET_PATH", socket_path);
+    cmd.env_remove("KITSUNE_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HERDR_ENV");
+    cmd.env_remove("KITSUNE_ENV");
     if let Some(path) = path_override {
         cmd.env("PATH", path);
     }
@@ -322,7 +322,7 @@ pub(super) fn spawn_herdr_with_config(
 pub(super) fn run_cli(socket_path: &Path, args: &[&str]) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_kitsune"));
     command.args(args);
-    command.env("HERDR_SOCKET_PATH", socket_path);
+    command.env("KITSUNE_SOCKET_PATH", socket_path);
     command.output().unwrap()
 }
 
@@ -334,7 +334,7 @@ pub(super) fn run_cli_in_dir(
     let mut command = Command::new(env!("CARGO_BIN_EXE_kitsune"));
     command.args(args);
     command.current_dir(current_dir);
-    command.env("HERDR_SOCKET_PATH", socket_path);
+    command.env("KITSUNE_SOCKET_PATH", socket_path);
     command.output().unwrap()
 }
 

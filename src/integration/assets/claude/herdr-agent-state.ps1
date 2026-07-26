@@ -1,14 +1,14 @@
 # installed by herdr
 # managed by herdr; reinstalling or updating the integration overwrites this file.
 # add custom hooks beside this file instead of editing it.
-# HERDR_INTEGRATION_ID=claude
-# HERDR_INTEGRATION_VERSION=7
+# KITSUNE_INTEGRATION_ID=claude
+# KITSUNE_INTEGRATION_VERSION=7
 
 param([string]$Action = "")
 
 if ($Action -ne "session") { exit 0 }
-if ($env:HERDR_ENV -ne "1") { exit 0 }
-if ([string]::IsNullOrWhiteSpace($env:HERDR_PANE_ID)) { exit 0 }
+if ($env:KITSUNE_ENV -ne "1") { exit 0 }
+if ([string]::IsNullOrWhiteSpace($env:KITSUNE_PANE_ID)) { exit 0 }
 
 $inputText = [Console]::In.ReadToEnd()
 try {
@@ -28,7 +28,7 @@ try {
     $args = @(
         "pane",
         "report-agent-session",
-        $env:HERDR_PANE_ID,
+        $env:KITSUNE_PANE_ID,
         "--source",
         "herdr:claude",
         "--agent",

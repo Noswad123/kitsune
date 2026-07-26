@@ -46,39 +46,42 @@ impl App {
                 crate::product::RUNTIME_ENV_VAR.to_string(),
                 crate::product::RUNTIME_ENV_VALUE.to_string(),
             ),
-            ("HERDR_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
-            ("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json),
+            ("KITSUNE_PLUGIN_ID".to_string(), plugin.plugin_id.clone()),
+            ("KITSUNE_PLUGIN_CONTEXT_JSON".to_string(), context_json),
         ]);
         if let Ok(current_exe) = std::env::current_exe() {
             env.push((
-                "HERDR_BIN_PATH".to_string(),
+                "KITSUNE_BIN_PATH".to_string(),
                 current_exe.display().to_string(),
             ));
         }
         if let Some(action_id) = action_id.as_ref() {
-            env.push(("HERDR_PLUGIN_ACTION_ID".to_string(), action_id.clone()));
+            env.push(("KITSUNE_PLUGIN_ACTION_ID".to_string(), action_id.clone()));
         }
         if let Some(event) = event.as_ref() {
-            env.push(("HERDR_PLUGIN_EVENT".to_string(), event.clone()));
+            env.push(("KITSUNE_PLUGIN_EVENT".to_string(), event.clone()));
         }
         if let Some(event_json) = event_json {
-            env.push(("HERDR_PLUGIN_EVENT_JSON".to_string(), event_json));
+            env.push(("KITSUNE_PLUGIN_EVENT_JSON".to_string(), event_json));
         }
         if let Some(workspace_id) = context.workspace_id.as_ref() {
-            env.push(("HERDR_WORKSPACE_ID".to_string(), workspace_id.clone()));
+            env.push(("KITSUNE_WORKSPACE_ID".to_string(), workspace_id.clone()));
         }
         if let Some(tab_id) = context.tab_id.as_ref() {
-            env.push(("HERDR_TAB_ID".to_string(), tab_id.clone()));
+            env.push(("KITSUNE_TAB_ID".to_string(), tab_id.clone()));
         }
         if let Some(pane_id) = context.focused_pane_id.as_ref() {
-            env.push(("HERDR_PANE_ID".to_string(), pane_id.clone()));
+            env.push(("KITSUNE_PANE_ID".to_string(), pane_id.clone()));
         }
         if let Some(clicked_url) = context.clicked_url.as_ref() {
-            env.push(("HERDR_PLUGIN_CLICKED_URL".to_string(), clicked_url.clone()));
+            env.push((
+                "KITSUNE_PLUGIN_CLICKED_URL".to_string(),
+                clicked_url.clone(),
+            ));
         }
         if let Some(link_handler_id) = context.link_handler_id.as_ref() {
             env.push((
-                "HERDR_PLUGIN_LINK_HANDLER_ID".to_string(),
+                "KITSUNE_PLUGIN_LINK_HANDLER_ID".to_string(),
                 link_handler_id.clone(),
             ));
         }

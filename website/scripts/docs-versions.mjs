@@ -4,8 +4,8 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const websiteDir = dirname(fileURLToPath(import.meta.url));
-const repoRoot = process.env.HERDR_DOCS_REPO_ROOT
-  ? resolve(process.env.HERDR_DOCS_REPO_ROOT)
+const repoRoot = process.env.KITSUNE_DOCS_REPO_ROOT
+  ? resolve(process.env.KITSUNE_DOCS_REPO_ROOT)
   : resolve(websiteDir, '../..');
 const versionsDir = resolve(repoRoot, 'docs/versions');
 const manifestPath = resolve(versionsDir, 'manifest.json');

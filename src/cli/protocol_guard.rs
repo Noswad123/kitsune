@@ -98,7 +98,10 @@ mod tests {
             .error
             .message
             .contains("older than server protocol"));
-        assert!(response.error.message.contains("upgrade the Kitsune client"));
+        assert!(response
+            .error
+            .message
+            .contains("upgrade the Kitsune client"));
         assert!(!response.error.message.contains("unused restart guidance"));
     }
 

@@ -104,7 +104,7 @@ fn pane_get(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn pane_current(args: &[String]) -> std::io::Result<i32> {
-    let env_pane_id = std::env::var("HERDR_PANE_ID")
+    let env_pane_id = std::env::var("KITSUNE_PANE_ID")
         .ok()
         .filter(|value| !value.trim().is_empty());
     let caller_pane_id = match parse_pane_current_args(args, env_pane_id.as_deref()) {
@@ -519,7 +519,7 @@ fn pane_read(args: &[String]) -> std::io::Result<i32> {
 }
 
 fn pane_split(args: &[String]) -> std::io::Result<i32> {
-    let env_pane_id = std::env::var("HERDR_PANE_ID")
+    let env_pane_id = std::env::var("KITSUNE_PANE_ID")
         .ok()
         .filter(|value| !value.trim().is_empty());
     let params = match parse_pane_split_args(args, env_pane_id.as_deref()) {

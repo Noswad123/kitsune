@@ -1453,7 +1453,7 @@ mod tests {
 
         let output_path = unique_temp_path("custom-popup-command");
         let command = format!(
-            "printf '%s|%s' \"${{HERDR_PANE_ID-unset}}\" \"$HERDR_ACTIVE_PANE_ID\" > '{}'",
+            "printf '%s|%s' \"${{KITSUNE_PANE_ID-unset}}\" \"$KITSUNE_ACTIVE_PANE_ID\" > '{}'",
             output_path.display()
         );
         app.state.keybinds.custom_commands = vec![crate::config::CustomCommandKeybind {

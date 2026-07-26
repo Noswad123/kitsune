@@ -19,8 +19,7 @@ test:
 	cargo test --bin $(APP_NAME) -- --test-threads=1
 
 run: build
-	env -u HERDR_SOCKET_PATH -u HERDR_CLIENT_SOCKET_PATH -u HERDR_ENV \
-	    -u KITSUNE_SOCKET_PATH -u KITSUNE_CLIENT_SOCKET_PATH -u KITSUNE_ENV \
+	env -u KITSUNE_SOCKET_PATH -u KITSUNE_CLIENT_SOCKET_PATH -u KITSUNE_ENV \
 	    ./target/debug/$(APP_NAME)
 
 install: build

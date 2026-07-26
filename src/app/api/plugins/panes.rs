@@ -249,15 +249,15 @@ impl App {
             crate::product::RUNTIME_ENV_VAR.to_string(),
             crate::product::RUNTIME_ENV_VALUE.to_string(),
         ));
-        env.push(("HERDR_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
+        env.push(("KITSUNE_PLUGIN_ID".to_string(), plugin.plugin_id.clone()));
         env.push((
-            "HERDR_PLUGIN_ENTRYPOINT_ID".to_string(),
+            "KITSUNE_PLUGIN_ENTRYPOINT_ID".to_string(),
             entrypoint.to_string(),
         ));
-        env.push(("HERDR_PLUGIN_CONTEXT_JSON".to_string(), context_json));
+        env.push(("KITSUNE_PLUGIN_CONTEXT_JSON".to_string(), context_json));
         if let Ok(current_exe) = std::env::current_exe() {
             env.push((
-                "HERDR_BIN_PATH".to_string(),
+                "KITSUNE_BIN_PATH".to_string(),
                 current_exe.display().to_string(),
             ));
         }
@@ -343,12 +343,12 @@ fn plugin_pane_protected_env_key(key: &str) -> bool {
         key,
         crate::api::SOCKET_PATH_ENV_VAR
             | crate::product::RUNTIME_ENV_VAR
-            | "HERDR_PLUGIN_ID"
-            | "HERDR_PLUGIN_ROOT"
-            | "HERDR_PLUGIN_CONFIG_DIR"
-            | "HERDR_PLUGIN_STATE_DIR"
-            | "HERDR_PLUGIN_ENTRYPOINT_ID"
-            | "HERDR_PLUGIN_CONTEXT_JSON"
-            | "HERDR_BIN_PATH"
+            | "KITSUNE_PLUGIN_ID"
+            | "KITSUNE_PLUGIN_ROOT"
+            | "KITSUNE_PLUGIN_CONFIG_DIR"
+            | "KITSUNE_PLUGIN_STATE_DIR"
+            | "KITSUNE_PLUGIN_ENTRYPOINT_ID"
+            | "KITSUNE_PLUGIN_CONTEXT_JSON"
+            | "KITSUNE_BIN_PATH"
     )
 }

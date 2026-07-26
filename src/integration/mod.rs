@@ -12,7 +12,8 @@ pub(crate) use actions::{install_target, uninstall_target};
 #[cfg(test)]
 pub(crate) use env::integration_env_lock;
 pub(crate) use env::{
-    apply_pane_base_env, HERDR_PANE_ID_ENV_VAR, HERDR_TAB_ID_ENV_VAR, HERDR_WORKSPACE_ID_ENV_VAR,
+    apply_pane_base_env, KITSUNE_PANE_ID_ENV_VAR, KITSUNE_TAB_ID_ENV_VAR,
+    KITSUNE_WORKSPACE_ID_ENV_VAR,
 };
 pub(crate) use registry::{
     installed_integration_statuses, integration_recommendations, integration_target_label,
@@ -219,7 +220,7 @@ const GROK_HOOK_INSTALL_NAME: &str = "herdr-agent-state.sh";
 const GROK_HOOK_CONFIG_INSTALL_NAME: &str = "herdr.json";
 const GROK_HOOK_ASSET: &str = include_str!("assets/grok/herdr-agent-state.sh");
 const GROK_INTEGRATION_VERSION: u32 = 1;
-const INTEGRATION_VERSION_MARKER: &str = "HERDR_INTEGRATION_VERSION=";
+const INTEGRATION_VERSION_MARKER: &str = "KITSUNE_INTEGRATION_VERSION=";
 
 pub(crate) const INSTALL_WARNING_PREFIX: &str = "warning:";
 

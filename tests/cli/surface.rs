@@ -299,9 +299,9 @@ fn subcommand_help_explains_automation_semantics_without_a_server() {
     for (args, expected) in cases {
         let output = Command::new(env!("CARGO_BIN_EXE_kitsune"))
             .args(*args)
-            .env_remove("HERDR_SOCKET_PATH")
-            .env_remove("HERDR_CLIENT_SOCKET_PATH")
-            .env_remove("HERDR_ENV")
+            .env_remove("KITSUNE_SOCKET_PATH")
+            .env_remove("KITSUNE_CLIENT_SOCKET_PATH")
+            .env_remove("KITSUNE_ENV")
             .output()
             .unwrap();
         assert!(
@@ -378,7 +378,7 @@ fn agent_cli_rejects_invalid_wait_and_rename_grammar_locally() {
     ] {
         let output = Command::new(env!("CARGO_BIN_EXE_kitsune"))
             .args(args)
-            .env("HERDR_SOCKET_PATH", "/nonexistent/herdr.sock")
+            .env("KITSUNE_SOCKET_PATH", "/nonexistent/herdr.sock")
             .output()
             .unwrap();
         assert_eq!(
@@ -396,9 +396,9 @@ fn agent_cli_rejects_invalid_wait_and_rename_grammar_locally() {
 fn completion_command_prints_zsh_script_without_session_startup() {
     let output = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .args(["completion", "zsh"])
-        .env_remove("HERDR_SOCKET_PATH")
-        .env_remove("HERDR_CLIENT_SOCKET_PATH")
-        .env_remove("HERDR_ENV")
+        .env_remove("KITSUNE_SOCKET_PATH")
+        .env_remove("KITSUNE_CLIENT_SOCKET_PATH")
+        .env_remove("KITSUNE_ENV")
         .output()
         .unwrap();
 
@@ -566,9 +566,9 @@ fn explicit_client_command_respects_nested_guard() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .arg("client")
-        .env("HERDR_ENV", "1")
+        .env("KITSUNE_ENV", "1")
         .env("XDG_CONFIG_HOME", &base)
-        .env_remove("HERDR_CONFIG_PATH")
+        .env_remove("KITSUNE_CONFIG_PATH")
         .output()
         .unwrap();
 
@@ -586,7 +586,7 @@ fn explicit_client_command_respects_nested_guard() {
 fn removed_show_changelog_flag_fails_before_nested_guard() {
     let output = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .arg("--show-changelog")
-        .env("HERDR_ENV", "1")
+        .env("KITSUNE_ENV", "1")
         .output()
         .unwrap();
 

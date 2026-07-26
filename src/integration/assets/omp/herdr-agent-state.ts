@@ -1,21 +1,21 @@
 // installed by herdr
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
-// HERDR_INTEGRATION_ID=omp
-// HERDR_INTEGRATION_VERSION=7
+// KITSUNE_INTEGRATION_ID=omp
+// KITSUNE_INTEGRATION_VERSION=7
 // @ts-nocheck
 
 import net from "node:net";
 
-const HERDR_ENV = process.env.HERDR_ENV;
-const socketPath = process.env.HERDR_SOCKET_PATH;
+const KITSUNE_ENV = process.env.KITSUNE_ENV;
+const socketPath = process.env.KITSUNE_SOCKET_PATH;
 const socketEndpoint =
   process.platform === "win32" && socketPath ? `\\\\.\\pipe\\${socketPath}` : socketPath;
-const paneId = process.env.HERDR_PANE_ID;
+const paneId = process.env.KITSUNE_PANE_ID;
 const source = "herdr:omp";
 
 function enabled() {
-  return HERDR_ENV === "1" && !!socketPath && !!paneId;
+  return KITSUNE_ENV === "1" && !!socketPath && !!paneId;
 }
 
 let requestQueue = Promise.resolve();
@@ -71,8 +71,8 @@ type QueuedState = {
   seq: number;
 };
 
-const idleDebounceMs = parseDurationEnv("HERDR_OMP_IDLE_DEBOUNCE_MS", 250);
-const retryGraceMs = parseDurationEnv("HERDR_OMP_RETRY_GRACE_MS", 2500);
+const idleDebounceMs = parseDurationEnv("KITSUNE_OMP_IDLE_DEBOUNCE_MS", 250);
+const retryGraceMs = parseDurationEnv("KITSUNE_OMP_RETRY_GRACE_MS", 2500);
 const retryableErrorPattern =
   /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|connection.?lost|websocket.?closed|websocket.?error|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|ended without|http2 request did not get a response|timed? out|timeout|terminated|retry delay/i;
 let reportSeq = Date.now() * 1000;

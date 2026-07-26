@@ -107,13 +107,13 @@ async function startHerdrWorktree(
   signal: AbortSignal | undefined,
   options: StartOptions,
 ) {
-  if (process.env.HERDR_ENV !== "1") {
-    throw new Error("herdr_start_worktree must run inside a Herdr-managed pane");
+  if (process.env.KITSUNE_ENV !== "1") {
+    throw new Error("kitsune_start_worktree must run inside a Kitsune-managed pane");
   }
 
-  const oldPaneId = process.env.HERDR_PANE_ID;
+  const oldPaneId = process.env.KITSUNE_PANE_ID;
   if (options.closeOldPane && !oldPaneId) {
-    throw new Error("HERDR_PANE_ID is missing; cannot close the old Herdr pane safely");
+    throw new Error("KITSUNE_PANE_ID is missing; cannot close the old Kitsune pane safely");
   }
 
   const currentFile = ctx.sessionManager.getSessionFile();

@@ -5,9 +5,9 @@ mod unix;
 pub(crate) use unix::*;
 
 #[cfg(windows)]
-pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "HERDR_REATTACH_COMMAND";
+pub(crate) const REATTACH_COMMAND_ENV_VAR: &str = "KITSUNE_REATTACH_COMMAND";
 #[cfg(windows)]
-pub(crate) const REMOTE_KEYBINDINGS_ENV_VAR: &str = "HERDR_REMOTE_KEYBINDINGS";
+pub(crate) const REMOTE_KEYBINDINGS_ENV_VAR: &str = "KITSUNE_REMOTE_KEYBINDINGS";
 
 #[cfg(windows)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -80,9 +80,9 @@ fn run_shell_hook_with_env(
     command
         .arg(hook_path)
         .args(args)
-        .env("HERDR_ENV", "1")
-        .env("HERDR_SOCKET_PATH", &socket_path)
-        .env("HERDR_PANE_ID", "p_test")
+        .env("KITSUNE_ENV", "1")
+        .env("KITSUNE_SOCKET_PATH", &socket_path)
+        .env("KITSUNE_PANE_ID", "p_test")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -208,7 +208,7 @@ fn devin_hook_ignores_prompt_session_list_fallback() {
         &[
             ("DEVIN_PROJECT_DIR", "/tmp/project"),
             (
-                "HERDR_DEVIN_LIST_JSON",
+                "KITSUNE_DEVIN_LIST_JSON",
                 r#"[{"id":"older-session","working_directory":"/tmp/other"},{"id":"devin-session","working_directory":"/tmp/project"}]"#,
             ),
         ],
@@ -222,7 +222,7 @@ fn devin_hook_reports_session_id_from_stdin_without_state() {
     let request = run_devin_hook(
         "session",
         r#"{"hook_event_name":"SessionStart","session_id":"devin-session","source":"startup"}"#,
-        &[("HERDR_DEVIN_LIST_JSON", r#"[{"id":"older-session"}]"#)],
+        &[("KITSUNE_DEVIN_LIST_JSON", r#"[{"id":"older-session"}]"#)],
     )
     .expect("devin session start should report session identity");
 
@@ -240,7 +240,7 @@ fn devin_hook_prefers_hook_session_id_over_list() {
         &[
             ("DEVIN_PROJECT_DIR", "/tmp/project"),
             (
-                "HERDR_DEVIN_LIST_JSON",
+                "KITSUNE_DEVIN_LIST_JSON",
                 r#"[{"id":"older-session","working_directory":"/tmp/project"}]"#,
             ),
         ],
@@ -260,7 +260,7 @@ fn devin_hook_reports_tool_session_from_list_without_state() {
         &[
             ("DEVIN_PROJECT_DIR", "/tmp/project"),
             (
-                "HERDR_DEVIN_LIST_JSON",
+                "KITSUNE_DEVIN_LIST_JSON",
                 r#"[{"id":"older-session","working_directory":"/tmp/other"},{"id":"devin-session","working_directory":"/tmp/project"}]"#,
             ),
         ],
@@ -281,7 +281,7 @@ fn devin_hook_ignores_startup_session_list_fallback() {
         &[
             ("DEVIN_PROJECT_DIR", "/tmp/project"),
             (
-                "HERDR_DEVIN_LIST_JSON",
+                "KITSUNE_DEVIN_LIST_JSON",
                 r#"[{"id":"stale-session","working_directory":"/tmp/project"}]"#,
             ),
         ],
@@ -298,7 +298,7 @@ fn devin_hook_ignores_non_matching_session_list_entries() {
         &[
             ("DEVIN_PROJECT_DIR", "/tmp/project"),
             (
-                "HERDR_DEVIN_LIST_JSON",
+                "KITSUNE_DEVIN_LIST_JSON",
                 r#"[{"id":"other-session","working_directory":"/tmp/other"}]"#,
             ),
         ],

@@ -1492,7 +1492,7 @@ platforms = ["linux", "macos"]
 [[panes]]
 id = "board"
 title = "Plugin Board"
-command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$HERDR_PLUGIN_ID\" \"$HERDR_PLUGIN_ENTRYPOINT_ID\" \"$HERDR_WORKSPACE_ID\" \"$HERDR_PANE_ID\" \"$HERDR_BIN_PATH\" \"$HERDR_PLUGIN_CONTEXT_JSON\" \"${{HERDR_CELL_WIDTH_PX-unset}}\" \"${{HERDR_CELL_HEIGHT_PX-unset}}\" > {}"]
+command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \"$KITSUNE_PLUGIN_ID\" \"$KITSUNE_PLUGIN_ENTRYPOINT_ID\" \"$KITSUNE_WORKSPACE_ID\" \"$KITSUNE_PANE_ID\" \"$KITSUNE_BIN_PATH\" \"$KITSUNE_PLUGIN_CONTEXT_JSON\" \"${{KITSUNE_CELL_WIDTH_PX-unset}}\" \"${{KITSUNE_CELL_HEIGHT_PX-unset}}\" > {}"]
 "#,
                 capture.display()
             ),
@@ -1513,17 +1513,20 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n%s\n' \"$PWD\" \
                 cwd: None,
                 focus: true,
                 env: std::collections::HashMap::from([
-                    ("HERDR_PLUGIN_ID".to_string(), "spoofed-plugin".to_string()),
                     (
-                        "HERDR_PLUGIN_ENTRYPOINT_ID".to_string(),
+                        "KITSUNE_PLUGIN_ID".to_string(),
+                        "spoofed-plugin".to_string(),
+                    ),
+                    (
+                        "KITSUNE_PLUGIN_ENTRYPOINT_ID".to_string(),
                         "spoofed-entrypoint".to_string(),
                     ),
                     (
-                        "HERDR_PLUGIN_CONTEXT_JSON".to_string(),
+                        "KITSUNE_PLUGIN_CONTEXT_JSON".to_string(),
                         "{\"spoofed\":true}".to_string(),
                     ),
                     (
-                        "HERDR_BIN_PATH".to_string(),
+                        "KITSUNE_BIN_PATH".to_string(),
                         "/tmp/spoofed-herdr".to_string(),
                     ),
                 ]),
@@ -1599,7 +1602,7 @@ platforms = ["linux", "macos"]
 [[panes]]
 id = "board"
 title = "Plugin Board"
-command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$HERDR_PLUGIN_ROOT\" \"$HERDR_PLUGIN_CONFIG_DIR\" \"$HERDR_PLUGIN_STATE_DIR\" > {}"]
+command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$KITSUNE_PLUGIN_ROOT\" \"$KITSUNE_PLUGIN_CONFIG_DIR\" \"$KITSUNE_PLUGIN_STATE_DIR\" > {}"]
 "#,
                 capture.display()
             ),
@@ -1621,15 +1624,15 @@ command = ["sh", "-c", "printf '%s\n%s\n%s\n' \"$HERDR_PLUGIN_ROOT\" \"$HERDR_PL
                 focus: true,
                 env: std::collections::HashMap::from([
                     (
-                        "HERDR_PLUGIN_ROOT".to_string(),
+                        "KITSUNE_PLUGIN_ROOT".to_string(),
                         "/tmp/spoofed-root".to_string(),
                     ),
                     (
-                        "HERDR_PLUGIN_CONFIG_DIR".to_string(),
+                        "KITSUNE_PLUGIN_CONFIG_DIR".to_string(),
                         "/tmp/spoofed-config".to_string(),
                     ),
                     (
-                        "HERDR_PLUGIN_STATE_DIR".to_string(),
+                        "KITSUNE_PLUGIN_STATE_DIR".to_string(),
                         "/tmp/spoofed-state".to_string(),
                     ),
                 ]),
@@ -1949,7 +1952,7 @@ title = "Plugin Popup"
 placement = "popup"
 width = "80%"
 height = "40%"
-command = ["sh", "-c", "printf %s ${{HERDR_PANE_ID-unset}} > '{}'; sleep 1"]
+command = ["sh", "-c", "printf %s ${{KITSUNE_PANE_ID-unset}} > '{}'; sleep 1"]
 "#,
             env_capture.display()
         );
@@ -2277,7 +2280,7 @@ platforms = ["linux", "macos"]
 [[actions]]
 id = "run"
 title = "Run"
-command = ["sh", "-c", "printf '%s' \"$HERDR_PLUGIN_ACTION_ID\""]
+command = ["sh", "-c", "printf '%s' \"$KITSUNE_PLUGIN_ACTION_ID\""]
 "#,
         );
         link_manifest(&mut app, &root);
@@ -2344,7 +2347,7 @@ platforms = ["linux", "macos"]
 [[actions]]
 id = "run"
 title = "Run"
-command = ["sh", "-c", "printf '%s\n%s\n%s' \"$HERDR_PLUGIN_ROOT\" \"$HERDR_PLUGIN_CONFIG_DIR\" \"$HERDR_PLUGIN_STATE_DIR\""]
+command = ["sh", "-c", "printf '%s\n%s\n%s' \"$KITSUNE_PLUGIN_ROOT\" \"$KITSUNE_PLUGIN_CONFIG_DIR\" \"$KITSUNE_PLUGIN_STATE_DIR\""]
 "#,
         );
         link_manifest(&mut app, &root);
@@ -2455,7 +2458,7 @@ min_herdr_version = "0.6.10"
 platforms = ["linux", "macos"]
 
 [[startup]]
-command = ["sh", "-c", "printf '%s:%s' \"$HERDR_PLUGIN_ID\" \"$HERDR_PLUGIN_EVENT\" > {}"]
+command = ["sh", "-c", "printf '%s:%s' \"$KITSUNE_PLUGIN_ID\" \"$KITSUNE_PLUGIN_EVENT\" > {}"]
 "#,
                 capture.display()
             ),
@@ -2503,7 +2506,7 @@ platforms = ["linux", "macos"]
 
 [[events]]
 on = "worktree.created"
-command = ["sh", "-c", "printf '%s' \"$HERDR_PLUGIN_CONTEXT_JSON\" > {}"]
+command = ["sh", "-c", "printf '%s' \"$KITSUNE_PLUGIN_CONTEXT_JSON\" > {}"]
 "#,
                 capture.display()
             ),
@@ -2722,7 +2725,7 @@ platforms = ["linux", "macos"]
 [[actions]]
 id = "open"
 title = "Open link"
-command = ["sh", "-c", "printf '%s|%s' \"$HERDR_PLUGIN_LINK_HANDLER_ID\" \"$HERDR_PLUGIN_CLICKED_URL\""]
+command = ["sh", "-c", "printf '%s|%s' \"$KITSUNE_PLUGIN_LINK_HANDLER_ID\" \"$KITSUNE_PLUGIN_CLICKED_URL\""]
 
 [[link_handlers]]
 id = "github-issue"

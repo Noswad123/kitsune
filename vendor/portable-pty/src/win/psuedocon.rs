@@ -134,21 +134,21 @@ fn load_conpty() -> ConPtyFuncs {
         )
     });
 
-    if std::env::var("HERDR_WINDOWS_CONPTY").as_deref() == Ok("system") {
-        log::warn!("HERDR_WINDOWS_CONPTY=system disables Herdr's bundled ConPTY");
+    if std::env::var("KITSUNE_WINDOWS_CONPTY").as_deref() == Ok("system") {
+        log::warn!("KITSUNE_WINDOWS_CONPTY=system disables Kitsune's bundled ConPTY");
         return system;
     }
 
     match app_local_conpty_path() {
         Ok(Some(path)) => load_app_local_conpty(&path).unwrap_or_else(|error| {
             panic!(
-                "failed to load verified app-local ConPTY from {}: {error}; set HERDR_WINDOWS_CONPTY=system to use the Windows system ConPTY",
+                "failed to load verified app-local ConPTY from {}: {error}; set KITSUNE_WINDOWS_CONPTY=system to use the Windows system ConPTY",
                 path.display()
             )
         }),
         Ok(None) => system,
         Err(error) => panic!(
-            "Herdr's app-local ConPTY bundle is invalid: {}; reinstall Herdr or set HERDR_WINDOWS_CONPTY=system to use the Windows system ConPTY",
+            "Kitsune's app-local ConPTY bundle is invalid: {}; reinstall Kitsune or set KITSUNE_WINDOWS_CONPTY=system to use the Windows system ConPTY",
             error
         ),
     }

@@ -1046,8 +1046,12 @@ mod tests {
     fn procargs2_env_reads_agent_hint_after_argv() {
         let buf = build_procargs2(
             "/opt/homebrew/bin/nono",
-            &["nono", "run", "HERDR_AGENT=codex", "--", "claude"],
-            &["PATH=/usr/bin", "HERDR_AGENT=claude", "TERM=xterm-256color"],
+            &["nono", "run", "KITSUNE_AGENT=codex", "--", "claude"],
+            &[
+                "PATH=/usr/bin",
+                "KITSUNE_AGENT=claude",
+                "TERM=xterm-256color",
+            ],
         );
 
         let env = procargs2_env(&buf).expect("expected env block");
@@ -1061,7 +1065,7 @@ mod tests {
     fn procargs2_env_does_not_treat_argv_as_environment() {
         let buf = build_procargs2(
             "/opt/homebrew/bin/nono",
-            &["nono", "run", "HERDR_AGENT=claude"],
+            &["nono", "run", "KITSUNE_AGENT=claude"],
             &["PATH=/usr/bin"],
         );
 
@@ -1137,13 +1141,13 @@ mod tests {
             "herdr-terminal-notifier-args-{}",
             std::process::id()
         ));
-        let script = "printf '%s:%s\\n' \"$0\" \"$*\" >> \"$HERDR_NOTIFY_ARGS\"";
+        let script = "printf '%s:%s\\n' \"$0\" \"$*\" >> \"$KITSUNE_NOTIFY_ARGS\"";
         let mut command = |program: &str| {
             let mut cmd = Command::new("sh");
             cmd.arg("-c")
                 .arg(script)
                 .arg(program)
-                .env("HERDR_NOTIFY_ARGS", &path);
+                .env("KITSUNE_NOTIFY_ARGS", &path);
             cmd
         };
 
@@ -1171,14 +1175,14 @@ mod tests {
 if [ "$0" = "terminal-notifier" ]; then
   exit 1
 fi
-printf '%s\n' "$@" > "$HERDR_NOTIFY_ARGS"
+printf '%s\n' "$@" > "$KITSUNE_NOTIFY_ARGS"
 "#;
         let mut command = |program: &str| {
             let mut cmd = Command::new("sh");
             cmd.arg("-c")
                 .arg(script)
                 .arg(program)
-                .env("HERDR_NOTIFY_ARGS", &path);
+                .env("KITSUNE_NOTIFY_ARGS", &path);
             cmd
         };
         let shown = show_desktop_notification_with_command("title", Some("body"), &mut command)

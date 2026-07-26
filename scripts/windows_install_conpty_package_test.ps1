@@ -35,10 +35,10 @@ $manifestPath = Join-Path $webRoot "preview.json"
 $manifest | Out-File -LiteralPath $manifestPath -Encoding utf8
 
 $server = $null
-$oldHerdrHome = $env:HERDR_HOME
+$oldHerdrHome = $env:KITSUNE_HOME
 try {
     $server = Start-Process python -ArgumentList @("-m", "http.server", "$port", "--bind", "127.0.0.1", "--directory", $webRoot) -PassThru -WindowStyle Hidden
-    $env:HERDR_HOME = Join-Path $root "unused\..\home"
+    $env:KITSUNE_HOME = Join-Path $root "unused\..\home"
     $manifestUrl = "http://127.0.0.1:$port/preview.json"
     for ($attempt = 0; $attempt -lt 20; $attempt++) {
         try {
@@ -138,7 +138,7 @@ try {
         throw "installer accepted a manifest that did not match the updater-selected build"
     }
 } finally {
-    $env:HERDR_HOME = $oldHerdrHome
+    $env:KITSUNE_HOME = $oldHerdrHome
     if ($null -ne $server -and -not $server.HasExited) {
         Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
     }

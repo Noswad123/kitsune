@@ -1,8 +1,8 @@
 // installed by herdr
 // managed by herdr; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
-// HERDR_INTEGRATION_ID=opencode
-// HERDR_INTEGRATION_VERSION=9
+// KITSUNE_INTEGRATION_ID=opencode
+// KITSUNE_INTEGRATION_VERSION=9
 
 import net from "node:net";
 
@@ -59,8 +59,8 @@ function request(method, params) {
 }
 
 function requestOnce(method, params) {
-  const paneId = process.env.HERDR_PANE_ID;
-  const socketPath = process.env.HERDR_SOCKET_PATH;
+  const paneId = process.env.KITSUNE_PANE_ID;
+  const socketPath = process.env.KITSUNE_SOCKET_PATH;
 
   if (!paneId || !socketPath) {
     return Promise.resolve();
@@ -124,9 +124,9 @@ function reportState(state, sessionID) {
 
 export const HerdrAgentStatePlugin = async () => {
   if (
-    process.env.HERDR_ENV !== "1" ||
-    !process.env.HERDR_SOCKET_PATH ||
-    !process.env.HERDR_PANE_ID
+    process.env.KITSUNE_ENV !== "1" ||
+    !process.env.KITSUNE_SOCKET_PATH ||
+    !process.env.KITSUNE_PANE_ID
   ) {
     return {};
   }

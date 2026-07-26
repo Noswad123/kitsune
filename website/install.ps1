@@ -1,9 +1,9 @@
 [CmdletBinding()]
 param(
-    [string]$Channel = $env:HERDR_CHANNEL,
-    [string]$ManifestUrl = $env:HERDR_MANIFEST_URL,
-    [string]$InstallDir = $env:HERDR_INSTALL_DIR,
-    [string]$ExpectedBuildId = $env:HERDR_EXPECTED_BUILD_ID,
+    [string]$Channel = $env:KITSUNE_CHANNEL,
+    [string]$ManifestUrl = $env:KITSUNE_MANIFEST_URL,
+    [string]$InstallDir = $env:KITSUNE_INSTALL_DIR,
+    [string]$ExpectedBuildId = $env:KITSUNE_EXPECTED_BUILD_ID,
     [int]$Retain = 3
 )
 
@@ -500,10 +500,10 @@ if ([string]::IsNullOrWhiteSpace($ManifestUrl)) {
     }
 }
 
-$herdrHome = if ([string]::IsNullOrWhiteSpace($env:HERDR_HOME)) {
+$herdrHome = if ([string]::IsNullOrWhiteSpace($env:KITSUNE_HOME)) {
     Join-Path $env:USERPROFILE ".herdr"
 } else {
-    $env:HERDR_HOME
+    $env:KITSUNE_HOME
 }
 $herdrHome = [System.IO.Path]::GetFullPath($herdrHome)
 $standaloneRoot = Join-Path $herdrHome "packages\standalone"

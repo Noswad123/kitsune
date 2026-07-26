@@ -30,8 +30,8 @@ const HOMEBREW_UPDATE_COMMAND: &str = "brew update && brew upgrade herdr";
 const MISE_UPDATE_COMMAND: &str = "mise upgrade herdr";
 const NIX_UPDATE_COMMAND: &str = "update through Nix";
 const MISE_INSTALLS_DIR_ENV: &str = "MISE_INSTALLS_DIR";
-const FAKE_UPDATE_VERSION_ENV: &str = "HERDR_FAKE_UPDATE_VERSION";
-const FAKE_UPDATE_NOTES_VERSION_ENV: &str = "HERDR_FAKE_UPDATE_NOTES_VERSION";
+const FAKE_UPDATE_VERSION_ENV: &str = "KITSUNE_FAKE_UPDATE_VERSION";
+const FAKE_UPDATE_NOTES_VERSION_ENV: &str = "KITSUNE_FAKE_UPDATE_NOTES_VERSION";
 const DEFAULT_FAKE_UPDATE_NOTES_VERSION: &str = "0.3.0";
 #[cfg(not(windows))]
 const SERVER_STOP_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
@@ -640,7 +640,7 @@ fn install_windows_update_with_installer(
             "-Command",
             "irm https://herdr.dev/install.ps1 | iex",
         ])
-        .env("HERDR_CHANNEL", channel.as_str())
+        .env("KITSUNE_CHANNEL", channel.as_str())
         // Drop any inherited PSModulePath. When herdr is launched from
         // PowerShell 7, its Core module paths come first and Windows
         // PowerShell 5.1 (this `powershell`) fails to autoload cmdlets like
@@ -648,7 +648,7 @@ fn install_windows_update_with_installer(
         // See PowerShell/PowerShell#8635.
         .env_remove("PSModulePath");
     if let Some(build_id) = expected_build_id {
-        command.env("HERDR_EXPECTED_BUILD_ID", build_id);
+        command.env("KITSUNE_EXPECTED_BUILD_ID", build_id);
     }
     let status = command
         .status()
@@ -663,7 +663,8 @@ fn install_windows_update_with_installer(
 
 #[cfg(windows)]
 fn windows_installed_herdr_exe_path() -> Result<PathBuf, String> {
-    if let Some(install_dir) = env::var_os("HERDR_INSTALL_DIR").filter(|value| !value.is_empty()) {
+    if let Some(install_dir) = env::var_os("KITSUNE_INSTALL_DIR").filter(|value| !value.is_empty())
+    {
         return Ok(PathBuf::from(install_dir).join("herdr.exe"));
     }
 

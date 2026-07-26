@@ -1058,15 +1058,15 @@ mod tests {
     #[test]
     fn parse_env_assignment_accepts_empty_values() {
         assert_eq!(
-            super::parse_env_assignment("HERDR_ROLE=").unwrap(),
-            ("HERDR_ROLE".to_string(), String::new())
+            super::parse_env_assignment("KITSUNE_ROLE=").unwrap(),
+            ("KITSUNE_ROLE".to_string(), String::new())
         );
     }
 
     #[test]
     fn parse_env_assignment_requires_key_value_separator() {
         assert_eq!(
-            super::parse_env_assignment("HERDR_ROLE").unwrap_err(),
+            super::parse_env_assignment("KITSUNE_ROLE").unwrap_err(),
             "env must use KEY=VALUE"
         );
     }

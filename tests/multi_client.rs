@@ -125,10 +125,10 @@ fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket_path: &Path) 
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HERDR_SOCKET_PATH", api_socket_path);
-    cmd.env_remove("HERDR_CLIENT_SOCKET_PATH");
+    cmd.env("KITSUNE_SOCKET_PATH", api_socket_path);
+    cmd.env_remove("KITSUNE_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HERDR_ENV");
+    cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
     register_spawned_herdr_pid(child.process_id());
@@ -157,13 +157,13 @@ fn spawn_client_process(
 
     let mut cmd = CommandBuilder::new(env!("CARGO_BIN_EXE_kitsune"));
     cmd.arg("client");
-    cmd.env("HERDR_DISABLE_SOUND", "1");
+    cmd.env("KITSUNE_DISABLE_SOUND", "1");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HERDR_SOCKET_PATH", api_socket_path);
-    cmd.env_remove("HERDR_CLIENT_SOCKET_PATH");
+    cmd.env("KITSUNE_SOCKET_PATH", api_socket_path);
+    cmd.env_remove("KITSUNE_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", "/bin/sh");
-    cmd.env_remove("HERDR_ENV");
+    cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
     register_spawned_herdr_pid(child.process_id());

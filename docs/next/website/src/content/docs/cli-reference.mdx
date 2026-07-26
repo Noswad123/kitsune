@@ -184,11 +184,11 @@ herdr pane close <pane_id>
 ```
 
 For pane commands that accept `--current`, Herdr uses the calling pane's
-`HERDR_PANE_ID` when the command runs inside a Herdr pane. For `pane split`,
+`KITSUNE_PANE_ID` when the command runs inside a Herdr pane. For `pane split`,
 an explicit pane id or `--pane ID` splits that pane, `--current` splits the
 calling pane, and an omitted target keeps using the UI-focused pane.
 The split response exposes the new pane ID as `.result.pane.pane_id`.
-After `pane move`, use `.result.move_result.pane.pane_id` for later commands. A cross-workspace move changes the workspace-qualified pane ID; the prior value remains at `.result.move_result.previous_pane_id`. The running process keeps its launch-time `HERDR_PANE_ID`, `HERDR_TAB_ID`, and `HERDR_WORKSPACE_ID`; Herdr retains the old pane ID as an alias for that terminal, so pane commands using `--current` still resolve it. A live agent name follows the terminal and continues to resolve after the move.
+After `pane move`, use `.result.move_result.pane.pane_id` for later commands. A cross-workspace move changes the workspace-qualified pane ID; the prior value remains at `.result.move_result.previous_pane_id`. The running process keeps its launch-time `KITSUNE_PANE_ID`, `KITSUNE_TAB_ID`, and `KITSUNE_WORKSPACE_ID`; Herdr retains the old pane ID as an alias for that terminal, so pane commands using `--current` still resolve it. A live agent name follows the terminal and continues to resolve after the move.
 
 Read output:
 
@@ -456,10 +456,10 @@ new tab, a zoomed pane, or a session-modal `popup` that does not change the tab
 layout. `--width` and `--height` set the outer popup dimensions in terminal
 cells or percentages such as `80%`; omitted dimensions default to half the
 terminal size, and values smaller than the popup minimum are clamped. A popup
-is not a Herdr pane, does not export `HERDR_PANE_ID`, and does not participate
+is not a Herdr pane, does not export `KITSUNE_PANE_ID`, and does not participate
 in pane or agent APIs. Native non-terminal plugin panes are a later surface.
 
-`--env KEY=VALUE` can be repeated on process-launching commands. It applies to the newly launched process only. Herdr-managed variables such as `HERDR_SOCKET_PATH`, `HERDR_BIN_PATH`, `HERDR_ENV`, `HERDR_WORKSPACE_ID`, `HERDR_TAB_ID`, `HERDR_PANE_ID`, `HERDR_PLUGIN_ID`, `HERDR_PLUGIN_ROOT`, `HERDR_PLUGIN_CONFIG_DIR`, `HERDR_PLUGIN_STATE_DIR`, `HERDR_PLUGIN_ENTRYPOINT_ID`, and `HERDR_PLUGIN_CONTEXT_JSON` stay authoritative when they conflict with caller-provided env.
+`--env KEY=VALUE` can be repeated on process-launching commands. It applies to the newly launched process only. Herdr-managed variables such as `KITSUNE_SOCKET_PATH`, `KITSUNE_BIN_PATH`, `KITSUNE_ENV`, `KITSUNE_WORKSPACE_ID`, `KITSUNE_TAB_ID`, `KITSUNE_PANE_ID`, `KITSUNE_PLUGIN_ID`, `KITSUNE_PLUGIN_ROOT`, `KITSUNE_PLUGIN_CONFIG_DIR`, `KITSUNE_PLUGIN_STATE_DIR`, `KITSUNE_PLUGIN_ENTRYPOINT_ID`, and `KITSUNE_PLUGIN_CONTEXT_JSON` stay authoritative when they conflict with caller-provided env.
 
 ## Read sources
 
@@ -476,12 +476,12 @@ These meanings apply to reads. For `pane wait-output` only, both `recent` and `r
 
 | Variable | Purpose |
 | --- | --- |
-| `HERDR_CONFIG_PATH` | Override the config file path. |
-| `HERDR_SESSION` | Select a named session for CLI commands. |
-| `HERDR_SOCKET_PATH` | Low-level socket path override. |
-| `HERDR_ENV` | Set to `1` inside Herdr-managed pane processes. |
-| `HERDR_PANE_ID` | Public pane id for the running pane process. |
-| `HERDR_TAB_ID` | Public tab id for the running pane process. |
-| `HERDR_WORKSPACE_ID` | Public workspace id for the running pane process. |
-| `HERDR_LOG` | Set log filter, for example `HERDR_LOG=herdr=debug`. |
-| `HERDR_DISABLE_SOUND` | Disable sound playback even when sound notifications are enabled. |
+| `KITSUNE_CONFIG_PATH` | Override the config file path. |
+| `KITSUNE_SESSION` | Select a named session for CLI commands. |
+| `KITSUNE_SOCKET_PATH` | Low-level socket path override. |
+| `KITSUNE_ENV` | Set to `1` inside Herdr-managed pane processes. |
+| `KITSUNE_PANE_ID` | Public pane id for the running pane process. |
+| `KITSUNE_TAB_ID` | Public tab id for the running pane process. |
+| `KITSUNE_WORKSPACE_ID` | Public workspace id for the running pane process. |
+| `KITSUNE_LOG` | Set log filter, for example `KITSUNE_LOG=herdr=debug`. |
+| `KITSUNE_DISABLE_SOUND` | Disable sound playback even when sound notifications are enabled. |

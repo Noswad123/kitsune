@@ -58,12 +58,12 @@ pub extern "system" fn ClosePseudoConsole(_hpc: HANDLE) {}
 Invoke-Checked rustc @("--crate-type", "cdylib", "--edition", "2021", $fakeSource, "-o", $fakeDll)
 
 $oldPath = $env:PATH
-$oldSession = $env:HERDR_SESSION
-$oldSocket = $env:HERDR_SOCKET_PATH
-$oldClientSocket = $env:HERDR_CLIENT_SOCKET_PATH
+$oldSession = $env:KITSUNE_SESSION
+$oldSocket = $env:KITSUNE_SOCKET_PATH
+$oldClientSocket = $env:KITSUNE_CLIENT_SOCKET_PATH
 $env:PATH = "$fakeDir;$oldPath"
-$env:HERDR_SESSION = $Session
-Remove-Item Env:HERDR_SOCKET_PATH, Env:HERDR_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
+$env:KITSUNE_SESSION = $Session
+Remove-Item Env:KITSUNE_SOCKET_PATH, Env:KITSUNE_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
 
 $server = $null
 try {
@@ -102,7 +102,7 @@ try {
     if ([string]::IsNullOrWhiteSpace($paneId)) {
         throw "workspace create did not return a root pane id: $($created -join "`n")"
     }
-    $marker = "HERDR_CONPTY_SMOKE_OK"
+    $marker = "KITSUNE_CONPTY_SMOKE_OK"
     Invoke-Checked $exe @("pane", "run", $paneId, "echo $marker")
 
     $text = ""
@@ -144,19 +144,19 @@ try {
     $global:LASTEXITCODE = 0
     $env:PATH = $oldPath
     if ($null -eq $oldSession) {
-        Remove-Item Env:HERDR_SESSION -ErrorAction SilentlyContinue
+        Remove-Item Env:KITSUNE_SESSION -ErrorAction SilentlyContinue
     } else {
-        $env:HERDR_SESSION = $oldSession
+        $env:KITSUNE_SESSION = $oldSession
     }
     if ($null -eq $oldSocket) {
-        Remove-Item Env:HERDR_SOCKET_PATH -ErrorAction SilentlyContinue
+        Remove-Item Env:KITSUNE_SOCKET_PATH -ErrorAction SilentlyContinue
     } else {
-        $env:HERDR_SOCKET_PATH = $oldSocket
+        $env:KITSUNE_SOCKET_PATH = $oldSocket
     }
     if ($null -eq $oldClientSocket) {
-        Remove-Item Env:HERDR_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
+        Remove-Item Env:KITSUNE_CLIENT_SOCKET_PATH -ErrorAction SilentlyContinue
     } else {
-        $env:HERDR_CLIENT_SOCKET_PATH = $oldClientSocket
+        $env:KITSUNE_CLIENT_SOCKET_PATH = $oldClientSocket
     }
     Remove-Item -Recurse -Force $fakeDir -ErrorAction SilentlyContinue
 }

@@ -1157,7 +1157,7 @@ mod tests {
         let helper = base.join("pi.cmd");
         fs::write(
             &helper,
-            "@echo off\r\n>\"%HERDR_ARGV_CAPTURE%\" (\r\necho(%~1\r\necho(%~2\r\necho(%~3\r\necho(%~4\r\necho(%~5\r\necho(%~6\r\n)\r\n",
+            "@echo off\r\n>\"%KITSUNE_ARGV_CAPTURE%\" (\r\necho(%~1\r\necho(%~2\r\necho(%~3\r\necho(%~4\r\necho(%~5\r\necho(%~6\r\n)\r\n",
         )
         .unwrap();
         let argv = vec![
@@ -1179,14 +1179,14 @@ mod tests {
                 Command::new("cmd.exe")
                     .args(["/d", "/c", &command])
                     .env("PATH", &path)
-                    .env("HERDR_ARGV_CAPTURE", &capture)
+                    .env("KITSUNE_ARGV_CAPTURE", &capture)
                     .status()
                     .unwrap()
             } else {
                 Command::new("powershell.exe")
                     .args(["-NoLogo", "-NoProfile", "-Command", &command])
                     .env("PATH", &path)
-                    .env("HERDR_ARGV_CAPTURE", &capture)
+                    .env("KITSUNE_ARGV_CAPTURE", &capture)
                     .status()
                     .unwrap()
             };
@@ -1200,8 +1200,8 @@ mod tests {
         let _ = fs::remove_dir_all(base);
     }
 
-    const CONSOLE_TEST_CHILD_ENV: &str = "HERDR_TEST_CONSOLE_CHILD_MODE";
-    const CONSOLE_TEST_PARENT_PID_ENV: &str = "HERDR_TEST_CONSOLE_PARENT_PID";
+    const CONSOLE_TEST_CHILD_ENV: &str = "KITSUNE_TEST_CONSOLE_CHILD_MODE";
+    const CONSOLE_TEST_PARENT_PID_ENV: &str = "KITSUNE_TEST_CONSOLE_PARENT_PID";
 
     fn console_process_ids() -> Vec<u32> {
         let mut process_ids = vec![0; 8];

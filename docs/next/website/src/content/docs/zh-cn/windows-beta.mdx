@@ -17,7 +17,7 @@ powershell -ExecutionPolicy Bypass -c "irm https://herdr.dev/install.ps1 | iex"
 
 Windows 测试版构建只通过预览通道发布。在 Windows 上,Herdr 默认使用预览通道,且不会修改你的配置。安装器将发布版本保存在 `%USERPROFILE%\.herdr\packages\standalone\releases` 下,让 `%LOCALAPPDATA%\Programs\Herdr\bin` 指向当前版本,并保留少量旧版本,以免运行中的进程阻塞更新。
 
-对于内部测试,`HERDR_MANIFEST_URL` 可以让安装器指向自定义清单,而不是 Herdr 的稳定或预览清单。
+对于内部测试,`KITSUNE_MANIFEST_URL` 可以让安装器指向自定义清单,而不是 Herdr 的稳定或预览清单。
 
 ## 测试版支持
 
@@ -79,7 +79,7 @@ host_cursor = "native"
 
 Windows 终端并不都以相同形式报告带修饰键的按键。Herdr 在 Windows Terminal 和 Windows 上的 Alacritty 中保留鼠标报告和 `ctrl+j`,但 `shift+enter` 只有在外层终端把它报告为独立的修饰 Enter 键时才有效。如果 Windows 或终端把它报告为普通 Enter,Herdr 会转发普通 Enter。
 
-旧版 Windows 10 的系统 ConPTY 会丢弃 Kimi 和 Pi 等智能体使用的 Kitty 键盘协议序列，因此预览包包含 Microsoft 当前的应用本地 ConPTY 运行时。仅在诊断捆绑运行时的兼容性问题时，才应在启动 Herdr 前设置 `HERDR_WINDOWS_CONPTY=system`。
+旧版 Windows 10 的系统 ConPTY 会丢弃 Kimi 和 Pi 等智能体使用的 Kitty 键盘协议序列，因此预览包包含 Microsoft 当前的应用本地 ConPTY 运行时。仅在诊断捆绑运行时的兼容性问题时，才应在启动 Herdr 前设置 `KITSUNE_WINDOWS_CONPTY=system`。
 
 ## 复制与粘贴
 
@@ -119,6 +119,6 @@ Windows 更新通过 Windows 安装器进行,并更新带版本号的安装联�
 - Windows 版本。
 - 终端应用。
 - Shell,比如 PowerShell 或 cmd。
-- 是否使用了命名的 `HERDR_SESSION`。
+- 是否使用了命名的 `KITSUNE_SESSION`。
 - 相关的 Herdr 日志。
 - 精确的复现步骤。

@@ -358,7 +358,7 @@ command = ["sh", "-c", "sleep 5"]
             "--entrypoint",
             "board",
             "--env",
-            "HERDR_ROLE=board",
+            "KITSUNE_ROLE=board",
             "--no-focus",
         ],
     );
@@ -406,7 +406,7 @@ min_herdr_version = "0.6.10"
 platforms = ["linux", "macos", "windows"]
 
 [[build]]
-command = ["sh", "-c", "echo built > built.txt; if [ -n \"$HERDR_SESSION\" ]; then echo \"$HERDR_SESSION\" > leaked-session.txt; fi"]
+command = ["sh", "-c", "echo built > built.txt; if [ -n \"$KITSUNE_SESSION\" ]; then echo \"$KITSUNE_SESSION\" > leaked-session.txt; fi"]
 
 [[actions]]
 id = "bootstrap"
@@ -446,7 +446,7 @@ command = ["sh", "-c", "echo bootstrap"]
         ],
         &[
             ("GIT_CONFIG_GLOBAL", &git_config),
-            ("HERDR_SESSION", Path::new("leaked-session")),
+            ("KITSUNE_SESSION", Path::new("leaked-session")),
         ],
     );
     assert!(
@@ -483,7 +483,7 @@ command = ["sh", "-c", "echo bootstrap"]
             .join("worktree-bootstrap")
             .join("leaked-session.txt")
             .exists(),
-        "build command should not inherit HERDR_SESSION"
+        "build command should not inherit KITSUNE_SESSION"
     );
 
     let uninstall = run_named_cli(

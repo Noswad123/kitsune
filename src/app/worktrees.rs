@@ -134,7 +134,7 @@ impl App {
             .is_some_and(|space| space.is_linked_worktree)
         {
             self.state.config_diagnostic =
-                Some("This workspace is not a Herdr-managed worktree checkout.".into());
+                Some("This workspace is not a Kitsune-managed worktree checkout.".into());
             return;
         }
         let Some(space) = ws.worktree_space().cloned() else {

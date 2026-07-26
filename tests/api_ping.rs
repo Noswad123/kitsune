@@ -142,10 +142,10 @@ fn spawn_herdr_with_options(
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
-    cmd.env("HERDR_SOCKET_PATH", socket_path);
-    cmd.env_remove("HERDR_CLIENT_SOCKET_PATH");
+    cmd.env("KITSUNE_SOCKET_PATH", socket_path);
+    cmd.env_remove("KITSUNE_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", shell);
-    cmd.env_remove("HERDR_ENV");
+    cmd.env_remove("KITSUNE_ENV");
     if let Some(path) = path_override {
         cmd.env("PATH", path);
     }
@@ -1022,7 +1022,7 @@ fn agent_start_targets_existing_pane_over_socket() {
     let bin = base.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let fake_pi = bin.join("pi");
-    fs::write(&fake_pi, "#!/bin/sh\nHERDR_AGENT=pi exec /bin/sleep 20\n").unwrap();
+    fs::write(&fake_pi, "#!/bin/sh\nKITSUNE_AGENT=pi exec /bin/sleep 20\n").unwrap();
     fs::set_permissions(&fake_pi, fs::Permissions::from_mode(0o755)).unwrap();
 
     let child = spawn_herdr_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));

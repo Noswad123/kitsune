@@ -1532,16 +1532,16 @@ fn scrub_herdr_runtime_env(command: &mut Command) {
         crate::api::SOCKET_PATH_ENV_VAR,
         crate::server::socket_paths::CLIENT_SOCKET_PATH_ENV_VAR,
         crate::session::SESSION_ENV_VAR,
-        "HERDR_BIN_PATH",
-        "HERDR_ENV",
-        "HERDR_WORKSPACE_ID",
-        "HERDR_TAB_ID",
-        "HERDR_PANE_ID",
+        "KITSUNE_BIN_PATH",
+        "KITSUNE_ENV",
+        "KITSUNE_WORKSPACE_ID",
+        "KITSUNE_TAB_ID",
+        "KITSUNE_PANE_ID",
     ] {
         command.env_remove(key);
     }
     for (key, _) in std::env::vars_os() {
-        if key.to_string_lossy().starts_with("HERDR_PLUGIN_") {
+        if key.to_string_lossy().starts_with("KITSUNE_PLUGIN_") {
             command.env_remove(key);
         }
     }

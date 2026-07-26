@@ -798,7 +798,7 @@ fn outdated_integrations_detect_previous_pi_version() {
     let extension_path = ext_dir.join(PI_EXTENSION_INSTALL_NAME);
     fs::write(
         &extension_path,
-        "// HERDR_INTEGRATION_ID=pi\n// HERDR_INTEGRATION_VERSION=4\n",
+        "// KITSUNE_INTEGRATION_ID=pi\n// KITSUNE_INTEGRATION_VERSION=4\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -828,7 +828,7 @@ fn outdated_integrations_detect_previous_omp_version() {
     let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
     fs::write(
         &extension_path,
-        "// HERDR_INTEGRATION_ID=omp\n// HERDR_INTEGRATION_VERSION=4\n",
+        "// KITSUNE_INTEGRATION_ID=omp\n// KITSUNE_INTEGRATION_VERSION=4\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1062,7 +1062,7 @@ fn claude_v1_integration_status_is_outdated() {
     let hook_path = claude_hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=claude\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# KITSUNE_INTEGRATION_ID=claude\n# KITSUNE_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1092,7 +1092,7 @@ fn claude_v2_integration_status_is_outdated() {
     let hook_path = claude_hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=claude\n# HERDR_INTEGRATION_VERSION=2\n",
+        "#!/bin/sh\n# KITSUNE_INTEGRATION_ID=claude\n# KITSUNE_INTEGRATION_VERSION=2\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1225,7 +1225,7 @@ fn codex_v2_integration_status_is_outdated() {
     let hook_path = codex_dir.join(CODEX_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=codex\n# HERDR_INTEGRATION_VERSION=2\n",
+        "#!/bin/sh\n# KITSUNE_INTEGRATION_ID=codex\n# KITSUNE_INTEGRATION_VERSION=2\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -1660,7 +1660,7 @@ fn copilot_v1_integration_status_is_outdated() {
     let hook_path = copilot_hooks_dir.join(COPILOT_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=copilot\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# KITSUNE_INTEGRATION_ID=copilot\n# KITSUNE_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2119,7 +2119,7 @@ fn droid_v1_integration_status_is_outdated() {
     let hook_path = droid_hooks_dir.join(DROID_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=droid\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# KITSUNE_INTEGRATION_ID=droid\n# KITSUNE_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var("HOME", &home);
@@ -2698,7 +2698,7 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(!CLAUDE_HOOK_ASSET.contains("\"state\": action"));
     assert!(!CLAUDE_HOOK_ASSET.contains("pane.release_agent"));
     assert!(
-        CODEX_HOOK_ASSET.contains("HERDR_HOOK_INPUT_FILE")
+        CODEX_HOOK_ASSET.contains("KITSUNE_HOOK_INPUT_FILE")
             || CODEX_HOOK_ASSET.contains("In.ReadToEnd")
     );
     assert!(
@@ -2726,7 +2726,7 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(COPILOT_HOOK_ASSET.contains("pane.report_agent_session"));
     assert!(!COPILOT_HOOK_ASSET.contains("\"state\":"));
     assert!(!COPILOT_HOOK_ASSET.contains("pane.release_agent"));
-    assert!(DEVIN_HOOK_ASSET.contains("HERDR_DEVIN_LIST_JSON"));
+    assert!(DEVIN_HOOK_ASSET.contains("KITSUNE_DEVIN_LIST_JSON"));
     assert!(DEVIN_HOOK_ASSET.contains("\"method\": \"pane.report_agent_session\""));
     assert!(!DEVIN_HOOK_ASSET.contains("\"method\": \"pane.report_agent\""));
     assert!(!DEVIN_HOOK_ASSET.contains("\"state\":"));
@@ -2747,13 +2747,13 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(KILO_PLUGIN_ASSET.contains("session_start_source: \"startup\""));
     assert!(KILO_PLUGIN_ASSET.contains("reportState"));
     assert!(!KILO_PLUGIN_ASSET.contains("pane.release_agent"));
-    assert!(QODERCLI_HOOK_ASSET.contains("HERDR_PANE_ID"));
+    assert!(QODERCLI_HOOK_ASSET.contains("KITSUNE_PANE_ID"));
     assert!(QODERCLI_HOOK_ASSET.contains("session_id"));
     assert!(QODERCLI_HOOK_ASSET.contains("report-agent-session"));
     assert!(QODERCLI_HOOK_ASSET.contains("--agent-session-id"));
     assert!(!QODERCLI_HOOK_ASSET.contains("report-agent\""));
     assert!(!QODERCLI_HOOK_ASSET.contains("release-agent"));
-    assert!(CURSOR_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=cursor"));
+    assert!(CURSOR_HOOK_ASSET.contains("KITSUNE_INTEGRATION_ID=cursor"));
     assert!(CURSOR_HOOK_ASSET.contains("conversation_id"));
     assert!(CURSOR_HOOK_ASSET.contains("conversationId"));
     assert!(CURSOR_HOOK_ASSET.contains("sessionId"));
@@ -2763,15 +2763,15 @@ fn bundled_integration_assets_report_session_refs() {
     assert!(CURSOR_HOOK_ASSET.contains("sessionStart"));
     assert!(!CURSOR_HOOK_ASSET.contains("\"state\":"));
     assert!(!CURSOR_HOOK_ASSET.contains("pane.release_agent"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=mastracode"));
-    assert!(MASTRACODE_HOOK_ASSET.contains("HERDR_INTEGRATION_VERSION=2"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("KITSUNE_INTEGRATION_ID=mastracode"));
+    assert!(MASTRACODE_HOOK_ASSET.contains("KITSUNE_INTEGRATION_VERSION=2"));
     assert!(MASTRACODE_HOOK_ASSET.contains("session_id"));
     assert!(!MASTRACODE_HOOK_ASSET.contains("run_id"));
     assert!(MASTRACODE_HOOK_ASSET.contains("agent_session_id"));
     assert!(MASTRACODE_HOOK_ASSET.contains("pane.report_agent_session"));
     assert!(MASTRACODE_HOOK_ASSET.contains("session_start_source"));
     assert!(MASTRACODE_HOOK_ASSET.contains("pane.report_agent"));
-    assert!(GROK_HOOK_ASSET.contains("HERDR_INTEGRATION_ID=grok"));
+    assert!(GROK_HOOK_ASSET.contains("KITSUNE_INTEGRATION_ID=grok"));
     assert!(GROK_HOOK_ASSET.contains("GROK_SESSION_ID"));
     assert!(GROK_HOOK_ASSET.contains("sessionId"));
     assert!(GROK_HOOK_ASSET.contains("agent_session_id"));
@@ -3236,7 +3236,7 @@ fn cursor_v1_integration_status_is_current() {
     let hook_path = cursor_dir.join(CURSOR_HOOK_INSTALL_NAME);
     fs::write(
         &hook_path,
-        "#!/bin/sh\n# HERDR_INTEGRATION_ID=cursor\n# HERDR_INTEGRATION_VERSION=1\n",
+        "#!/bin/sh\n# KITSUNE_INTEGRATION_ID=cursor\n# KITSUNE_INTEGRATION_VERSION=1\n",
     )
     .unwrap();
     std::env::set_var(CURSOR_CONFIG_DIR_ENV_VAR, &cursor_dir);

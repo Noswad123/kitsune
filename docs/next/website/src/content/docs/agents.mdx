@@ -49,7 +49,7 @@ Claude Code, Codex, GitHub Copilot CLI, Droid, Qoder CLI, Cursor Agent CLI, and 
 
 ## VMs and sandbox wrappers
 
-On Linux and macOS, a host-visible wrapper can hide the real agent process from Herdr. Set `HERDR_AGENT=<agent>` on the wrapper command to tell Herdr which existing agent screen manifest to use. For example, run `HERDR_AGENT=claude fence -- claude` on Linux or `HERDR_AGENT=claude nono run --profile claude-code -- claude` on macOS. The hint is scoped to that foreground process; setting it only inside a VM or container is not visible to Herdr, and you should avoid exporting it globally unless every inherited foreground process should be treated as that agent.
+On Linux and macOS, a host-visible wrapper can hide the real agent process from Herdr. Set `KITSUNE_AGENT=<agent>` on the wrapper command to tell Herdr which existing agent screen manifest to use. For example, run `KITSUNE_AGENT=claude fence -- claude` on Linux or `KITSUNE_AGENT=claude nono run --profile claude-code -- claude` on macOS. The hint is scoped to that foreground process; setting it only inside a VM or container is not visible to Herdr, and you should avoid exporting it globally unless every inherited foreground process should be treated as that agent.
 
 ## Blocked state
 

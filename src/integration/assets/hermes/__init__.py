@@ -1,7 +1,7 @@
 """Hermes plugin installed by Herdr to report resumable session identity."""
 
-# HERDR_INTEGRATION_ID=hermes
-# HERDR_INTEGRATION_VERSION=4
+# KITSUNE_INTEGRATION_ID=hermes
+# KITSUNE_INTEGRATION_VERSION=4
 
 from __future__ import annotations
 
@@ -17,10 +17,10 @@ _INTERACTIVE_PLATFORMS = {"cli", "tui", "desktop", "acp"}
 
 
 def _base_params() -> tuple[str, str] | None:
-    if os.environ.get("HERDR_ENV") != "1":
+    if os.environ.get("KITSUNE_ENV") != "1":
         return None
-    pane_id = os.environ.get("HERDR_PANE_ID", "").strip()
-    socket_path = os.environ.get("HERDR_SOCKET_PATH", "").strip()
+    pane_id = os.environ.get("KITSUNE_PANE_ID", "").strip()
+    socket_path = os.environ.get("KITSUNE_SOCKET_PATH", "").strip()
     if not pane_id or not socket_path:
         return None
     return pane_id, socket_path

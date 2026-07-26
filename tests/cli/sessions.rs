@@ -204,7 +204,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
 
     let workspace_list = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .args(["workspace", "list"])
-        .env("HERDR_SOCKET_PATH", &missing_socket)
+        .env("KITSUNE_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -212,7 +212,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
 
     let integration_install = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .args(["integration", "install", "pi"])
-        .env("HERDR_SOCKET_PATH", &missing_socket)
+        .env("KITSUNE_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -224,7 +224,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .args(["integration", "status"])
-        .env("HERDR_SOCKET_PATH", &missing_socket)
+        .env("KITSUNE_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -235,7 +235,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
 
     let integration_uninstall = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .args(["integration", "uninstall", "pi"])
-        .env("HERDR_SOCKET_PATH", &missing_socket)
+        .env("KITSUNE_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -267,7 +267,7 @@ fn integration_status_outdated_only_prints_action_for_legacy_install() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .args(["integration", "status", "--outdated-only"])
-        .env("HERDR_SOCKET_PATH", &missing_socket)
+        .env("KITSUNE_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();
@@ -293,7 +293,7 @@ fn integration_status_rejects_unknown_flags() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .args(["integration", "status", "--wat"])
-        .env("HERDR_SOCKET_PATH", &missing_socket)
+        .env("KITSUNE_SOCKET_PATH", &missing_socket)
         .env("HOME", &home_dir)
         .output()
         .unwrap();

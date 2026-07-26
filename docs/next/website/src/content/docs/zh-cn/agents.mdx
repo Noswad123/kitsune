@@ -49,7 +49,7 @@ Claude Code、Codex、GitHub Copilot CLI、Droid、Qoder CLI 和 Cursor Agent CL
 
 ## 虚拟机与沙箱包装器
 
-在 Linux 和 macOS 上,宿主可见的包装器可能会向 Herdr 隐藏真实的智能体进程。在包装器命令上设置 `HERDR_AGENT=<agent>`,告诉 Herdr 应使用哪个已有智能体的屏幕清单。例如,在 Linux 上运行 `HERDR_AGENT=claude fence -- claude`,或在 macOS 上运行 `HERDR_AGENT=claude nono run --profile claude-code -- claude`。这个提示的作用范围只限于该前台进程;仅在 VM 或容器内部设置时 Herdr 无法看到它,而且除非所有继承的前台进程都应被视为该智能体,否则不要全局 export。
+在 Linux 和 macOS 上,宿主可见的包装器可能会向 Herdr 隐藏真实的智能体进程。在包装器命令上设置 `KITSUNE_AGENT=<agent>`,告诉 Herdr 应使用哪个已有智能体的屏幕清单。例如,在 Linux 上运行 `KITSUNE_AGENT=claude fence -- claude`,或在 macOS 上运行 `KITSUNE_AGENT=claude nono run --profile claude-code -- claude`。这个提示的作用范围只限于该前台进程;仅在 VM 或容器内部设置时 Herdr 无法看到它,而且除非所有继承的前台进程都应被视为该智能体,否则不要全局 export。
 
 ## blocked 状态
 

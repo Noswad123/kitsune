@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use tracing::warn;
 
-const DISABLE_SOUND_ENV: &str = "HERDR_DISABLE_SOUND";
+const DISABLE_SOUND_ENV: &str = "KITSUNE_DISABLE_SOUND";
 #[cfg(not(any(windows, target_os = "macos")))]
 const AUDIO_PLAYER_TIMEOUT: Duration = Duration::from_secs(15);
 #[cfg(not(any(windows, target_os = "macos")))]

@@ -1,7 +1,7 @@
 #!/bin/sh
 # managed by herdr; reinstalling the integration replaces this file.
-# HERDR_INTEGRATION_ID=kimi
-# HERDR_INTEGRATION_VERSION=6
+# KITSUNE_INTEGRATION_ID=kimi
+# KITSUNE_INTEGRATION_VERSION=6
 
 action="${1:-}"
 case "$action" in
@@ -9,9 +9,9 @@ case "$action" in
   *) exit 0 ;;
 esac
 
-[ "${HERDR_ENV:-}" = "1" ] || exit 0
-[ -n "${HERDR_SOCKET_PATH:-}" ] || exit 0
-[ -n "${HERDR_PANE_ID:-}" ] || exit 0
+[ "${KITSUNE_ENV:-}" = "1" ] || exit 0
+[ -n "${KITSUNE_SOCKET_PATH:-}" ] || exit 0
+[ -n "${KITSUNE_PANE_ID:-}" ] || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 python3 -c '
@@ -33,7 +33,7 @@ if not isinstance(session_id, str) or not session_id:
 
 seq = time.time_ns()
 params = {
-    "pane_id": os.environ["HERDR_PANE_ID"],
+    "pane_id": os.environ["KITSUNE_PANE_ID"],
     "source": "herdr:kimi",
     "agent": "kimi",
     "seq": seq,
@@ -53,7 +53,7 @@ request = json.dumps({"id": f"herdr:kimi:{seq}", "method": method, "params": par
 try:
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
         client.settimeout(0.5)
-        client.connect(os.environ["HERDR_SOCKET_PATH"])
+        client.connect(os.environ["KITSUNE_SOCKET_PATH"])
         client.sendall((request + "\n").encode())
         client.recv(4096)
 except Exception:
