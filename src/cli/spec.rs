@@ -26,8 +26,6 @@ pub(super) fn command() -> Command {
                 .help("Print version and exit"),
         )
         .subcommand(completion_command())
-        .subcommand(update_command())
-        .subcommand(channel_command())
         .subcommand(status_command())
         .subcommand(config_command())
         .subcommand(server_command())
@@ -95,23 +93,6 @@ fn write_requested_help(args: &[String], output: &mut impl Write) -> std::io::Re
     selected.write_long_help(&mut *output)?;
     writeln!(output)?;
     Ok(true)
-}
-
-fn update_command() -> Command {
-    Command::new("update")
-        .about("Show manual update guidance")
-        .arg(flag("handoff").help("Accepted for compatibility; self-update is unavailable"))
-}
-
-fn channel_command() -> Command {
-    Command::new("channel")
-        .about("Show build channel status")
-        .subcommand(Command::new("status").about("Show the build channel"))
-        .subcommand(
-            Command::new("set")
-                .about("Unsupported hosted update channel selection")
-                .arg(required("channel", "CHANNEL").value_parser(["stable", "preview"])),
-        )
 }
 
 fn completion_command() -> Command {

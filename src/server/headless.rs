@@ -2203,44 +2203,6 @@ impl HeadlessServer {
 
                 true
             }
-            AppEvent::UpdateReady {
-                version,
-                install_command,
-            } => {
-                let toast_before = self.app.state.toast.clone();
-                let version = version.clone();
-                let install_command = install_command.clone();
-
-                self.app.handle_internal_event(ev);
-
-                let toast_msg =
-                    if should_forward_toast_to_clients(self.app.state.toast_config.delivery) {
-                        if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
-                            self.app
-                                .state
-                                .toast
-                                .as_ref()
-                                .map(|toast| format!("{}: {}", toast.title, toast.context))
-                        } else {
-                            Some(format!(
-                                "v{version} available: {}",
-                                crate::update::update_install_instruction(&install_command)
-                            ))
-                        }
-                    } else {
-                        None
-                    };
-
-                if let Some(msg) = toast_msg {
-                    self.send_flat_toast_to_foreground_client(
-                        toast_notify_kind(self.app.state.toast_config.delivery)
-                            .expect("toast forwarding requires a client notification kind"),
-                        msg,
-                    );
-                }
-
-                true
-            }
             AppEvent::PaneDied { pane_id } => {
                 let pane_id_val = *pane_id;
                 let terminal_id = self.app.state.workspaces.iter().find_map(|ws| {
@@ -4667,9 +4629,8 @@ mod tests {
             server
                 .app
                 .event_tx
-                .try_send(AppEvent::UpdateReady {
-                    version: format!("4.0.{i}"),
-                    install_command: "kitsune install".into(),
+                .try_send(AppEvent::ClipboardWrite {
+                    content: vec![i as u8],
                 })
                 .unwrap();
         }
@@ -4691,10 +4652,9 @@ mod tests {
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
 
         assert_eq!(response["result"]["type"], "ok");
-        let expected_version = format!("4.0.{}", crate::app::APP_EVENT_DRAIN_LIMIT);
         assert_eq!(
-            server.app.state.update_available.as_deref(),
-            Some(expected_version.as_str())
+            server.app.state.request_clipboard_write.as_deref(),
+            Some(&[crate::app::APP_EVENT_DRAIN_LIMIT as u8][..])
         );
         assert!(server.app.event_rx.try_recv().is_err());
     }
@@ -8961,94 +8921,6 @@ next_tab = ""
         assert_eq!(server.foreground_client_id, Some(2));
         assert_eq!(server.clients.len(), 2);
         assert!(server.app.state.toast.is_none());
-    }
-
-    #[test]
-    fn herdr_toast_delivery_keeps_toast_in_frame_without_client_notify() {
-        let mut server = test_headless_server();
-        let (client_tx, client_control_rx, _client_rx) = test_client_writer();
-
-        server.clients.insert(
-            1,
-            ClientConnection::new(
-                (80, 24),
-                crate::kitty_graphics::HostCellSize::default(),
-                crate::terminal_theme::TerminalTheme::default(),
-                None,
-                1,
-                RenderEncoding::SemanticFrame,
-                Some(client_tx),
-            ),
-        );
-        server.foreground_client_id = Some(1);
-        server.app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-
-        let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
-            version: "9.9.9".to_string(),
-            install_command: crate::product::command("update"),
-        });
-
-        assert!(changed);
-        assert!(server.app.state.toast.is_some());
-        assert!(
-            client_control_rx
-                .recv_timeout(Duration::from_millis(50))
-                .is_err(),
-            "kitsune delivery should render in-frame instead of forwarding a client-local notification"
-        );
-    }
-
-    #[test]
-    fn system_toast_delivery_forwards_system_notify_kind() {
-        let mut server = test_headless_server();
-        let (client_tx, client_control_rx, _client_rx) = test_client_writer();
-
-        server.clients.insert(
-            1,
-            ClientConnection::new(
-                (80, 24),
-                crate::kitty_graphics::HostCellSize::default(),
-                crate::terminal_theme::TerminalTheme::default(),
-                None,
-                1,
-                RenderEncoding::SemanticFrame,
-                Some(client_tx),
-            ),
-        );
-        server.foreground_client_id = Some(1);
-        server.app.state.toast_config.delivery = crate::config::ToastDelivery::System;
-
-        let changed = server.handle_internal_event_with_forwarding(AppEvent::UpdateReady {
-            version: "9.9.9".to_string(),
-            install_command: crate::product::command("update"),
-        });
-
-        assert!(changed);
-        match read_server_message(
-            client_control_rx
-                .recv_timeout(Duration::from_millis(100))
-                .expect("system toast message"),
-        ) {
-            ServerMessage::Notify {
-                kind,
-                message,
-                body,
-            } => {
-                assert_eq!(kind, protocol::NotifyKind::SystemToast);
-                assert_eq!(message, "v9.9.9 available");
-                assert_eq!(
-                    body.as_deref(),
-                    Some(
-                        format!(
-                            "detach, run `{}`, then follow its restart guidance",
-                            crate::product::command("update")
-                        )
-                        .as_str()
-                    )
-                );
-            }
-            other => panic!("expected system toast notify, got {other:?}"),
-        }
     }
 
     #[test]

@@ -86,8 +86,6 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
             };
             exit_code
         }
-        "update" => run_update_command(&args[2..]),
-        "channel" => run_channel_command(&args[2..]),
         "api" => api::run_api_command(&args[2..])?,
         "status" => status::run_status_command(&args[2..])?,
         "completion" | "completions" => completion::run_completion_command(&args[2..])?,
@@ -105,86 +103,6 @@ pub fn maybe_run(args: &[String]) -> std::io::Result<CommandOutcome> {
     };
 
     Ok(CommandOutcome::Handled(exit_code))
-}
-
-fn run_update_command(args: &[String]) -> i32 {
-    match args {
-        [] => {
-            print_manual_update_guidance();
-            1
-        }
-        [flag] if matches!(flag.as_str(), "--handoff") => {
-            print_manual_update_guidance();
-            1
-        }
-        [flag] if matches!(flag.as_str(), "help" | "--help" | "-h") => {
-            print_update_help();
-            0
-        }
-        _ => {
-            print_update_help();
-            2
-        }
-    }
-}
-
-fn run_channel_command(args: &[String]) -> i32 {
-    match args {
-        [] => {
-            print_channel_status();
-            0
-        }
-        [flag] if matches!(flag.as_str(), "status") => {
-            print_channel_status();
-            0
-        }
-        [flag] if matches!(flag.as_str(), "help" | "--help" | "-h") => {
-            print_channel_help();
-            0
-        }
-        [command, channel]
-            if command == "set" && matches!(channel.as_str(), "stable" | "preview") =>
-        {
-            eprintln!(
-                "hosted Kitsune update channels are not available in this fork; install Kitsune manually from the repository release you want"
-            );
-            1
-        }
-        _ => {
-            print_channel_help();
-            2
-        }
-    }
-}
-
-fn print_manual_update_guidance() {
-    eprintln!("Kitsune does not have a hosted self-updater in this fork.");
-    eprintln!(
-        "Install the desired Kitsune build manually from https://github.com/Noswad123/kitsune/releases or build from source."
-    );
-    eprintln!("For local development, build with `cargo build --bin kitsune --bin kit`.");
-}
-
-fn print_update_help() {
-    println!("{}", crate::product::usage("update"));
-    println!();
-    println!("Kitsune does not have a hosted self-updater in this fork.");
-    println!("Install releases manually or build from source.");
-}
-
-fn print_channel_status() {
-    println!("build_channel: {}", crate::build_info::channel());
-    println!("hosted_update_channels: unavailable");
-}
-
-fn print_channel_help() {
-    println!("{}", crate::product::usage("channel [status]"));
-    println!();
-    println!("Hosted stable/preview update channels are not available in this fork.");
-    println!(
-        "Use `{} channel status` to print the build channel.",
-        crate::product::cli_name()
-    );
 }
 
 fn run_config_command(args: &[String]) -> std::io::Result<i32> {

@@ -62,11 +62,7 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
         &format!("v{}", notes.version),
         &app.palette,
     );
-    let subtitle = if notes.preview {
-        "update ready"
-    } else {
-        "what's new in this release"
-    };
+    let subtitle = "what's new in this release";
     frame.render_widget(
         Paragraph::new(subtitle).style(Style::default().fg(app.palette.overlay1)),
         header_subtitle_area,
@@ -83,8 +79,7 @@ pub(super) fn render_release_notes_overlay(app: &AppState, frame: &mut Frame, ar
     );
 
     let notes_body = stack.content;
-    let display_lines =
-        release_notes_display_lines(notes, &app.update_install_command, &app.palette);
+    let display_lines = release_notes_display_lines(notes, &app.palette);
     let metrics = crate::pane::ScrollMetrics {
         offset_from_bottom: app.release_notes_max_scroll().saturating_sub(notes.scroll) as usize,
         max_offset_from_bottom: app.release_notes_max_scroll() as usize,
@@ -376,49 +371,11 @@ pub(crate) fn release_notes_lines<'a>(body: &'a str, p: &Palette) -> Vec<(usize,
     lines
 }
 
-fn release_notes_preview_line_entries<'a>(
-    install_command: &str,
-    p: &Palette,
-) -> Vec<(usize, Line<'a>)> {
-    let title_style = Style::default().fg(p.text).add_modifier(Modifier::BOLD);
-    let text_style = Style::default().fg(p.text);
-    let inline_code_style = Style::default()
-        .fg(p.accent)
-        .bg(p.surface0)
-        .add_modifier(Modifier::BOLD);
-    let instruction = crate::update::update_install_instruction(install_command);
-    let (instruction_width, mut instruction_spans) =
-        release_notes_inline_spans(&instruction, text_style, inline_code_style);
-    instruction_spans.insert(0, Span::raw(" "));
-
-    vec![
-        (
-            15,
-            Line::from(vec![
-                Span::raw(" "),
-                Span::styled(
-                    "●",
-                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(" update ready", title_style),
-            ]),
-        ),
-        (instruction_width + 1, Line::from(instruction_spans)),
-    ]
-}
-
 pub(crate) fn release_notes_display_lines<'a>(
     notes: &'a ReleaseNotesState,
-    install_command: &str,
     p: &Palette,
 ) -> Vec<(usize, Line<'a>)> {
-    let mut lines = Vec::new();
-    if notes.preview {
-        lines.extend(release_notes_preview_line_entries(install_command, p));
-        lines.push((0, Line::raw("")));
-    }
-    lines.extend(release_notes_lines(notes.body.as_str(), p));
-    lines
+    release_notes_lines(notes.body.as_str(), p)
 }
 
 pub(crate) fn product_announcement_display_lines<'a>(
@@ -485,26 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn release_notes_preview_lines_show_update_steps() {
-        let palette = Palette::catppuccin();
-        let update_command = crate::product::command("update");
-        let lines = release_notes_preview_line_entries(&update_command, &palette)
-            .into_iter()
-            .map(|(_, line)| line)
-            .collect::<Vec<_>>();
-
-        assert_eq!(lines.len(), 2);
-        assert_eq!(line_text(&lines[0]), " ● update ready");
-        assert_eq!(line_text(&lines[1]), format!(" {update_command}"));
-        assert_eq!(lines[0].spans[1].style.fg, Some(palette.accent));
-        assert_eq!(lines[0].spans[2].style.fg, Some(palette.text));
-        assert_eq!(lines[1].spans[1].content.as_ref(), update_command);
-        assert_eq!(lines[1].spans[1].style.fg, Some(palette.text));
-        assert_eq!(lines[1].spans[1].style.bg, None);
-    }
-
-    #[test]
-    fn release_notes_preview_display_is_part_of_the_scrollable_notes_body() {
+    fn release_notes_preview_display_shows_only_notes_body() {
         let palette = Palette::catppuccin();
         let notes = ReleaseNotesState {
             version: "0.6.6".into(),
@@ -513,14 +451,10 @@ mod tests {
             preview: true,
         };
 
-        let update_command = crate::product::command("update");
-        let lines = release_notes_display_lines(&notes, &update_command, &palette);
+        let lines = release_notes_display_lines(&notes, &palette);
 
-        assert_eq!(line_text(&lines[0].1), " ● update ready");
-        assert_eq!(line_text(&lines[1].1), format!(" {update_command}"));
-        assert_eq!(line_text(&lines[2].1), "");
-        assert_eq!(line_text(&lines[3].1), " ADDED");
-        assert_eq!(line_text(&lines[4].1), " • One");
+        assert_eq!(line_text(&lines[0].1), " ADDED");
+        assert_eq!(line_text(&lines[1].1), " • One");
     }
 
     #[test]

@@ -198,9 +198,7 @@ impl AppState {
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {
         let mut labels = vec!["settings", "keybinds", "reload config"];
-        if self.update_available.is_some() {
-            labels.push("update ready");
-        } else if self.latest_release_notes_available {
+        if self.latest_release_notes_available {
             labels.push("what's new");
         }
         labels.push("detach");
@@ -575,9 +573,8 @@ mod tests {
     }
 
     #[test]
-    fn update_pending_menu_surfaces_update_ready_entry() {
+    fn saved_release_notes_menu_surfaces_whats_new_entry() {
         let mut app = app_for_mouse_test();
-        app.state.update_available = Some("0.3.2".into());
         app.state.latest_release_notes_available = true;
 
         let launcher = app.state.global_launcher_rect();
@@ -593,7 +590,7 @@ mod tests {
                 "settings",
                 "keybinds",
                 "reload config",
-                "update ready",
+                "what's new",
                 "detach"
             ]
         );

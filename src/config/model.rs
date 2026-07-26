@@ -11,47 +11,19 @@ use super::{
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum UpdateChannelConfig {
-    #[default]
-    Stable,
-    Preview,
-}
-
-impl UpdateChannelConfig {
-    #[cfg(test)]
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Stable => "stable",
-            Self::Preview => "preview",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(default)]
 pub struct UpdateConfig {
-    pub channel: UpdateChannelConfig,
-    pub version_check: bool,
+    /// Check for remote agent-detection manifest updates in the background.
+    /// This is disabled by default and requires an explicit manifest catalog URL.
     pub manifest_check: bool,
 }
 
 impl Default for UpdateConfig {
     fn default() -> Self {
         Self {
-            channel: default_update_channel(),
-            version_check: false,
             manifest_check: false,
         }
-    }
-}
-
-fn default_update_channel() -> UpdateChannelConfig {
-    if cfg!(windows) {
-        UpdateChannelConfig::Preview
-    } else {
-        UpdateChannelConfig::Stable
     }
 }
 
@@ -1123,39 +1095,14 @@ mod tests {
     #[test]
     fn update_config_defaults_and_parses() {
         let default_config = Config::default();
-        assert_eq!(default_config.update.channel, default_update_channel());
-        assert!(!default_config.update.version_check);
         assert!(!default_config.update.manifest_check);
 
         let toml = r#"
 [update]
-channel = "preview"
-version_check = false
 manifest_check = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(config.update.channel, UpdateChannelConfig::Preview);
-        assert_eq!(config.update.channel.as_str(), "preview");
-        assert!(!config.update.version_check);
         assert!(!config.update.manifest_check);
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_update_config_defaults_to_preview() {
-        let empty: Config = toml::from_str("").unwrap();
-        let without_update_channel: Config =
-            toml::from_str("[update]\nversion_check = false").unwrap();
-
-        assert_eq!(
-            Config::default().update.channel,
-            UpdateChannelConfig::Preview
-        );
-        assert_eq!(empty.update.channel, UpdateChannelConfig::Preview);
-        assert_eq!(
-            without_update_channel.update.channel,
-            UpdateChannelConfig::Preview
-        );
     }
 
     #[test]

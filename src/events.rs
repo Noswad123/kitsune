@@ -114,13 +114,6 @@ pub enum AppEvent {
         known_agent: Option<Agent>,
         seq: Option<u64>,
     },
-    /// A new version is available through the active installation manager.
-    #[allow(dead_code)]
-    // Hosted update checks are removed, but tests still exercise saved release-note UI behavior through this internal event.
-    UpdateReady {
-        version: String,
-        install_command: String,
-    },
     /// Remote agent detection manifest update check finished.
     AgentDetectionManifestsUpdated {
         updated: Vec<crate::detect::manifest_update::ManifestUpdateCommit>,

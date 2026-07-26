@@ -107,39 +107,32 @@ fn parse_integration_target(
     let Some(target) = args.first().map(|arg| arg.as_str()) else {
         eprintln!(
             "{}",
-            crate::product::usage(&format!("integration {action} <pi|omp|claude|codex|copilot|devin|droid|kimi|opencode|kilo|hermes|qodercli|cursor|mastracode|grok>"))
+            crate::product::usage(&format!(
+                "integration {action} <pi|claude|codex|copilot|opencode|djinn>"
+            ))
         );
         return Ok(None);
     };
     if args.len() != 1 {
         eprintln!(
             "{}",
-            crate::product::usage(&format!("integration {action} <pi|omp|claude|codex|copilot|devin|droid|kimi|opencode|kilo|hermes|qodercli|cursor|mastracode|grok>"))
+            crate::product::usage(&format!(
+                "integration {action} <pi|claude|codex|copilot|opencode|djinn>"
+            ))
         );
         return Ok(None);
     }
 
     let parsed = match target {
         "pi" => IntegrationTarget::Pi,
-        "omp" => IntegrationTarget::Omp,
         "claude" => IntegrationTarget::Claude,
         "codex" => IntegrationTarget::Codex,
         "copilot" => IntegrationTarget::Copilot,
-        "devin" => IntegrationTarget::Devin,
-        "droid" => IntegrationTarget::Droid,
-        "kimi" => IntegrationTarget::Kimi,
         "opencode" => IntegrationTarget::Opencode,
-        "kilo" => IntegrationTarget::Kilo,
-        "hermes" => IntegrationTarget::Hermes,
-        "qodercli" => IntegrationTarget::Qodercli,
-        "cursor" => IntegrationTarget::Cursor,
-        "mastracode" => IntegrationTarget::Mastracode,
-        "grok" => IntegrationTarget::Grok,
+        "djinn" => IntegrationTarget::Djinn,
         _ => {
             eprintln!("unknown integration target: {target}");
-            eprintln!(
-                "currently supported: pi, omp, claude, codex, copilot, devin, droid, kimi, opencode, kilo, hermes, qodercli, cursor, mastracode, grok"
-            );
+            eprintln!("currently supported: pi, claude, codex, copilot, opencode, djinn");
             return Ok(None);
         }
     };
@@ -149,45 +142,13 @@ fn parse_integration_target(
 
 fn print_integration_help() {
     eprintln!("{} integration commands:", crate::product::cli_name());
-    for target in [
-        "pi",
-        "omp",
-        "claude",
-        "codex",
-        "copilot",
-        "devin",
-        "droid",
-        "kimi",
-        "opencode",
-        "kilo",
-        "hermes",
-        "qodercli",
-        "cursor",
-        "mastracode",
-        "grok",
-    ] {
+    for target in ["pi", "claude", "codex", "copilot", "opencode", "djinn"] {
         eprintln!(
             "  {}",
             crate::product::command(&format!("integration install {target}"))
         );
     }
-    for target in [
-        "pi",
-        "omp",
-        "claude",
-        "codex",
-        "copilot",
-        "devin",
-        "droid",
-        "kimi",
-        "opencode",
-        "kilo",
-        "hermes",
-        "qodercli",
-        "cursor",
-        "mastracode",
-        "grok",
-    ] {
+    for target in ["pi", "claude", "codex", "copilot", "opencode", "djinn"] {
         eprintln!(
             "  {}",
             crate::product::command(&format!("integration uninstall {target}"))

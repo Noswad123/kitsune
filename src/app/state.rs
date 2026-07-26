@@ -1460,10 +1460,7 @@ pub struct AppState {
     pub selection_autoscroll: Option<SelectionAutoscroll>,
     pub context_menu: Option<ContextMenuState>,
     // Notifications
-    pub update_available: Option<String>,
-    pub update_install_command: String,
     pub latest_release_notes_available: bool,
-    pub update_dismissed: bool,
     pub config_diagnostic: Option<String>,
     pub toast: Option<ToastNotification>,
     pub pending_agent_notifications: std::collections::HashMap<PaneId, PendingAgentNotification>,
@@ -1623,12 +1620,11 @@ impl AppState {
     }
 
     pub(crate) fn global_menu_attention_badge_visible(&self) -> bool {
-        self.update_available.is_some() || self.integration_updates_available()
+        self.integration_updates_available()
     }
 
     pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
-        (item == "update ready" && self.update_available.is_some())
-            || (item == "settings" && self.integration_updates_available())
+        item == "settings" && self.integration_updates_available()
     }
 
     pub(crate) fn settings_section_has_badge(&self, section: SettingsSection) -> bool {
@@ -1835,10 +1831,7 @@ impl AppState {
             selection: None,
             selection_autoscroll: None,
             context_menu: None,
-            update_available: None,
-            update_install_command: crate::product::command("update"),
             latest_release_notes_available: false,
-            update_dismissed: false,
             config_diagnostic: None,
             toast: None,
             pending_agent_notifications: std::collections::HashMap::new(),

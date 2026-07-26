@@ -14,39 +14,21 @@ pub struct IntegrationUninstallParams {
 #[serde(rename_all = "snake_case")]
 pub enum IntegrationTarget {
     Pi,
-    Omp,
     Claude,
     Codex,
     Copilot,
-    Devin,
-    Droid,
-    Kimi,
     Opencode,
-    Kilo,
-    Hermes,
-    Qodercli,
-    Cursor,
-    Mastracode,
-    Grok,
+    Djinn,
 }
 
 impl IntegrationTarget {
-    pub(crate) const ALL: [Self; 15] = [
+    pub(crate) const ALL: [Self; 6] = [
         Self::Pi,
-        Self::Omp,
         Self::Claude,
         Self::Codex,
         Self::Copilot,
-        Self::Devin,
-        Self::Droid,
-        Self::Kimi,
         Self::Opencode,
-        Self::Kilo,
-        Self::Hermes,
-        Self::Qodercli,
-        Self::Cursor,
-        Self::Mastracode,
-        Self::Grok,
+        Self::Djinn,
     ];
 }
 

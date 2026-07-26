@@ -76,7 +76,6 @@ impl App {
 
         self.state.clear_selection();
         self.selection_autoscroll_deadline = None;
-        self.state.update_dismissed = true;
 
         if let Some(action) = super::terminal_direct_non_indexed_navigation_action(&self.state, key)
         {

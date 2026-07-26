@@ -38,13 +38,13 @@ fn extract_version_triple_orders_versions() {
 }
 
 #[test]
-fn agent_version_requirement_only_set_for_kimi() {
-    let requirement = agent_version_requirement(crate::api::schema::IntegrationTarget::Kimi)
-        .expect("kimi must have a version requirement");
-    assert_eq!(requirement.binary, "kimi");
-    assert_eq!(requirement.min_version, KIMI_MIN_VERSION);
+fn agent_version_requirement_is_unset_for_supported_targets() {
+    assert!(agent_version_requirement(crate::api::schema::IntegrationTarget::Pi).is_none());
     assert!(agent_version_requirement(crate::api::schema::IntegrationTarget::Claude).is_none());
     assert!(agent_version_requirement(crate::api::schema::IntegrationTarget::Codex).is_none());
+    assert!(agent_version_requirement(crate::api::schema::IntegrationTarget::Copilot).is_none());
+    assert!(agent_version_requirement(crate::api::schema::IntegrationTarget::Opencode).is_none());
+    assert!(agent_version_requirement(crate::api::schema::IntegrationTarget::Djinn).is_none());
 }
 
 #[test]
@@ -178,21 +178,12 @@ fn home_dir_uses_userprofile_when_home_is_missing() {
 fn windows_supports_portable_integrations() {
     use crate::api::schema::IntegrationTarget;
 
-    assert!(!integration_target_supported(IntegrationTarget::Hermes));
-    assert!(!integration_target_supported(IntegrationTarget::Cursor));
-    assert!(!integration_target_supported(IntegrationTarget::Devin));
-    assert!(!integration_target_supported(IntegrationTarget::Mastracode));
-
     assert!(integration_target_supported(IntegrationTarget::Pi));
-    assert!(integration_target_supported(IntegrationTarget::Omp));
     assert!(integration_target_supported(IntegrationTarget::Claude));
     assert!(integration_target_supported(IntegrationTarget::Codex));
     assert!(integration_target_supported(IntegrationTarget::Copilot));
     assert!(integration_target_supported(IntegrationTarget::Opencode));
-    assert!(integration_target_supported(IntegrationTarget::Kilo));
-    assert!(integration_target_supported(IntegrationTarget::Droid));
-    assert!(integration_target_supported(IntegrationTarget::Kimi));
-    assert!(integration_target_supported(IntegrationTarget::Qodercli));
+    assert!(integration_target_supported(IntegrationTarget::Djinn));
 }
 
 #[cfg(windows)]
@@ -208,22 +199,12 @@ fn windows_availability_excludes_unsupported_integrations() {
     std::env::set_var("PATH", &bin);
 
     fs::write(bin.join("pi.cmd"), "@echo off\r\n").unwrap();
-    fs::write(bin.join("omp.cmd"), "@echo off\r\n").unwrap();
     fs::write(bin.join("opencode.cmd"), "@echo off\r\n").unwrap();
-    fs::write(bin.join("kilo.cmd"), "@echo off\r\n").unwrap();
-    fs::write(bin.join("hermes.exe"), "").unwrap();
-    fs::write(bin.join("cursor-agent.cmd"), "@echo off\r\n").unwrap();
-    fs::write(bin.join("devin.cmd"), "@echo off\r\n").unwrap();
-    fs::write(bin.join("mastracode.cmd"), "@echo off\r\n").unwrap();
+    fs::write(bin.join("djinn.cmd"), "@echo off\r\n").unwrap();
 
     assert!(integration_target_available(IntegrationTarget::Pi));
-    assert!(integration_target_available(IntegrationTarget::Omp));
     assert!(integration_target_available(IntegrationTarget::Opencode));
-    assert!(integration_target_available(IntegrationTarget::Kilo));
-    assert!(!integration_target_available(IntegrationTarget::Hermes));
-    assert!(!integration_target_available(IntegrationTarget::Cursor));
-    assert!(!integration_target_available(IntegrationTarget::Devin));
-    assert!(!integration_target_available(IntegrationTarget::Mastracode));
+    assert!(integration_target_available(IntegrationTarget::Djinn));
 
     if let Some(path) = original_path {
         std::env::set_var("PATH", path);
@@ -231,41 +212,6 @@ fn windows_availability_excludes_unsupported_integrations() {
         std::env::remove_var("PATH");
     }
     let _ = fs::remove_dir_all(base);
-}
-
-#[cfg(windows)]
-#[test]
-fn windows_install_rejects_unsupported_integration_before_config_lookup() {
-    use crate::api::schema::IntegrationTarget;
-
-    let _lock = integration_env_lock();
-    let original_home = std::env::var_os("HOME");
-    let original_userprofile = std::env::var_os("USERPROFILE");
-    let original_homedrive = std::env::var_os("HOMEDRIVE");
-    let original_homepath = std::env::var_os("HOMEPATH");
-    std::env::remove_var("HOME");
-    std::env::remove_var("USERPROFILE");
-    std::env::remove_var("HOMEDRIVE");
-    std::env::remove_var("HOMEPATH");
-
-    let err = install_target(IntegrationTarget::Hermes).unwrap_err();
-    assert_eq!(
-        err.to_string(),
-        "hermes integration is not supported on Windows"
-    );
-
-    if let Some(home) = original_home {
-        std::env::set_var("HOME", home);
-    }
-    if let Some(userprofile) = original_userprofile {
-        std::env::set_var("USERPROFILE", userprofile);
-    }
-    if let Some(homedrive) = original_homedrive {
-        std::env::set_var("HOMEDRIVE", homedrive);
-    }
-    if let Some(homepath) = original_homepath {
-        std::env::set_var("HOMEPATH", homepath);
-    }
 }
 
 #[test]
@@ -314,62 +260,6 @@ fn command_available_finds_windows_command_shims_on_path() {
 
     assert!(!command_available("missing-agent"));
 
-    if let Some(path) = original_path {
-        std::env::set_var("PATH", path);
-    } else {
-        std::env::remove_var("PATH");
-    }
-    let _ = fs::remove_dir_all(base);
-}
-
-#[test]
-#[cfg(windows)]
-fn qodercli_availability_checks_windows_aliases() {
-    let _lock = integration_env_lock();
-    let base = unique_base();
-    let bin = base.join("bin");
-    fs::create_dir_all(&bin).unwrap();
-    let original_path = std::env::var_os("PATH");
-    std::env::set_var("PATH", &bin);
-
-    fs::write(bin.join("qoder.cmd"), "@echo off\r\n").unwrap();
-
-    assert!(integration_target_available(
-        crate::api::schema::IntegrationTarget::Qodercli
-    ));
-
-    if let Some(path) = original_path {
-        std::env::set_var("PATH", path);
-    } else {
-        std::env::remove_var("PATH");
-    }
-    let _ = fs::remove_dir_all(base);
-}
-
-#[test]
-#[cfg(windows)]
-fn hermes_layout_can_exist_without_making_unsupported_target_available() {
-    let _lock = integration_env_lock();
-    let base = unique_base();
-    let local_app_data = base.join("local-app-data");
-    let hermes_bin = local_app_data.join("hermes").join("bin");
-    fs::create_dir_all(&hermes_bin).unwrap();
-    fs::write(hermes_bin.join("hermes.exe"), "").unwrap();
-    let original_local_app_data = std::env::var_os("LOCALAPPDATA");
-    let original_path = std::env::var_os("PATH");
-    std::env::set_var("LOCALAPPDATA", &local_app_data);
-    std::env::set_var("PATH", "");
-
-    assert!(hermes_install_layout_available());
-    assert!(!integration_target_available(
-        crate::api::schema::IntegrationTarget::Hermes
-    ));
-
-    if let Some(local_app_data) = original_local_app_data {
-        std::env::set_var("LOCALAPPDATA", local_app_data);
-    } else {
-        std::env::remove_var("LOCALAPPDATA");
-    }
     if let Some(path) = original_path {
         std::env::set_var("PATH", path);
     } else {
@@ -813,36 +703,6 @@ fn outdated_integrations_detect_previous_pi_version() {
     assert_eq!(outdated[0].path, extension_path);
     assert_eq!(outdated[0].installed_version, Some(4));
     assert_eq!(outdated[0].expected_version, PI_INTEGRATION_VERSION);
-
-    std::env::remove_var("HOME");
-    let _ = fs::remove_dir_all(base);
-}
-
-#[test]
-fn outdated_integrations_detect_previous_omp_version() {
-    let _lock = integration_env_lock();
-    let base = unique_base();
-    let home = base.join("home");
-    let ext_dir = home.join(".omp/agent/extensions");
-    fs::create_dir_all(&ext_dir).unwrap();
-    let extension_path = ext_dir.join(OMP_EXTENSION_INSTALL_NAME);
-    fs::write(
-        &extension_path,
-        "// KITSUNE_INTEGRATION_ID=omp\n// KITSUNE_INTEGRATION_VERSION=4\n",
-    )
-    .unwrap();
-    std::env::set_var("HOME", &home);
-
-    let outdated = outdated_installed_integrations();
-
-    assert_eq!(outdated.len(), 1);
-    assert_eq!(
-        outdated[0].target,
-        crate::api::schema::IntegrationTarget::Omp
-    );
-    assert_eq!(outdated[0].path, extension_path);
-    assert_eq!(outdated[0].installed_version, Some(4));
-    assert_eq!(outdated[0].expected_version, OMP_INTEGRATION_VERSION);
 
     std::env::remove_var("HOME");
     let _ = fs::remove_dir_all(base);
@@ -2110,36 +1970,6 @@ fn install_droid_is_idempotent_for_hook_entries() {
 }
 
 #[test]
-fn droid_v1_integration_status_is_outdated() {
-    let _lock = integration_env_lock();
-    let base = unique_base();
-    let home = base.join("home");
-    let droid_hooks_dir = home.join(".factory").join("hooks");
-    fs::create_dir_all(&droid_hooks_dir).unwrap();
-    let hook_path = droid_hooks_dir.join(DROID_HOOK_INSTALL_NAME);
-    fs::write(
-        &hook_path,
-        "#!/bin/sh\n# KITSUNE_INTEGRATION_ID=droid\n# KITSUNE_INTEGRATION_VERSION=1\n",
-    )
-    .unwrap();
-    std::env::set_var("HOME", &home);
-
-    let statuses = installed_integration_statuses();
-    let droid = statuses
-        .iter()
-        .find(|status| status.target == crate::api::schema::IntegrationTarget::Droid)
-        .unwrap();
-
-    assert_eq!(droid.path, hook_path);
-    assert_eq!(droid.installed_version, Some(1));
-    assert_eq!(droid.expected_version, DROID_INTEGRATION_VERSION);
-    assert_eq!(droid.state, IntegrationStatusKind::Outdated);
-
-    std::env::remove_var("HOME");
-    let _ = fs::remove_dir_all(base);
-}
-
-#[test]
 fn uninstall_droid_removes_herdr_hooks_and_preserves_others() {
     let _lock = integration_env_lock();
     let base = unique_base();
@@ -3228,32 +3058,6 @@ fn install_cursor_uses_cursor_config_dir_env() {
 }
 
 #[test]
-fn cursor_v1_integration_status_is_current() {
-    let _lock = integration_env_lock();
-    let base = unique_base();
-    let cursor_dir = base.join(".cursor");
-    fs::create_dir_all(&cursor_dir).unwrap();
-    let hook_path = cursor_dir.join(CURSOR_HOOK_INSTALL_NAME);
-    fs::write(
-        &hook_path,
-        "#!/bin/sh\n# KITSUNE_INTEGRATION_ID=cursor\n# KITSUNE_INTEGRATION_VERSION=1\n",
-    )
-    .unwrap();
-    std::env::set_var(CURSOR_CONFIG_DIR_ENV_VAR, &cursor_dir);
-
-    let statuses = installed_integration_statuses();
-    let cursor = statuses
-        .iter()
-        .find(|status| status.target == crate::api::schema::IntegrationTarget::Cursor)
-        .expect("cursor integration status");
-    assert_eq!(cursor.state, IntegrationStatusKind::Current);
-    assert_eq!(cursor.installed_version, Some(CURSOR_INTEGRATION_VERSION));
-
-    clear_integration_path_env();
-    let _ = fs::remove_dir_all(base);
-}
-
-#[test]
 fn install_cursor_errors_when_config_dir_missing() {
     let _lock = integration_env_lock();
     let base = unique_base();
@@ -3640,117 +3444,6 @@ fn uninstall_mastracode_errors_when_event_value_not_array() {
     } else {
         std::env::remove_var("HOME");
     }
-    let _ = fs::remove_dir_all(base);
-}
-
-#[test]
-fn grok_v1_integration_status_is_current() {
-    let _lock = integration_env_lock();
-    let base = unique_base();
-    let grok_dir = base.join(".grok");
-    fs::create_dir_all(&grok_dir).unwrap();
-    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &grok_dir);
-    // A real install writes both the hook script and hooks/kitsune.json.
-    install_grok().unwrap();
-
-    let statuses = installed_integration_statuses();
-    let grok = statuses
-        .iter()
-        .find(|status| status.target == crate::api::schema::IntegrationTarget::Grok)
-        .expect("grok integration status");
-    assert_eq!(grok.state, IntegrationStatusKind::Current);
-    assert_eq!(grok.installed_version, Some(GROK_INTEGRATION_VERSION));
-
-    clear_integration_path_env();
-    let _ = fs::remove_dir_all(base);
-}
-
-#[test]
-fn grok_status_reports_outdated_when_hook_config_missing_or_broken() {
-    let _lock = integration_env_lock();
-    let base = unique_base();
-    let grok_dir = base.join(".grok");
-    fs::create_dir_all(&grok_dir).unwrap();
-    std::env::set_var(GROK_CONFIG_DIR_ENV_VAR, &grok_dir);
-    install_grok().unwrap();
-    let config_path = grok_dir.join("hooks").join(GROK_HOOK_CONFIG_INSTALL_NAME);
-
-    let grok_state = || {
-        installed_integration_statuses()
-            .into_iter()
-            .find(|status| status.target == crate::api::schema::IntegrationTarget::Grok)
-            .expect("grok integration status")
-            .state
-    };
-
-    // Missing config: grok never runs the hook, so the install is not current.
-    fs::remove_file(&config_path).unwrap();
-    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
-
-    // Corrupt config.
-    fs::write(&config_path, "{not json").unwrap();
-    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
-
-    // Config that no longer references the hook script.
-    fs::write(
-        &config_path,
-        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo other"}]}]}}"#,
-    )
-    .unwrap();
-    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
-
-    // Config that mentions the script name without invoking it, and one that
-    // invokes it without the required `session` action: both are
-    // nonfunctional, so neither may report current.
-    fs::write(
-        &config_path,
-        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo kitsune-agent-state.sh"}]}]}}"#,
-    )
-    .unwrap();
-    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
-    let hook_path = grok_dir.join("hooks").join(GROK_HOOK_INSTALL_NAME);
-    fs::write(
-        &config_path,
-        format!(
-            r#"{{"hooks":{{"SessionStart":[{{"hooks":[{{"type":"command","command":"sh '{}'"}}]}}]}}}}"#,
-            hook_path.display()
-        ),
-    )
-    .unwrap();
-    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
-
-    // Correct command but not a command-type hook: grok will not execute it.
-    let session_command = grok_session_command(&grok_hook_config(&hook_path));
-    fs::write(
-        &config_path,
-        format!(
-            r#"{{"hooks":{{"SessionStart":[{{"hooks":[{{"type":"http","command":{}}}]}}]}}}}"#,
-            serde_json::to_string(&session_command).unwrap()
-        ),
-    )
-    .unwrap();
-    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
-
-    // A matcher can prevent the expected hook from running.
-    let mut config = grok_hook_config(&hook_path);
-    config["hooks"]["SessionStart"][0]["matcher"] = json!("(");
-    fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
-
-    // A malformed sibling group makes grok reject the event's hook groups.
-    let mut config = grok_hook_config(&hook_path);
-    config["hooks"]["SessionStart"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({}));
-    fs::write(&config_path, serde_json::to_string(&config).unwrap()).unwrap();
-    assert_eq!(grok_state(), IntegrationStatusKind::Outdated);
-
-    // Reinstall repairs both files.
-    install_grok().unwrap();
-    assert_eq!(grok_state(), IntegrationStatusKind::Current);
-
-    clear_integration_path_env();
     let _ = fs::remove_dir_all(base);
 }
 

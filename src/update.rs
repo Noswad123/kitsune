@@ -29,11 +29,3 @@ impl std::fmt::Display for Version {
         write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
     }
 }
-
-pub(crate) fn update_install_command() -> &'static str {
-    "install the latest Kitsune build manually"
-}
-
-pub(crate) fn update_install_instruction(install_command: &str) -> String {
-    install_command.to_string()
-}

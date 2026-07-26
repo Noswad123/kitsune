@@ -2,15 +2,10 @@ use std::io;
 
 use super::registry::{integration_target_label, integration_target_supported};
 use super::targets::{
-    install_claude, install_codex, install_copilot, install_cursor, install_devin, install_droid,
-    install_grok, install_hermes, install_kilo, install_kimi, install_mastracode, install_omp,
-    install_opencode, install_pi, install_qodercli, uninstall_claude, uninstall_codex,
-    uninstall_copilot, uninstall_cursor, uninstall_devin, uninstall_droid, uninstall_grok,
-    uninstall_hermes, uninstall_kilo, uninstall_kimi, uninstall_mastracode, uninstall_omp,
-    uninstall_opencode, uninstall_pi, uninstall_qodercli,
+    install_claude, install_codex, install_copilot, install_opencode, install_pi, uninstall_claude,
+    uninstall_codex, uninstall_copilot, uninstall_opencode, uninstall_pi,
 };
 use super::version::{agent_version_requirement, enforce_agent_version};
-use super::{KIMI_MIN_VERSION, PI_EXTENSION_INSTALL_NAME};
 
 pub(crate) fn install_target(
     target: crate::api::schema::IntegrationTarget,
@@ -38,24 +33,6 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
         crate::api::schema::IntegrationTarget::Pi => {
             let path = install_pi()?;
             vec![format!("installed pi integration to {}", path.display())]
-        }
-        crate::api::schema::IntegrationTarget::Omp => {
-            let installed = install_omp()?;
-            let mut messages = Vec::new();
-            if installed.removed_legacy_pi_extension {
-                messages.push(format!(
-                    "removed legacy pi integration from omp extension directory at {}",
-                    installed
-                        .extension_path
-                        .with_file_name(PI_EXTENSION_INSTALL_NAME)
-                        .display()
-                ));
-            }
-            messages.push(format!(
-                "installed omp integration to {}",
-                installed.extension_path.display()
-            ));
-            messages
         }
         crate::api::schema::IntegrationTarget::Claude => {
             let installed = install_claude()?;
@@ -97,50 +74,6 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 ),
             ]
         }
-        crate::api::schema::IntegrationTarget::Devin => {
-            let installed = install_devin()?;
-            vec![
-                format!(
-                    "installed devin integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!(
-                    "ensured devin settings at {}",
-                    installed.settings_path.display()
-                ),
-            ]
-        }
-        crate::api::schema::IntegrationTarget::Kimi => {
-            let installed = install_kimi()?;
-            vec![
-                format!(
-                    "installed kimi integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!("ensured kimi config at {}", installed.config_path.display()),
-                format!("requires kimi code {KIMI_MIN_VERSION} or newer"),
-            ]
-        }
-        crate::api::schema::IntegrationTarget::Droid => {
-            let installed = install_droid()?;
-            let mut messages = vec![
-                format!(
-                    "installed droid integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!(
-                    "ensured droid hooks at {}",
-                    installed.settings_path.display()
-                ),
-            ];
-            if installed.updated_legacy_hooks {
-                messages.push(format!(
-                    "removed legacy kitsune droid hook entries from {}",
-                    installed.hooks_path.display()
-                ));
-            }
-            messages
-        }
         crate::api::schema::IntegrationTarget::Opencode => {
             let installed = install_opencode()?;
             vec![format!(
@@ -148,75 +81,10 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 installed.plugin_path.display()
             )]
         }
-        crate::api::schema::IntegrationTarget::Kilo => {
-            let installed = install_kilo()?;
-            vec![format!(
-                "installed kilo integration plugin to {}",
-                installed.plugin_path.display()
-            )]
-        }
-        crate::api::schema::IntegrationTarget::Hermes => {
-            let installed = install_hermes()?;
-            vec![
-                format!(
-                    "installed hermes integration plugin to {}",
-                    installed.plugin_dir.display()
-                ),
-                format!(
-                    "enabled hermes plugin in {}",
-                    installed.config_path.display()
-                ),
-            ]
-        }
-        crate::api::schema::IntegrationTarget::Qodercli => {
-            let installed = install_qodercli()?;
-            vec![
-                format!(
-                    "installed qodercli integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!(
-                    "ensured qodercli settings at {}",
-                    installed.settings_path.display()
-                ),
-            ]
-        }
-        crate::api::schema::IntegrationTarget::Cursor => {
-            let installed = install_cursor()?;
-            vec![
-                format!(
-                    "installed cursor integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!("updated cursor hooks at {}", installed.hooks_path.display()),
-            ]
-        }
-        crate::api::schema::IntegrationTarget::Mastracode => {
-            let installed = install_mastracode()?;
-            vec![
-                format!(
-                    "installed mastracode integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!(
-                    "ensured mastracode hooks at {}",
-                    installed.hooks_path.display()
-                ),
-            ]
-        }
-        crate::api::schema::IntegrationTarget::Grok => {
-            let installed = install_grok()?;
-            vec![
-                format!(
-                    "installed grok integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!(
-                    "registered grok hook config at {}",
-                    installed.config_path.display()
-                ),
-            ]
-        }
+        crate::api::schema::IntegrationTarget::Djinn => vec![
+            "djinn integration is reserved for first-class support but has no installer yet"
+                .to_string(),
+        ],
     };
 
     if let Some(warning) = version_warning {
@@ -244,42 +112,28 @@ pub(crate) fn uninstall_target(
                 )]
             }
         }
-        crate::api::schema::IntegrationTarget::Omp => {
-            let result = uninstall_omp()?;
-            if result.removed_extension {
-                vec![format!(
-                    "removed omp integration extension at {}",
-                    result.extension_path.display()
-                )]
-            } else {
-                vec![format!(
-                    "no omp integration extension found at {}",
-                    result.extension_path.display()
-                )]
-            }
-        }
         crate::api::schema::IntegrationTarget::Claude => {
             let result = uninstall_claude()?;
             let mut messages = Vec::new();
             if result.removed_hook_file {
                 messages.push(format!(
-                    "removed claude hook at {}",
+                    "removed claude integration hook at {}",
                     result.hook_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no claude hook found at {}",
+                    "no claude integration hook found at {}",
                     result.hook_path.display()
                 ));
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed kitsune claude hook entries from {}",
+                    "removed claude hook commands from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no kitsune claude hook entries found in {}",
+                    "no claude hook commands found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -290,28 +144,28 @@ pub(crate) fn uninstall_target(
             let mut messages = Vec::new();
             if result.removed_hook_file {
                 messages.push(format!(
-                    "removed codex hook at {}",
+                    "removed codex integration hook at {}",
                     result.hook_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no codex hook found at {}",
+                    "no codex integration hook found at {}",
                     result.hook_path.display()
                 ));
             }
             if result.updated_hooks {
                 messages.push(format!(
-                    "removed kitsune codex hook entries from {}",
+                    "removed codex hook commands from {}",
                     result.hooks_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no kitsune codex hook entries found in {}",
+                    "no codex hook commands found in {}",
                     result.hooks_path.display()
                 ));
             }
             messages.push(format!(
-                "left codex config unchanged at {}",
+                "codex config checked at {}",
                 result.config_path.display()
             ));
             messages
@@ -321,115 +175,23 @@ pub(crate) fn uninstall_target(
             let mut messages = Vec::new();
             if result.removed_hook_file {
                 messages.push(format!(
-                    "removed copilot hook at {}",
+                    "removed copilot integration hook at {}",
                     result.hook_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no copilot hook found at {}",
-                    result.hook_path.display()
-                ));
-            }
-            if result.updated_settings {
-                messages.push(format!(
-                    "removed kitsune copilot hook entries from {}",
-                    result.settings_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no kitsune copilot hook entries found in {}",
-                    result.settings_path.display()
-                ));
-            }
-            messages
-        }
-        crate::api::schema::IntegrationTarget::Devin => {
-            let result = uninstall_devin()?;
-            let mut messages = Vec::new();
-            if result.removed_hook_file {
-                messages.push(format!(
-                    "removed devin hook at {}",
-                    result.hook_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no devin hook found at {}",
+                    "no copilot integration hook found at {}",
                     result.hook_path.display()
                 ));
             }
             if result.updated_settings {
                 messages.push(format!(
-                    "removed kitsune devin hook entries from {}",
+                    "removed copilot hook commands from {}",
                     result.settings_path.display()
                 ));
             } else {
                 messages.push(format!(
-                    "no kitsune devin hook entries found in {}",
-                    result.settings_path.display()
-                ));
-            }
-            messages
-        }
-        crate::api::schema::IntegrationTarget::Kimi => {
-            let result = uninstall_kimi()?;
-            let mut messages = Vec::new();
-            if result.removed_hook_file {
-                messages.push(format!(
-                    "removed kimi hook at {}",
-                    result.hook_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no kimi hook found at {}",
-                    result.hook_path.display()
-                ));
-            }
-            if result.updated_config {
-                messages.push(format!(
-                    "removed kitsune kimi hook entries from {}",
-                    result.config_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no kitsune kimi hook entries found in {}",
-                    result.config_path.display()
-                ));
-            }
-            messages
-        }
-        crate::api::schema::IntegrationTarget::Droid => {
-            let result = uninstall_droid()?;
-            let mut messages = Vec::new();
-            if result.removed_hook_file {
-                messages.push(format!(
-                    "removed droid hook at {}",
-                    result.hook_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no droid hook found at {}",
-                    result.hook_path.display()
-                ));
-            }
-            if result.updated_hooks {
-                messages.push(format!(
-                    "removed legacy kitsune droid hook entries from {}",
-                    result.hooks_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no legacy kitsune droid hook entries found in {}",
-                    result.hooks_path.display()
-                ));
-            }
-            if result.updated_settings {
-                messages.push(format!(
-                    "removed kitsune droid hook entries from {}",
-                    result.settings_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no kitsune droid hook entries found in {}",
+                    "no copilot hook commands found in {}",
                     result.settings_path.display()
                 ));
             }
@@ -449,155 +211,10 @@ pub(crate) fn uninstall_target(
                 )]
             }
         }
-        crate::api::schema::IntegrationTarget::Kilo => {
-            let result = uninstall_kilo()?;
-            if result.removed_plugin {
-                vec![format!(
-                    "removed kilo integration plugin at {}",
-                    result.plugin_path.display()
-                )]
-            } else {
-                vec![format!(
-                    "no kilo integration plugin found at {}",
-                    result.plugin_path.display()
-                )]
-            }
-        }
-        crate::api::schema::IntegrationTarget::Hermes => {
-            let result = uninstall_hermes()?;
-            let mut messages = Vec::new();
-            if result.removed_plugin_dir {
-                messages.push(format!(
-                    "removed hermes integration plugin at {}",
-                    result.plugin_dir.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no hermes integration plugin found at {}",
-                    result.plugin_dir.display()
-                ));
-            }
-            if result.updated_config {
-                messages.push(format!(
-                    "disabled hermes plugin in {}",
-                    result.config_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no hermes plugin entry found in {}",
-                    result.config_path.display()
-                ));
-            }
-            messages
-        }
-        crate::api::schema::IntegrationTarget::Qodercli => {
-            let result = uninstall_qodercli()?;
-            let mut messages = Vec::new();
-            if result.removed_hook_file {
-                messages.push(format!(
-                    "removed qodercli hook at {}",
-                    result.hook_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no qodercli hook found at {}",
-                    result.hook_path.display()
-                ));
-            }
-            if result.updated_settings {
-                messages.push(format!(
-                    "removed kitsune qodercli hook entries from {}",
-                    result.settings_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no kitsune qodercli hook entries found in {}",
-                    result.settings_path.display()
-                ));
-            }
-            messages
-        }
-        crate::api::schema::IntegrationTarget::Cursor => {
-            let result = uninstall_cursor()?;
-            let mut messages = Vec::new();
-            if result.removed_hook_file {
-                messages.push(format!(
-                    "removed cursor hook at {}",
-                    result.hook_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no cursor hook found at {}",
-                    result.hook_path.display()
-                ));
-            }
-            if result.updated_hooks {
-                messages.push(format!(
-                    "removed kitsune cursor hook entries from {}",
-                    result.hooks_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no kitsune cursor hook entries found in {}",
-                    result.hooks_path.display()
-                ));
-            }
-            messages
-        }
-        crate::api::schema::IntegrationTarget::Mastracode => {
-            let result = uninstall_mastracode()?;
-            let mut messages = Vec::new();
-            if result.removed_hook_file {
-                messages.push(format!(
-                    "removed mastracode hook at {}",
-                    result.hook_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no mastracode hook found at {}",
-                    result.hook_path.display()
-                ));
-            }
-            if result.updated_hooks {
-                messages.push(format!(
-                    "removed kitsune mastracode hook entries from {}",
-                    result.hooks_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no kitsune mastracode hook entries found in {}",
-                    result.hooks_path.display()
-                ));
-            }
-            messages
-        }
-        crate::api::schema::IntegrationTarget::Grok => {
-            let result = uninstall_grok()?;
-            let mut messages = Vec::new();
-            if result.removed_hook_file {
-                messages.push(format!(
-                    "removed grok hook at {}",
-                    result.hook_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no grok hook found at {}",
-                    result.hook_path.display()
-                ));
-            }
-            if result.removed_config_file {
-                messages.push(format!(
-                    "removed grok hook config at {}",
-                    result.config_path.display()
-                ));
-            } else {
-                messages.push(format!(
-                    "no grok hook config found at {}",
-                    result.config_path.display()
-                ));
-            }
-            messages
-        }
+        crate::api::schema::IntegrationTarget::Djinn => vec![
+            "djinn integration is reserved for first-class support but has no installer yet"
+                .to_string(),
+        ],
     };
 
     crate::logging::integration_action("uninstall", integration_target_label(target), "ok");

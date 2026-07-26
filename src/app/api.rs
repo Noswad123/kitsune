@@ -224,15 +224,6 @@ impl App {
             None
         };
 
-        let update_ready = if let AppEvent::UpdateReady {
-            version,
-            install_command,
-        } = &ev
-        {
-            Some((version.clone(), install_command.clone()))
-        } else {
-            None
-        };
         let manifest_update_agents =
             if let AppEvent::AgentDetectionManifestsUpdated { updated, .. } = &ev {
                 Some(updated.iter().map(|item| item.agent).collect::<Vec<_>>())
@@ -299,10 +290,7 @@ impl App {
                 _ => unreachable!("toast delivery was checked above"),
             };
 
-            if let Some((version, install_command)) = update_ready {
-                let instruction = crate::update::update_install_instruction(&install_command);
-                let _ = notify(&format!("v{version} available"), Some(&instruction));
-            } else if self.state.toast_config.delay_seconds == 0 {
+            if self.state.toast_config.delay_seconds == 0 {
                 self.emit_terminal_or_system_agent_notifications(&pane_updates);
             }
         }

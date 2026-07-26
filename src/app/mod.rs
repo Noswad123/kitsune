@@ -477,13 +477,7 @@ impl App {
             "using pane scrollback configuration"
         );
 
-        let latest_release_notes = crate::release_notes::load_latest();
-        let update_available = latest_release_notes
-            .as_ref()
-            .filter(|notes| notes.preview)
-            .map(|notes| notes.version.clone());
-        let latest_release_notes_available = latest_release_notes.is_some();
-        let update_install_command = crate::update::update_install_command().to_string();
+        let latest_release_notes_available = crate::release_notes::load_latest().is_some();
         let startup_product_announcement =
             crate::product_announcements::load_unseen_for_current_version();
 
@@ -584,10 +578,7 @@ impl App {
             selection: None,
             selection_autoscroll: None,
             context_menu: None,
-            update_available,
-            update_install_command,
             latest_release_notes_available,
-            update_dismissed: false,
             config_diagnostic,
             toast: None,
             pending_agent_notifications: std::collections::HashMap::new(),
@@ -2373,19 +2364,17 @@ mod tests {
         let mut app = test_app();
         for i in 0..=APP_EVENT_DRAIN_LIMIT {
             app.event_tx
-                .try_send(AppEvent::UpdateReady {
-                    version: format!("2.0.{i}"),
-                    install_command: "kitsune install".into(),
+                .try_send(AppEvent::ClipboardWrite {
+                    content: vec![i as u8],
                 })
                 .unwrap();
         }
 
         assert!(app.drain_internal_events());
 
-        let expected_version = format!("2.0.{}", APP_EVENT_DRAIN_LIMIT - 1);
         assert_eq!(
-            app.state.update_available.as_deref(),
-            Some(expected_version.as_str())
+            app.state.request_clipboard_write.as_deref(),
+            Some(&[(APP_EVENT_DRAIN_LIMIT - 1) as u8][..])
         );
         assert!(app.event_rx.try_recv().is_ok());
     }
@@ -2395,9 +2384,8 @@ mod tests {
         let mut app = test_app();
         for i in 0..=APP_EVENT_DRAIN_LIMIT {
             app.event_tx
-                .try_send(AppEvent::UpdateReady {
-                    version: format!("3.0.{i}"),
-                    install_command: "kitsune install".into(),
+                .try_send(AppEvent::ClipboardWrite {
+                    content: vec![i as u8],
                 })
                 .unwrap();
         }
@@ -2411,10 +2399,9 @@ mod tests {
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
 
         assert_eq!(response["result"]["type"], "ok");
-        let expected_version = format!("3.0.{APP_EVENT_DRAIN_LIMIT}");
         assert_eq!(
-            app.state.update_available.as_deref(),
-            Some(expected_version.as_str())
+            app.state.request_clipboard_write.as_deref(),
+            Some(&[APP_EVENT_DRAIN_LIMIT as u8][..])
         );
         assert!(app.event_rx.try_recv().is_err());
     }
@@ -2557,7 +2544,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_restores_preview_update_available_from_saved_notes() {
+    fn startup_marks_future_release_notes_available_from_saved_notes() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-preview-update-available");
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -2567,7 +2554,6 @@ mod tests {
 
         let app = test_app();
 
-        assert_eq!(app.state.update_available.as_deref(), Some("99.99.99"));
         assert!(app.state.latest_release_notes_available);
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
@@ -2575,7 +2561,7 @@ mod tests {
     }
 
     #[test]
-    fn startup_does_not_restore_update_available_from_older_saved_notes() {
+    fn startup_keeps_older_saved_release_notes_available() {
         let _guard = config_env_lock().lock().unwrap();
         let path = temp_config_path("startup-stale-update-notes");
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -2584,7 +2570,6 @@ mod tests {
 
         let app = test_app();
 
-        assert_eq!(app.state.update_available, None);
         assert!(app.state.latest_release_notes_available);
 
         std::env::remove_var(crate::config::CONFIG_PATH_ENV_VAR);
@@ -4772,9 +4757,8 @@ mod tests {
 
         for i in 0..APP_EVENT_CHANNEL_CAPACITY {
             app.event_tx
-                .try_send(AppEvent::UpdateReady {
-                    version: format!("9.9.{i}"),
-                    install_command: crate::product::command("update"),
+                .try_send(AppEvent::ClipboardWrite {
+                    content: vec![i as u8],
                 })
                 .unwrap();
         }

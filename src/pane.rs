@@ -4040,11 +4040,8 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(1);
         let pane_id = PaneId::from_raw(42);
 
-        tx.try_send(AppEvent::UpdateReady {
-            version: "9.9.9".into(),
-            install_command: crate::product::command("update"),
-        })
-        .unwrap();
+        tx.try_send(AppEvent::ClipboardWrite { content: vec![] })
+            .unwrap();
 
         let publish = publish_state_changed_event(
             tx.clone(),
@@ -4071,7 +4068,7 @@ mod tests {
             .await
             .expect("queue should yield first event")
             .expect("sender still alive");
-        assert!(matches!(first, AppEvent::UpdateReady { .. }));
+        assert!(matches!(first, AppEvent::ClipboardWrite { .. }));
 
         tokio::time::timeout(std::time::Duration::from_millis(50), async {
             (&mut publish).await;

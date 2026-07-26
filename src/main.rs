@@ -514,13 +514,11 @@ fn main() -> io::Result<()> {
         println!("       {cli_name} --remote <ssh-target> [--session <name>]");
         println!("       {cli_name} session attach <name>");
         println!("       {cli_name} completion zsh");
-        println!("       {cli_name} update");
         println!("       {cli_name} server stop");
         println!("       {cli_name} server reload-config");
         println!("       {cli_name} api <subcommand> ...");
         println!("       {cli_name} completion <shell>");
         println!("       {cli_name} config <subcommand> ...");
-        println!("       {cli_name} channel status");
         println!("       {cli_name} workspace <subcommand> ...");
         println!("       {cli_name} worktree <subcommand> ...");
         println!("       {cli_name} tab <subcommand> ...");
@@ -537,7 +535,6 @@ fn main() -> io::Result<()> {
                 "status [server|client]",
                 "Show local client and running server status",
             ),
-            ("update", "Show manual update guidance"),
             ("completion zsh", "Generate shell completions for zsh"),
             ("server stop", "Stop the running server via the API socket"),
             (
@@ -547,10 +544,6 @@ fn main() -> io::Result<()> {
             (
                 "config reset-keys",
                 "Back up config.toml and remove custom keybindings",
-            ),
-            (
-                "channel status",
-                "Show the build channel and hosted update status",
             ),
             (
                 "api <subcommand>",
@@ -651,10 +644,8 @@ fn main() -> io::Result<()> {
                 "server",
                 "client",
                 "remote-client-bridge",
-                "update",
                 "status",
                 "config",
-                "channel",
                 "workspace",
                 "worktree",
                 "pane",

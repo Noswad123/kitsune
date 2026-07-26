@@ -87,7 +87,7 @@ pub(super) fn global_menu_actions(state: &AppState) -> Vec<GlobalMenuAction> {
         GlobalMenuAction::Keybinds,
         GlobalMenuAction::ReloadConfig,
     ];
-    if state.update_available.is_some() || state.latest_release_notes_available {
+    if state.latest_release_notes_available {
         actions.push(GlobalMenuAction::WhatsNew);
     }
     actions.push(GlobalMenuAction::Detach);

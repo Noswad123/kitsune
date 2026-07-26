@@ -2635,28 +2635,6 @@ impl AppState {
                 self.handle_pane_died(pane_id);
                 Vec::new()
             }
-            AppEvent::UpdateReady {
-                version,
-                install_command,
-            } => {
-                self.update_available = Some(version.clone());
-                self.update_install_command = install_command.clone();
-                self.latest_release_notes_available = true;
-                self.update_dismissed = true;
-                if matches!(
-                    self.toast_config.delivery,
-                    crate::config::ToastDelivery::Kitsune
-                ) {
-                    self.toast = Some(ToastNotification {
-                        kind: ToastKind::UpdateInstalled,
-                        title: format!("v{version} available"),
-                        context: crate::update::update_install_instruction(&install_command),
-                        position: None,
-                        target: None,
-                    });
-                }
-                Vec::new()
-            }
             AppEvent::AgentDetectionManifestsUpdated { updated, status } => {
                 self.agent_manifest_update_status = status;
                 self.refresh_agent_manifest_summaries();
@@ -5372,44 +5350,6 @@ mod tests {
         assert!(active_tab_suppresses_notifications(true, Some(true)));
         assert!(!active_tab_suppresses_notifications(true, Some(false)));
         assert!(!active_tab_suppresses_notifications(false, None));
-    }
-
-    #[test]
-    fn update_ready_sets_manual_update_toast() {
-        let mut state = AppState::test_new();
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-
-        let updates = state.handle_app_event(AppEvent::UpdateReady {
-            version: "0.5.0".into(),
-            install_command: crate::product::command("update"),
-        });
-
-        assert!(updates.is_empty());
-        assert_eq!(state.update_available.as_deref(), Some("0.5.0"));
-        assert!(state.latest_release_notes_available);
-        assert!(state.update_dismissed);
-        let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(toast.kind, ToastKind::UpdateInstalled);
-        assert_eq!(toast.title, "v0.5.0 available");
-        assert_eq!(toast.context, crate::product::command("update"));
-    }
-
-    #[test]
-    fn update_ready_uses_event_install_command_in_toast() {
-        let mut state = AppState::test_new();
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-
-        state.handle_app_event(AppEvent::UpdateReady {
-            version: "0.5.0".into(),
-            install_command: "brew update && brew upgrade kitsune".into(),
-        });
-
-        assert_eq!(
-            state.update_install_command,
-            "brew update && brew upgrade kitsune"
-        );
-        let toast = state.toast.as_ref().expect("update toast");
-        assert_eq!(toast.context, "brew update && brew upgrade kitsune");
     }
 
     #[test]

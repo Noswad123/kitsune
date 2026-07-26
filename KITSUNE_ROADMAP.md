@@ -30,8 +30,8 @@ Goal: make Kitsune its own product while preserving a working runtime.
 
 Completed in this phase:
 
-- Replaced Herdr release/update surfaces with Kitsune manual-update guidance;
-  hosted stable/preview channels are explicitly unavailable in this fork.
+- Removed Herdr release/update command surfaces and hosted stable/preview
+  channel behavior from the active Kitsune CLI/UI path.
 - Replaced low-risk Herdr-branded docs, assets, integration text, and package
   metadata while keeping historical Herdr references where context matters.
 - Aligned `kit` and `kitsune` help/completion surfaces so generated shell
@@ -44,6 +44,8 @@ Remaining candidate work:
   increases merge pain.
 - Continue auditing `kit` and `kitsune` behavior so editor integrations, shell
   aliases, and remote workflows can use either entry point predictably.
+- Finish deleting dead supporting code for removed updater, remote auto-install,
+  and inherited integration targets.
 
 ## Agent selector
 - Right now I leverage prefix+a to shift focus from agent to agent

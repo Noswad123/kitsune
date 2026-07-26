@@ -681,68 +681,46 @@ impl InstallSource {
 
 fn prepare_remote_herdr(
     ssh: &RemoteSsh,
-    live_handoff_enabled: bool,
+    _live_handoff_enabled: bool,
 ) -> io::Result<PreparedRemoteHerdr> {
     let platform = detect_remote_platform(ssh)?;
     let remote_herdr = RemoteHerdr::for_platform(platform);
-    let override_binary = remote_binary_override_path()?;
     let remote_binary_candidates = remote_binary_candidates(ssh, &remote_herdr)?;
 
-    if override_binary.is_none() {
-        for candidate in &remote_binary_candidates {
-            if remote_binary_matches(ssh, candidate).unwrap_or(false) {
-                return Ok(PreparedRemoteHerdr {
-                    remote_herdr: candidate.clone(),
-                    installed_or_replaced: false,
-                    stop_after_install_approved: false,
-                });
-            }
-        }
-        if remote_binary_matches(ssh, &remote_herdr)? {
+    for candidate in &remote_binary_candidates {
+        if remote_binary_matches(ssh, candidate).unwrap_or(false) {
             return Ok(PreparedRemoteHerdr {
-                remote_herdr,
+                remote_herdr: candidate.clone(),
                 installed_or_replaced: false,
                 stop_after_install_approved: false,
             });
         }
     }
-
-    let mut stop_after_install_approved = false;
-    if let Some(status_probe_herdr) = remote_binary_candidates.first().or_else(|| {
-        remote_binary_exists(ssh, &remote_herdr)
-            .ok()
-            .and_then(|exists| exists.then_some(&remote_herdr))
-    }) {
-        stop_after_install_approved = confirm_remote_install_with_running_server(
-            ssh,
-            status_probe_herdr,
-            live_handoff_enabled,
-        )?;
+    if remote_binary_matches(ssh, &remote_herdr)? {
+        return Ok(PreparedRemoteHerdr {
+            remote_herdr,
+            installed_or_replaced: false,
+            stop_after_install_approved: false,
+        });
     }
-    confirm_remote_install(
-        ssh.target(),
-        &remote_herdr,
-        &install_source_description(&remote_herdr.platform, override_binary.as_deref()),
-    )?;
-    let source = resolve_install_source(&remote_herdr.platform, override_binary)?;
-    let install_result = ssh.install_herdr(&remote_herdr, &source.path);
-    source.cleanup();
-    install_result?;
 
-    if !remote_binary_matches(ssh, &remote_herdr)? {
-        return Err(io::Error::other(format!(
-            "installed remote kitsune at {}, but it did not report version {}",
-            remote_herdr.shell_path,
-            current_version()
-        )));
-    }
-    warn_if_remote_bin_not_on_path(ssh)?;
-
-    Ok(PreparedRemoteHerdr {
-        remote_herdr,
-        installed_or_replaced: true,
-        stop_after_install_approved,
-    })
+    let discovered = remote_binary_candidates
+        .iter()
+        .map(|candidate| candidate.shell_path.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let discovered = if discovered.is_empty() {
+        "none".to_string()
+    } else {
+        discovered
+    };
+    Err(io::Error::other(format!(
+        "remote Kitsune must already be installed and match local version {} and protocol {}; discovered compatible binary: {}. install a matching Kitsune manually on {} or put it on PATH before using --remote",
+        current_version(),
+        CURRENT_PROTOCOL,
+        discovered,
+        ssh.target()
+    )))
 }
 
 fn detect_remote_platform(ssh: &RemoteSsh) -> io::Result<RemotePlatform> {

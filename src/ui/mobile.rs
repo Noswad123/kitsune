@@ -1122,7 +1122,7 @@ fn mobile_toast_title(toast: &ToastNotification) -> String {
             .strip_suffix(" finished")
             .map(|agent| format!("{agent} done"))
             .unwrap_or_else(|| toast.title.clone()),
-        ToastKind::UpdateInstalled => "update ready".to_string(),
+        ToastKind::UpdateInstalled => "updated".to_string(),
     }
 }
 

@@ -291,10 +291,7 @@ fn stream_set_has_graphics_only_render_impact() {
     server
         .app
         .event_tx
-        .try_send(AppEvent::UpdateReady {
-            version: "9.9.9".into(),
-            install_command: crate::product::command("update"),
-        })
+        .try_send(AppEvent::ClipboardWrite { content: vec![] })
         .unwrap();
     let (request, _response_rx) = stream_set_message(
         "stream-frame-with-internal-event",
