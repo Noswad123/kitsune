@@ -62,35 +62,44 @@ Acceptance criteria met:
 - Panes launched by Kitsune receive `KITSUNE_ENV`, `KITSUNE_WORKSPACE_ID`,
   `KITSUNE_TAB_ID`, and `KITSUNE_PANE_ID`.
 
-## Phase 2: native Kitsune session recall — in progress
+## Phase 2: native Kitsune session recall — complete
 
 Goal: once a Kitsune session is started, a keybinding opens the Kitsune session
 recall flow.
 
-Completed so far:
+Completed scope:
 
-- Add a first-class action for session recall. (Done: `session_recall`.)
-- Bind that action through the existing keybinding/config system. (Done:
-  default `prefix+shift+s`.)
-- Reuse existing modal/screen patterns rather than inventing a one-off UI.
+- Added a first-class action for session recall: `session_recall`.
+- Bound that action through the existing keybinding/config system. The default
+  remains `prefix+shift+s`.
+- Reused existing modal/screen patterns rather than inventing a one-off UI.
   (Done initially by launching the existing Kitsune recall TUI in a popup.)
-- Provide Kitsune-owned environment and socket compatibility when launching the
+- Provided Kitsune-owned environment and socket context when launching the
   recall helper.
+- Made the recall helper launch path Kitsune-owned. It is invoked with
+  `--backend kitsune` by default and receives `KITSUNE_ENV`,
+  `KITSUNE_BIN_PATH`, `KITSUNE_SOCKET_PATH`, `KITSUNE_CLIENT_SOCKET_PATH`, and
+  active Kitsune workspace/tab/pane context.
+- Added a first-class Kitsune backend to the external session recall helper so
+  Kitsune can diverge from Herdr without relying on Herdr backend names.
+- Removed the Kitsune-side `HERDR_*` compatibility shim. Herdr, tmux, and
+  Kitsune are selected as normal helper backends rather than by cross-populating
+  each other's environment variables.
 
-Design direction:
+Completion decisions:
 
-- Keep recall state client-side unless it becomes shared runtime/session fact.
+- Keep the external recall helper for this phase rather than building an
+  in-process picker immediately.
+- Treat recalled session selection as client-side unless it becomes a shared
+  runtime/session fact later.
 - Prefer neutral server/API concepts over TUI-only coupling if recall grows into
   shared runtime behavior.
 
-Open decisions:
+Deferred to Phase 3:
 
-- Whether the default `prefix+shift+s` remains the long-term binding.
-- Whether to keep launching the existing external recall helper or replace it
-  with an in-process picker/native Kitsune recall API.
-- How recalled sessions map to Herdr/Kitsune named sessions.
-- When to remove the narrow `HERDR_*` compatibility environment used only for
-  child helpers that have not learned Kitsune names yet.
+- Revisit whether `prefix+shift+s` remains the long-term binding.
+- Replace the external helper with an in-process picker/native Kitsune recall
+  API if that becomes product direction.
 
 ## Phase 3: intentional divergence — not started
 

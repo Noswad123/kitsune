@@ -861,12 +861,14 @@ impl App {
                 .unwrap_or_else(|_| "kitsune-session-recall".to_string()),
             "tui".to_string(),
         ];
-        if let Ok(backend) = std::env::var("KITSUNE_SESSION_RECALL_BACKEND") {
-            let backend = backend.trim();
-            if !backend.is_empty() && backend != "kitsune" {
-                argv.push("--backend".to_string());
-                argv.push(backend.to_string());
-            }
+        let backend = std::env::var("KITSUNE_SESSION_RECALL_BACKEND")
+            .ok()
+            .map(|backend| backend.trim().to_string())
+            .filter(|backend| !backend.is_empty())
+            .unwrap_or_else(|| "kitsune".to_string());
+        if !backend.is_empty() {
+            argv.push("--backend".to_string());
+            argv.push(backend);
         }
         let result = self.spawn_popup_argv_command(
             &argv,
@@ -911,35 +913,20 @@ impl App {
         api_socket_path: String,
         client_socket_path: String,
     ) {
-        // `custom_command_env` already provides Kitsune-owned runtime context,
-        // including KITSUNE_SOCKET_PATH and active workspace/tab/pane fields.
-        // Add the client socket path explicitly because the recall popup needs
-        // to communicate with this exact TUI client session.
+        // `custom_command_env` already provides most Kitsune-owned runtime
+        // context, including active workspace/tab/pane fields. Restate the
+        // runtime identity here so the recall helper targets this exact
+        // Kitsune session even when another binary/server is installed.
+        env.push(("KITSUNE_ENV".to_string(), "1".to_string()));
+        env.push(("KITSUNE_BIN_PATH".to_string(), current_exe.clone()));
+        env.push((
+            crate::api::SOCKET_PATH_ENV_VAR.to_string(),
+            api_socket_path.clone(),
+        ));
         env.push((
             crate::product::CLIENT_SOCKET_PATH_ENV_VAR.to_string(),
             client_socket_path.clone(),
         ));
-
-        // The session-recall UI is still provided by an external helper that
-        // historically understood Herdr names. Keep the compatibility shim
-        // narrow and child-process-only: mirror Kitsune session identity into
-        // HERDR_* variables while pointing every socket/bin path at this
-        // Kitsune runtime.
-        env.push(("HERDR_ENV".to_string(), "1".to_string()));
-        env.push(("HERDR_BIN_PATH".to_string(), current_exe));
-        env.push(("HERDR_SOCKET_PATH".to_string(), api_socket_path));
-        env.push(("HERDR_CLIENT_SOCKET_PATH".to_string(), client_socket_path));
-
-        for (kitsune_key, herdr_key) in [
-            ("KITSUNE_ACTIVE_WORKSPACE_ID", "HERDR_ACTIVE_WORKSPACE_ID"),
-            ("KITSUNE_ACTIVE_TAB_ID", "HERDR_ACTIVE_TAB_ID"),
-            ("KITSUNE_ACTIVE_PANE_ID", "HERDR_ACTIVE_PANE_ID"),
-            ("KITSUNE_ACTIVE_PANE_CWD", "HERDR_ACTIVE_PANE_CWD"),
-        ] {
-            if let Some((_, value)) = env.iter().find(|(key, _)| key == kitsune_key).cloned() {
-                env.push((herdr_key.to_string(), value));
-            }
-        }
     }
 
     fn spawn_custom_command(
@@ -1979,9 +1966,8 @@ mod tests {
             .map(|(_, value)| value.as_str())
     }
 
-    #[test]
-    fn session_recall_env_uses_kitsune_context_and_herdr_compat_shim() {
-        let mut env = vec![
+    fn session_recall_test_env() -> Vec<(String, String)> {
+        vec![
             (
                 crate::api::SOCKET_PATH_ENV_VAR.to_string(),
                 "/tmp/kitsune.sock".to_string(),
@@ -1997,7 +1983,12 @@ mod tests {
                 "KITSUNE_ACTIVE_PANE_CWD".to_string(),
                 "/repo/kitsune".to_string(),
             ),
-        ];
+        ]
+    }
+
+    #[test]
+    fn session_recall_env_uses_kitsune_native_context() {
+        let mut env = session_recall_test_env();
 
         App::append_session_recall_env_with_values(
             &mut env,
@@ -2010,29 +2001,23 @@ mod tests {
             env_last_value(&env, crate::product::CLIENT_SOCKET_PATH_ENV_VAR),
             Some("/tmp/kitsune-client.sock")
         );
-        assert_eq!(env_last_value(&env, "HERDR_ENV"), Some("1"));
+        assert_eq!(env_last_value(&env, "KITSUNE_ENV"), Some("1"));
         assert_eq!(
-            env_last_value(&env, "HERDR_BIN_PATH"),
+            env_last_value(&env, "KITSUNE_BIN_PATH"),
             Some("/usr/local/bin/kit")
         );
         assert_eq!(
-            env_last_value(&env, "HERDR_SOCKET_PATH"),
+            env_last_value(&env, crate::api::SOCKET_PATH_ENV_VAR),
             Some("/tmp/kitsune.sock")
         );
-        assert_eq!(
-            env_last_value(&env, "HERDR_CLIENT_SOCKET_PATH"),
-            Some("/tmp/kitsune-client.sock")
-        );
-        assert_eq!(
-            env_last_value(&env, "HERDR_ACTIVE_WORKSPACE_ID"),
-            Some("w2")
-        );
-        assert_eq!(env_last_value(&env, "HERDR_ACTIVE_TAB_ID"), Some("w2:t3"));
-        assert_eq!(env_last_value(&env, "HERDR_ACTIVE_PANE_ID"), Some("w2:p4"));
-        assert_eq!(
-            env_last_value(&env, "HERDR_ACTIVE_PANE_CWD"),
-            Some("/repo/kitsune")
-        );
+        assert_eq!(env_last_value(&env, "HERDR_ENV"), None);
+        assert_eq!(env_last_value(&env, "HERDR_BIN_PATH"), None);
+        assert_eq!(env_last_value(&env, "HERDR_SOCKET_PATH"), None);
+        assert_eq!(env_last_value(&env, "HERDR_CLIENT_SOCKET_PATH"), None);
+        assert_eq!(env_last_value(&env, "HERDR_ACTIVE_WORKSPACE_ID"), None);
+        assert_eq!(env_last_value(&env, "HERDR_ACTIVE_TAB_ID"), None);
+        assert_eq!(env_last_value(&env, "HERDR_ACTIVE_PANE_ID"), None);
+        assert_eq!(env_last_value(&env, "HERDR_ACTIVE_PANE_CWD"), None);
     }
 
     #[test]
