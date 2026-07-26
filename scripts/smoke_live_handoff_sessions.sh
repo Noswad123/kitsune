@@ -20,7 +20,7 @@ server_pids=()
 cleanup() {
   set +e
   for session in "${sessions[@]}"; do
-    run_herdr "$session" server stop >/dev/null 2>&1 || true
+    run_kitsune "$session" server stop >/dev/null 2>&1 || true
   done
   for pid in "${server_pids[@]}"; do
     kill "$pid" >/dev/null 2>&1 || true
@@ -28,7 +28,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-run_herdr() {
+run_kitsune() {
   local session="$1"
   shift
   local socket
@@ -187,7 +187,7 @@ printf 'onboarding = false\n' > "$CONFIG_HOME/kitsune-dev/config.toml"
 
 for session in "${sessions[@]}"; do
   echo "starting smoke session $session at $(api_socket "$session")"
-  run_herdr "$session" server >/dev/null 2>&1 &
+  run_kitsune "$session" server >/dev/null 2>&1 &
   server_pids+=("$!")
   wait_for_socket "$(api_socket "$session")"
 done

@@ -40,6 +40,13 @@ Candidate work:
 - Keep `kit` and `kitsune` behavior aligned so editor integrations, shell
   aliases, and remote workflows can use either entry point predictably.
 
+## Agent selector
+- Right now I leverage prefix+a to shift focus from agent to agent
+- I would like to pull a view of just agents then have the ability to navigate them or change the name of their panes
+## Support djinn agent harness
+- my djinn harness can be found ~/projects/djinn
+- It needs to be treated like a first class harness akin to opencode, pi, etc
+
 ## Near-term working branch
 
 Use `kitsune-integration` as the integration branch until the first Kitsune

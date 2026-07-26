@@ -104,8 +104,8 @@ release-publish version:
         echo "error: Cargo.toml version $cargo_version does not match {{version}}"; \
         exit 1; \
     fi
-    python3 scripts/changelog.py extract --version {{version}} --output /tmp/herdr-release-notes-check.md
-    rm -f /tmp/herdr-release-notes-check.md
+    python3 scripts/changelog.py extract --version {{version}} --output /tmp/kitsune-release-notes-check.md
+    rm -f /tmp/kitsune-release-notes-check.md
     @local_head="$(git rev-parse HEAD)"; \
     remote_head="$(git rev-parse origin/master)"; \
     if ! git merge-base --is-ancestor "$remote_head" "$local_head"; then \

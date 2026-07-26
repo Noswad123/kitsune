@@ -80,7 +80,7 @@ rustPlatform.buildRustPackage {
 
   meta = {
     description = "Terminal workspace manager for AI coding agents";
-    homepage = "https://github.com/Noswad123/herdr";
+    homepage = "https://github.com/Noswad123/kitsune";
     license = lib.licenses.asl20;
     mainProgram = "kitsune";
     platforms = lib.platforms.linux ++ lib.platforms.darwin;

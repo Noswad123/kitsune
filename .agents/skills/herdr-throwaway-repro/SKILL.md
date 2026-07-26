@@ -126,7 +126,7 @@ Use harmless operations for permission-state testing. Reject the pending action 
 
 Record enough information for another person to repeat the result:
 
-- Herdr binary and version.
+- Kitsune binary and version.
 - Named session and launch environment.
 - Target application or agent version and arguments.
 - Exact commands or prompts.
@@ -134,7 +134,7 @@ Record enough information for another person to repeat the result:
 - Relevant `pane read`, `agent read`, `agent explain`, API output, and session logs.
 - Whether global config or a local manifest override was active.
 
-Read the named session directory and socket from `herdr session list` instead of assuming their paths. Keep large evidence under `/var/tmp` unless the user asks to preserve it elsewhere.
+Read the named session directory and socket from `kitsune session list` instead of assuming their paths. Keep large evidence under `/var/tmp` unless the user asks to preserve it elsewhere.
 
 Distinguish observed facts from proposed causes. First reproduce stock behavior, then change one variable at a time.
 

@@ -1,5 +1,5 @@
 ---
-name: herdr
+name: kitsune
 description: "Control Kitsune, a terminal multiplexer for coding agents. Use only when the user explicitly mentions Kitsune or asks to use Kitsune to inspect or control panes, tabs, workspaces, commands, or another agent. Do not use merely because a task could benefit from a background terminal, delegation, or parallel work. Requires KITSUNE_ENV=1."
 ---
 

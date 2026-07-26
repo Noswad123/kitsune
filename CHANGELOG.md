@@ -1,5 +1,8 @@
 # Changelog
 
+Kitsune started as a Herdr fork. Historical entries inherited from before the
+fork may retain Herdr command names and product references.
+
 ## Unreleased
 
 ## [0.7.5] - 2026-07-21
