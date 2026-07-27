@@ -15,7 +15,7 @@ use serde::Deserialize;
 use serde_json::Value;
 use support::{
     cleanup_test_base, client_handshake, encode_varint_u32, frame_message, read_server_message,
-    register_runtime_dir, register_spawned_herdr_pid, unregister_spawned_herdr_pid,
+    register_runtime_dir, register_spawned_kitsune_pid, unregister_spawned_kitsune_pid,
     wait_for_message_variant, wait_for_socket, wait_until, CURRENT_PROTOCOL,
 };
 
@@ -30,18 +30,18 @@ fn unique_test_dir() -> PathBuf {
     ))
 }
 
-struct SpawnedHerdr {
+struct SpawnedKitsune {
     _master: Option<Box<dyn MasterPty + Send>>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-impl SpawnedHerdr {
+impl SpawnedKitsune {
     fn close_master(&mut self) {
         drop(self._master.take());
     }
 }
 
-impl Drop for SpawnedHerdr {
+impl Drop for SpawnedKitsune {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -59,12 +59,12 @@ impl Drop for SpawnedHerdr {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_herdr_pid(Some(pid));
+            unregister_spawned_kitsune_pid(Some(pid));
         }
     }
 }
 
-fn cleanup_spawned_herdr(spawned: SpawnedHerdr, base: PathBuf) {
+fn cleanup_spawned_kitsune(spawned: SpawnedKitsune, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -80,7 +80,7 @@ fn spawn_client_process(
     config_home: &PathBuf,
     runtime_dir: &PathBuf,
     api_socket_path: &PathBuf,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     register_runtime_dir(runtime_dir);
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -102,10 +102,10 @@ fn spawn_client_process(
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: Some(pair.master),
         child,
     }
@@ -116,7 +116,7 @@ fn spawn_server(
     runtime_dir: &PathBuf,
     api_socket_path: &PathBuf,
     _client_socket_path: &PathBuf,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
@@ -145,10 +145,10 @@ fn spawn_server(
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: Some(pair.master),
         child,
     }
@@ -325,7 +325,7 @@ fn client_connects_and_receives_frame() {
     read_next_frame_payload(&mut stream, Duration::from_secs(10))
         .expect("should receive a frame from server");
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -365,10 +365,10 @@ fn client_sees_headless_startup_config_diagnostic() {
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    let spawned = SpawnedHerdr {
+    let spawned = SpawnedKitsune {
         _master: Some(pair.master),
         child,
     };
@@ -409,7 +409,7 @@ fn client_sees_headless_startup_config_diagnostic() {
         "attached client should see startup config parse diagnostic; last frame:\n{last_frame_text}"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -631,7 +631,7 @@ fn client_receives_frame_after_pane_output() {
         .expect("wait for post-output frame");
     assert!(received_frame, "should receive a Frame after pane output");
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -700,7 +700,7 @@ fn pane_spawn_cwd_fallback_in_server() {
         "fallback cwd should exist: {cwd}"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -807,10 +807,10 @@ fn client_receives_notify_on_agent_state_change() {
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    let spawned = SpawnedHerdr {
+    let spawned = SpawnedKitsune {
         _master: Some(pair.master),
         child,
     };
@@ -988,5 +988,5 @@ fn client_receives_notify_on_agent_state_change() {
         "client should receive a Sound Notify with 'agent done' when background pane transitions Working→Idle"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }

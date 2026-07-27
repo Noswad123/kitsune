@@ -7,7 +7,7 @@ fn workspace_and_pane_management_commands_work() {
     let runtime_dir = base.join("runtime");
     let socket_path = runtime_dir.join("kitsune.sock");
 
-    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let reloaded = run_cli(&socket_path, &["server", "reload-config"]);
@@ -87,7 +87,7 @@ fn workspace_and_pane_management_commands_work() {
         serde_json::from_slice(&closed_workspace.stdout).unwrap();
     assert_eq!(closed_workspace_json["result"]["type"], "ok");
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn worktree_management_commands_work() {
     let checkout = base.join("checkout");
     create_committed_repo(&repo);
 
-    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let branch = "worktree/cli-wrapper";
@@ -213,7 +213,7 @@ fn worktree_management_commands_work() {
     assert_eq!(force_removed["result"]["forced"], true);
     assert!(!checkout.exists());
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }
 
 #[test]
@@ -226,7 +226,7 @@ fn forced_worktree_remove_terminates_processes_inside_checkout() {
     let checkout = base.join("checkout-with-process");
     create_committed_repo(&repo);
 
-    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli_json(
@@ -282,7 +282,7 @@ fn forced_worktree_remove_terminates_processes_inside_checkout() {
     assert!(wait_for_pid_exit(pid, Duration::from_secs(3)));
     assert!(!checkout.exists());
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }
 
 #[test]
@@ -308,7 +308,7 @@ fn worktree_open_existing_checkout_by_path_and_branch() {
         ],
     );
 
-    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let opened = run_cli_json_in_dir(
@@ -398,7 +398,7 @@ fn worktree_open_existing_checkout_by_path_and_branch() {
     );
     assert_eq!(removed["result"]["type"], "worktree_removed");
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }
 
 #[test]
@@ -601,7 +601,7 @@ fn tab_management_commands_work() {
     let runtime_dir = base.join("runtime");
     let socket_path = runtime_dir.join("kitsune.sock");
 
-    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = run_cli(
@@ -659,5 +659,5 @@ fn tab_management_commands_work() {
     let closed_tab_json: serde_json::Value = serde_json::from_slice(&closed_tab.stdout).unwrap();
     assert_eq!(closed_tab_json["result"]["type"], "ok");
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }

@@ -15,8 +15,8 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Deserialize;
 use serde_json::Value;
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_herdr_pid,
-    unregister_spawned_herdr_pid, CURRENT_PROTOCOL,
+    cleanup_test_base, register_runtime_dir, register_spawned_kitsune_pid,
+    unregister_spawned_kitsune_pid, CURRENT_PROTOCOL,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -30,12 +30,12 @@ fn unique_test_dir() -> PathBuf {
     ))
 }
 
-struct SpawnedHerdr {
+struct SpawnedKitsune {
     _master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-impl Drop for SpawnedHerdr {
+impl Drop for SpawnedKitsune {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -52,12 +52,12 @@ impl Drop for SpawnedHerdr {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_herdr_pid(Some(pid));
+            unregister_spawned_kitsune_pid(Some(pid));
         }
     }
 }
 
-fn cleanup_spawned_herdr(spawned: SpawnedHerdr, base: PathBuf) {
+fn cleanup_spawned_kitsune(spawned: SpawnedKitsune, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -102,7 +102,7 @@ fn wait_for_file(path: &Path, timeout: Duration) {
     panic!("socket did not accept connections at {}", path.display());
 }
 
-fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket_path: &Path) -> SpawnedHerdr {
+fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket_path: &Path) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
@@ -131,10 +131,10 @@ fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket_path: &Path) 
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }
@@ -144,7 +144,7 @@ fn spawn_client_process(
     config_home: &Path,
     runtime_dir: &Path,
     api_socket_path: &Path,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     register_runtime_dir(runtime_dir);
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -166,10 +166,10 @@ fn spawn_client_process(
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }
@@ -778,7 +778,7 @@ fn multi_client_allows_multiple_simultaneous_connections() {
         "server should remain responsive: {ping}"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -824,7 +824,7 @@ fn multi_client_effective_size_shrinks_when_smaller_client_joins() {
         "effective pane size should shrink when smaller client joins: before={large_only_size:?}, last_seen={last_seen_size:?}"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -881,7 +881,7 @@ fn multi_client_broadcasts_frame_updates_to_all_clients() {
         log_tail(&server_log_path(&config_home), 80)
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -941,7 +941,7 @@ fn multi_client_disconnect_recalculates_to_next_smallest() {
         try_read_pane_tty_size(&api_socket, &pane_id, Duration::from_millis(300))
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -988,7 +988,7 @@ fn multi_client_smallest_leaving_resizes_up_for_remaining_clients() {
         size_after_small_leaves
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -1044,7 +1044,7 @@ fn multi_client_client_crash_sigkill_does_not_affect_server() {
         "remaining client should continue receiving frames"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -1080,5 +1080,5 @@ fn multi_client_rapid_connect_disconnect_stress_10_cycles() {
         "new client should still connect and receive frames after stress"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }

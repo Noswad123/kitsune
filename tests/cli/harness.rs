@@ -7,8 +7,8 @@ pub(super) use std::thread;
 pub(super) use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub(super) use crate::support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_herdr_pid,
-    unregister_spawned_herdr_pid, CURRENT_PROTOCOL,
+    cleanup_test_base, register_runtime_dir, register_spawned_kitsune_pid,
+    unregister_spawned_kitsune_pid, CURRENT_PROTOCOL,
 };
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
@@ -56,7 +56,7 @@ pub(super) fn create_committed_repo(path: &Path) {
     run_git(path, &["commit", "--quiet", "-m", "initial"]);
 }
 
-pub(super) struct SpawnedHerdr {
+pub(super) struct SpawnedKitsune {
     _master: Box<dyn MasterPty + Send>,
     pub(super) child: Box<dyn Child + Send + Sync>,
 }
@@ -70,11 +70,11 @@ impl Drop for SpawnedServerProcess {
         let pid = self.child.id();
         let _ = self.child.kill();
         let _ = self.child.wait();
-        unregister_spawned_herdr_pid(Some(pid));
+        unregister_spawned_kitsune_pid(Some(pid));
     }
 }
 
-impl Drop for SpawnedHerdr {
+impl Drop for SpawnedKitsune {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -91,12 +91,12 @@ impl Drop for SpawnedHerdr {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_herdr_pid(Some(pid));
+            unregister_spawned_kitsune_pid(Some(pid));
         }
     }
 }
 
-pub(super) fn cleanup_spawned_herdr(spawned: SpawnedHerdr, base: PathBuf) {
+pub(super) fn cleanup_spawned_kitsune(spawned: SpawnedKitsune, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -112,12 +112,12 @@ pub(super) fn wait_for_socket(path: &Path, timeout: Duration) {
     panic!("socket did not appear at {}", path.display());
 }
 
-pub(super) fn spawn_herdr(
+pub(super) fn spawn_kitsune(
     config_home: &Path,
     runtime_dir: &Path,
     socket_path: &Path,
-) -> SpawnedHerdr {
-    spawn_herdr_with_config(
+) -> SpawnedKitsune {
+    spawn_kitsune_with_config(
         config_home,
         runtime_dir,
         socket_path,
@@ -126,12 +126,12 @@ pub(super) fn spawn_herdr(
     )
 }
 
-pub(super) fn spawn_herdr_with_pane_history(
+pub(super) fn spawn_kitsune_with_pane_history(
     config_home: &Path,
     runtime_dir: &Path,
     socket_path: &Path,
-) -> SpawnedHerdr {
-    spawn_herdr_with_config(
+) -> SpawnedKitsune {
+    spawn_kitsune_with_config(
         config_home,
         runtime_dir,
         socket_path,
@@ -183,7 +183,7 @@ pub(super) fn spawn_named_server(
         .stderr(std::process::Stdio::null());
 
     let child = command.spawn().unwrap();
-    register_spawned_herdr_pid(Some(child.id()));
+    register_spawned_kitsune_pid(Some(child.id()));
     SpawnedServerProcess { child }
 }
 
@@ -255,13 +255,13 @@ pub(super) fn run_named_cli_json(
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-pub(super) fn spawn_herdr_with_path(
+pub(super) fn spawn_kitsune_with_path(
     config_home: &Path,
     runtime_dir: &Path,
     socket_path: &Path,
     path_override: Option<&Path>,
-) -> SpawnedHerdr {
-    spawn_herdr_with_config(
+) -> SpawnedKitsune {
+    spawn_kitsune_with_config(
         config_home,
         runtime_dir,
         socket_path,
@@ -270,13 +270,13 @@ pub(super) fn spawn_herdr_with_path(
     )
 }
 
-pub(super) fn spawn_herdr_with_config(
+pub(super) fn spawn_kitsune_with_config(
     config_home: &Path,
     runtime_dir: &Path,
     socket_path: &Path,
     path_override: Option<&Path>,
     config_toml: &str,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join(app_dir_name())).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
@@ -308,8 +308,8 @@ pub(super) fn spawn_herdr_with_config(
     }
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
-    SpawnedHerdr {
+    register_spawned_kitsune_pid(child.process_id());
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }

@@ -14,8 +14,8 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 use serde::Deserialize;
 use serde_json::{json, Value};
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_herdr_pid,
-    unregister_spawned_herdr_pid, CURRENT_PROTOCOL,
+    cleanup_test_base, register_runtime_dir, register_spawned_kitsune_pid,
+    unregister_spawned_kitsune_pid, CURRENT_PROTOCOL,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -29,18 +29,18 @@ fn unique_test_dir() -> PathBuf {
     ))
 }
 
-struct SpawnedHerdr {
+struct SpawnedKitsune {
     _master: Option<Box<dyn MasterPty + Send>>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-impl SpawnedHerdr {
+impl SpawnedKitsune {
     fn close_master(&mut self) {
         drop(self._master.take());
     }
 }
 
-impl Drop for SpawnedHerdr {
+impl Drop for SpawnedKitsune {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -58,12 +58,12 @@ impl Drop for SpawnedHerdr {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_herdr_pid(Some(pid));
+            unregister_spawned_kitsune_pid(Some(pid));
         }
     }
 }
 
-fn cleanup_spawned_herdr(spawned: SpawnedHerdr, base: PathBuf) {
+fn cleanup_spawned_kitsune(spawned: SpawnedKitsune, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -86,7 +86,7 @@ fn wait_for_socket(path: &Path, timeout: Duration) {
     panic!("socket did not appear at {}", path.display());
 }
 
-fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket_path: &Path) -> SpawnedHerdr {
+fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket_path: &Path) -> SpawnedKitsune {
     spawn_server_with_path(config_home, runtime_dir, api_socket_path, None)
 }
 
@@ -95,7 +95,7 @@ fn spawn_server_with_path(
     runtime_dir: &Path,
     api_socket_path: &Path,
     path_override: Option<&Path>,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
@@ -127,10 +127,10 @@ fn spawn_server_with_path(
     }
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: Some(pair.master),
         child,
     }
@@ -140,7 +140,7 @@ fn spawn_client_process(
     config_home: &Path,
     runtime_dir: &Path,
     api_socket_path: &Path,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     register_runtime_dir(runtime_dir);
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -162,10 +162,10 @@ fn spawn_client_process(
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: Some(pair.master),
         child,
     }
@@ -743,7 +743,7 @@ fn cross_area_detach_and_reattach_preserves_state() {
         "pane output should include detached-period output: {readback}"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -865,7 +865,7 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
         "reattached client frame should show blocked status after transition"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -928,7 +928,7 @@ fn cross_area_client_and_api_workspace_views_are_consistent() {
         "API and client-side state should reference the same created workspace"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -1000,7 +1000,7 @@ fn cross_area_two_clients_shared_view_and_single_detach_stability() {
         "server and remaining client flow should stay healthy: {ping}"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -1133,5 +1133,5 @@ fn cross_area_server_kill_then_restart_and_reconnect() {
         "restarted server should respond over API: {ping}"
     );
 
-    cleanup_spawned_herdr(server2, base);
+    cleanup_spawned_kitsune(server2, base);
 }

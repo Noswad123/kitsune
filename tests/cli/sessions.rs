@@ -310,7 +310,7 @@ fn status_commands_report_client_and_server_versions() {
     let runtime_dir = base.join("runtime");
     let socket_path = runtime_dir.join("kitsune.sock");
 
-    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let full = run_cli(&socket_path, &["status"]);
@@ -406,7 +406,7 @@ fn status_commands_report_client_and_server_versions() {
         .as_str()
         .is_some_and(|path| !path.is_empty()));
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }
 
 #[test]
@@ -448,7 +448,7 @@ fn server_stop_command_shuts_down_running_server() {
     let socket_path = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
 
-    let mut kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let mut kitsune = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
@@ -472,12 +472,12 @@ fn server_stop_command_shuts_down_running_server() {
         "client socket should be removed or stale before server stop returns"
     );
 
-    let pid = herdr.child.process_id();
-    let exit_status = herdr.child.wait().unwrap();
-    unregister_spawned_herdr_pid(pid);
+    let pid = kitsune.child.process_id();
+    let exit_status = kitsune.child.wait().unwrap();
+    unregister_spawned_kitsune_pid(pid);
     assert!(exit_status.success(), "server stop should exit cleanly");
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }
 
 #[test]
@@ -489,7 +489,7 @@ fn server_stop_then_restart_restores_pane_history() {
     let client_socket = runtime_dir.join("kitsune-client.sock");
     let marker = "PERSISTED_HISTORY_AFTER_STOP";
 
-    let mut kitsune = spawn_herdr_with_pane_history(&config_home, &runtime_dir, &socket_path);
+    let mut kitsune = spawn_kitsune_with_pane_history(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
@@ -531,13 +531,13 @@ fn server_stop_then_restart_restores_pane_history() {
         String::from_utf8_lossy(&stopped.stderr)
     );
 
-    let pid = herdr.child.process_id();
-    let exit_status = herdr.child.wait().unwrap();
-    unregister_spawned_herdr_pid(pid);
+    let pid = kitsune.child.process_id();
+    let exit_status = kitsune.child.wait().unwrap();
+    unregister_spawned_kitsune_pid(pid);
     assert!(exit_status.success(), "server stop should exit cleanly");
-    drop(herdr);
+    drop(kitsune);
 
-    let restarted = spawn_herdr_with_pane_history(&config_home, &runtime_dir, &socket_path);
+    let restarted = spawn_kitsune_with_pane_history(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
@@ -569,7 +569,7 @@ fn server_stop_then_restart_restores_pane_history() {
         "restarted server should restore saved pane history"
     );
 
-    cleanup_spawned_herdr(restarted, base);
+    cleanup_spawned_kitsune(restarted, base);
 }
 
 #[test]
@@ -581,19 +581,19 @@ fn server_start_restores_legacy_session_through_api_identity() {
     let client_socket = runtime_dir.join("kitsune-client.sock");
     let data_dir = config_home.join(app_dir_name());
     let pion_cwd = base.join("legacy-pion");
-    let herdr_cwd = base.join("legacy-kitsune");
+    let kitsune_cwd = base.join("legacy-kitsune");
 
     fs::create_dir_all(&pion_cwd).unwrap();
-    fs::create_dir_all(&herdr_cwd).unwrap();
+    fs::create_dir_all(&kitsune_cwd).unwrap();
     fs::create_dir_all(&data_dir).unwrap();
     let pion_cwd = pion_cwd.to_str().expect("test cwd should be UTF-8");
-    let herdr_cwd = herdr_cwd.to_str().expect("test cwd should be UTF-8");
+    let kitsune_cwd = kitsune_cwd.to_str().expect("test cwd should be UTF-8");
     let legacy_session = include_str!("../fixtures/session/legacy-pre-tabs-v2.json")
         .replace("/tmp/pion", pion_cwd)
-        .replace("/tmp/kitsune", herdr_cwd);
+        .replace("/tmp/kitsune", kitsune_cwd);
     fs::write(data_dir.join("session.json"), legacy_session).unwrap();
 
-    let kitsune = spawn_herdr(&config_home, &runtime_dir, &socket_path);
+    let kitsune = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
     wait_for_socket(&socket_path, Duration::from_secs(5));
     wait_for_socket(&client_socket, Duration::from_secs(5));
 
@@ -634,7 +634,7 @@ fn server_start_restores_legacy_session_through_api_identity() {
     assert!(panes.iter().any(|pane| {
         pane["pane_id"] == focused_pane_id
             && pane["tab_id"] == format!("{workspace_id}:t1")
-            && pane["cwd"] == herdr_cwd
+            && pane["cwd"] == kitsune_cwd
             && pane["focused"] == true
     }));
 
@@ -668,5 +668,5 @@ fn server_start_restores_legacy_session_through_api_identity() {
     assert_eq!(agents[0]["agent"], "pi");
     assert_eq!(agents[0]["agent_status"], "working");
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }

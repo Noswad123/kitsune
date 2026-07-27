@@ -16,8 +16,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde_json::Value;
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_herdr_pid,
-    unregister_spawned_herdr_pid,
+    cleanup_test_base, register_runtime_dir, register_spawned_kitsune_pid,
+    unregister_spawned_kitsune_pid,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -31,12 +31,12 @@ fn unique_test_dir() -> PathBuf {
     ))
 }
 
-struct SpawnedHerdr {
+struct SpawnedKitsune {
     _master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-impl Drop for SpawnedHerdr {
+impl Drop for SpawnedKitsune {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -53,12 +53,12 @@ impl Drop for SpawnedHerdr {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_herdr_pid(Some(pid));
+            unregister_spawned_kitsune_pid(Some(pid));
         }
     }
 }
 
-fn cleanup_spawned_herdr(spawned: SpawnedHerdr, base: PathBuf) {
+fn cleanup_spawned_kitsune(spawned: SpawnedKitsune, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -86,7 +86,7 @@ fn spawn_server(
     runtime_dir: &Path,
     api_socket_path: &Path,
     _client_socket_path: &Path,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
@@ -115,22 +115,22 @@ fn spawn_server(
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }
 }
 
 /// Spawn `kitsune` (no subcommand) — the auto-detect launch path.
-fn spawn_herdr_auto(
+fn spawn_kitsune_auto(
     config_home: &Path,
     runtime_dir: &Path,
     api_socket_path: &Path,
     _client_socket_path: &Path,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
@@ -159,21 +159,21 @@ fn spawn_herdr_auto(
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }
 }
 
 /// Spawn `kitsune --no-session` — the monolithic escape hatch.
-fn spawn_herdr_no_session(
+fn spawn_kitsune_no_session(
     config_home: &Path,
     runtime_dir: &Path,
     api_socket_path: &Path,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
@@ -201,10 +201,10 @@ fn spawn_herdr_no_session(
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }
@@ -301,7 +301,7 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
     );
 
     // Run `kitsune` (no subcommand) — should auto-detect, spawn server, attach as client.
-    let kitsune = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    let kitsune = spawn_kitsune_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
 
     // Wait for both sockets to appear (server was spawned).
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -319,13 +319,13 @@ fn auto_detect_no_server_spawns_server_and_attaches() {
         .expect("should connect to client socket (server is listening)");
 
     // Verify the client process is running.
-    let client_pid = herdr.child.process_id().expect("client should have PID");
+    let client_pid = kitsune.child.process_id().expect("client should have PID");
     assert!(
         process_exists(client_pid),
         "client process should be running"
     );
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }
 
 /// Running `kitsune` with a server already running attaches
@@ -350,7 +350,7 @@ fn auto_detect_server_running_attaches_directly() {
     assert!(process_exists(server_pid), "server should be running");
 
     // Run `kitsune` (no subcommand) — should detect the running server and attach.
-    let client = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    let client = spawn_kitsune_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
 
     // Wait a moment for the client to attach.
     thread::sleep(Duration::from_millis(500));
@@ -375,8 +375,8 @@ fn auto_detect_server_running_attaches_directly() {
         "API should still respond to ping: {response}"
     );
 
-    cleanup_spawned_herdr(client, PathBuf::from("/nonexistent"));
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(client, PathBuf::from("/nonexistent"));
+    cleanup_spawned_kitsune(server, base);
 }
 
 /// Socket path resolution is consistent between server and client.
@@ -392,7 +392,7 @@ fn auto_detect_socket_path_consistency() {
     let client_socket = runtime_dir.join("kitsune-client.sock");
 
     // Run `kitsune` with custom socket paths.
-    let kitsune = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    let kitsune = spawn_kitsune_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
 
     // Wait for both sockets to appear at the custom paths.
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -420,7 +420,7 @@ fn auto_detect_socket_path_consistency() {
     let _stream = UnixStream::connect(&client_socket)
         .expect("should connect to client socket at custom path");
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }
 
 /// `kitsune --no-session` bypasses server/client and runs
@@ -435,7 +435,7 @@ fn no_session_flag_runs_monolithically() {
     let client_socket = runtime_dir.join("kitsune-client.sock");
 
     // Run `kitsune --no-session` — monolithic mode, no server/client.
-    let kitsune = spawn_herdr_no_session(&config_home, &runtime_dir, &api_socket);
+    let kitsune = spawn_kitsune_no_session(&config_home, &runtime_dir, &api_socket);
 
     // Wait for the API socket (monolithic mode creates it).
     wait_for_socket(&api_socket, Duration::from_secs(10));
@@ -458,13 +458,13 @@ fn no_session_flag_runs_monolithically() {
     // not by a separate server. We can check this by verifying the client
     // PID matches what would be serving the socket — in monolithic mode,
     // there is only one kitsune process.
-    let client_pid = herdr.child.process_id().expect("should have PID");
+    let client_pid = kitsune.child.process_id().expect("should have PID");
     assert!(
         process_exists(client_pid),
         "monolithic process should be running"
     );
 
-    cleanup_spawned_herdr(herdr, base);
+    cleanup_spawned_kitsune(kitsune, base);
 }
 
 /// CLI subcommands work through the server's JSON API socket.
@@ -509,7 +509,7 @@ fn cli_subcommands_work_through_server() {
         "pane list output should contain 'result': {stdout}"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 /// Verify that the server spawned by auto-detect
@@ -524,7 +524,7 @@ fn auto_detect_server_persists_and_reattaches() {
     let client_socket = runtime_dir.join("kitsune-client.sock");
 
     // Run `kitsune` — auto-detect spawns server + attaches client.
-    let mut client1 = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    let mut client1 = spawn_kitsune_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
@@ -559,7 +559,7 @@ fn auto_detect_server_persists_and_reattaches() {
     );
 
     // Run `kitsune` again — should detect the running server and reattach.
-    let client2 = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    let client2 = spawn_kitsune_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     thread::sleep(Duration::from_millis(500));
 
     // Verify the new client is running.
@@ -576,7 +576,7 @@ fn auto_detect_server_persists_and_reattaches() {
         "API should still respond after reattach: {response}"
     );
 
-    cleanup_spawned_herdr(client2, PathBuf::from("/nonexistent"));
+    cleanup_spawned_kitsune(client2, PathBuf::from("/nonexistent"));
     cleanup_test_base(&base);
 }
 
@@ -629,9 +629,9 @@ fn auto_detect_default_socket_path_from_config_dir() {
     cmd.env_remove("KITSUNE_CLIENT_SOCKET_PATH");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
-    let server = SpawnedHerdr {
+    let server = SpawnedKitsune {
         _master: pair.master,
         child,
     };
@@ -654,7 +654,7 @@ fn auto_detect_default_socket_path_from_config_dir() {
         "API should respond at config-dir path: {response}"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }
 
 #[test]
@@ -666,7 +666,7 @@ fn auto_detect_writes_client_and_server_logs_to_separate_files() {
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
 
-    let spawned = spawn_herdr_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
+    let spawned = spawn_kitsune_auto(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
 
@@ -697,7 +697,7 @@ fn auto_detect_writes_client_and_server_logs_to_separate_files() {
         "persistent client logs should not land in kitsune.log: {monolith_content}"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -708,7 +708,7 @@ fn no_session_writes_startup_logs_to_monolith_file() {
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
 
-    let spawned = spawn_herdr_no_session(&config_home, &runtime_dir, &api_socket);
+    let spawned = spawn_kitsune_no_session(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
 
     let app_dir_name = if cfg!(debug_assertions) {
@@ -725,7 +725,7 @@ fn no_session_writes_startup_logs_to_monolith_file() {
         Duration::from_secs(10),
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -792,5 +792,5 @@ fn auto_detect_respects_nested_guard_before_auto_attach() {
         "nested launch should not auto-attach or mutate server state"
     );
 
-    cleanup_spawned_herdr(server, base);
+    cleanup_spawned_kitsune(server, base);
 }

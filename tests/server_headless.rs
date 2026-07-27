@@ -13,8 +13,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use support::{
-    cleanup_test_base, register_runtime_dir, register_spawned_herdr_pid,
-    unregister_spawned_herdr_pid, CURRENT_PROTOCOL,
+    cleanup_test_base, register_runtime_dir, register_spawned_kitsune_pid,
+    unregister_spawned_kitsune_pid, CURRENT_PROTOCOL,
 };
 
 fn unique_test_dir() -> PathBuf {
@@ -28,18 +28,18 @@ fn unique_test_dir() -> PathBuf {
     ))
 }
 
-struct SpawnedHerdr {
+struct SpawnedKitsune {
     _master: Option<Box<dyn MasterPty + Send>>,
     child: Box<dyn Child + Send + Sync>,
 }
 
-impl SpawnedHerdr {
+impl SpawnedKitsune {
     fn close_master(&mut self) {
         drop(self._master.take());
     }
 }
 
-impl Drop for SpawnedHerdr {
+impl Drop for SpawnedKitsune {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
@@ -57,12 +57,12 @@ impl Drop for SpawnedHerdr {
                 thread::sleep(Duration::from_millis(20));
             }
 
-            unregister_spawned_herdr_pid(Some(pid));
+            unregister_spawned_kitsune_pid(Some(pid));
         }
     }
 }
 
-fn cleanup_spawned_herdr(spawned: SpawnedHerdr, base: PathBuf) {
+fn cleanup_spawned_kitsune(spawned: SpawnedKitsune, base: PathBuf) {
     drop(spawned);
     cleanup_test_base(&base);
 }
@@ -101,7 +101,7 @@ fn spawn_server(
     runtime_dir: &Path,
     api_socket_path: &Path,
     _client_socket_path: &Path,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
@@ -130,10 +130,10 @@ fn spawn_server(
     cmd.env_remove("KITSUNE_ENV");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
+    register_spawned_kitsune_pid(child.process_id());
     drop(pair.slave);
 
-    SpawnedHerdr {
+    SpawnedKitsune {
         _master: Some(pair.master),
         child,
     }
@@ -386,7 +386,7 @@ fn server_creates_both_sockets() {
         "ping should return pong: {response}"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -409,7 +409,7 @@ fn server_starts_without_terminal() {
         assert_eq!(result, 0, "server process should be running");
     }
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -431,7 +431,7 @@ fn server_api_responds_to_ping() {
         "API should respond to ping: {response}"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -496,7 +496,7 @@ fn server_cleans_up_stale_client_socket() {
         "API should respond to ping: {response}"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -528,7 +528,7 @@ fn server_persists_after_client_disconnect() {
         "API should still respond after client disconnect: {response}"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -564,17 +564,17 @@ fn duplicate_server_start_fails_gracefully() {
     cmd.env_remove("KITSUNE_ENV");
 
     let mut child2 = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child2.process_id());
+    register_spawned_kitsune_pid(child2.process_id());
     drop(pair.slave);
 
     // Wait for the second server to exit.
     let exit_status = child2.wait().unwrap();
-    unregister_spawned_herdr_pid(child2.process_id());
+    unregister_spawned_kitsune_pid(child2.process_id());
 
     // The second server should exit with a non-zero code.
     assert!(!exit_status.success(), "duplicate server start should fail");
 
-    cleanup_spawned_herdr(spawned1, base);
+    cleanup_spawned_kitsune(spawned1, base);
 }
 
 #[test]
@@ -607,7 +607,7 @@ fn client_handshake_succeeds() {
         error
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -638,7 +638,7 @@ fn client_handshake_rejects_incompatible_version() {
         "version 0 should be rejected with an error"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -667,7 +667,7 @@ fn client_handshake_clamps_small_terminal_size() {
         error
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }
 
 #[test]
@@ -732,5 +732,5 @@ fn no_hello_client_closed_within_five_seconds() {
         "server should still respond to ping: {response}"
     );
 
-    cleanup_spawned_herdr(spawned, base);
+    cleanup_spawned_kitsune(spawned, base);
 }

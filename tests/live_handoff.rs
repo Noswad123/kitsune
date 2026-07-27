@@ -12,11 +12,11 @@ use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use support::{
-    cleanup_test_base, client_handshake, register_runtime_dir, register_spawned_herdr_pid,
-    send_input, unregister_spawned_herdr_pid, wait_for_disconnect, wait_for_socket,
+    cleanup_test_base, client_handshake, register_runtime_dir, register_spawned_kitsune_pid,
+    send_input, unregister_spawned_kitsune_pid, wait_for_disconnect, wait_for_socket,
 };
 
-struct SpawnedHerdr {
+struct SpawnedKitsune {
     _master: Box<dyn MasterPty + Send>,
     child: Box<dyn Child + Send + Sync>,
 }
@@ -26,11 +26,11 @@ struct RequestError {
     message: String,
 }
 
-impl Drop for SpawnedHerdr {
+impl Drop for SpawnedKitsune {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
-        unregister_spawned_herdr_pid(pid);
+        unregister_spawned_kitsune_pid(pid);
     }
 }
 
@@ -47,7 +47,7 @@ fn unique_test_dir() -> PathBuf {
     PathBuf::from(format!("/tmp/hlh-{}-{n}", std::process::id()))
 }
 
-fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket: &Path) -> SpawnedHerdr {
+fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket: &Path) -> SpawnedKitsune {
     spawn_server_with_env(config_home, runtime_dir, api_socket, &[])
 }
 
@@ -56,7 +56,7 @@ fn spawn_server_with_env(
     runtime_dir: &Path,
     api_socket: &Path,
     extra_env: &[(&str, &str)],
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     fs::write(
@@ -88,8 +88,8 @@ fn spawn_server_with_env(
     }
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
-    SpawnedHerdr {
+    register_spawned_kitsune_pid(child.process_id());
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }
@@ -99,7 +99,7 @@ fn spawn_named_session_server(
     config_home: &Path,
     runtime_dir: &Path,
     session_name: &str,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune-dev")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     fs::write(
@@ -126,14 +126,14 @@ fn spawn_named_session_server(
     cmd.env("SHELL", "/bin/sh");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
-    SpawnedHerdr {
+    register_spawned_kitsune_pid(child.process_id());
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }
 }
 
-fn spawn_default_session_server(config_home: &Path, runtime_dir: &Path) -> SpawnedHerdr {
+fn spawn_default_session_server(config_home: &Path, runtime_dir: &Path) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune-dev")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     fs::write(
@@ -161,8 +161,8 @@ fn spawn_default_session_server(config_home: &Path, runtime_dir: &Path) -> Spawn
     cmd.env("SHELL", "/bin/sh");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
-    SpawnedHerdr {
+    register_spawned_kitsune_pid(child.process_id());
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }
@@ -174,7 +174,7 @@ fn spawn_server_with_args_and_socket_env(
     session_name: Option<&str>,
     api_socket_env: Option<&Path>,
     client_socket_env: Option<&Path>,
-) -> SpawnedHerdr {
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune-dev")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     fs::write(
@@ -213,8 +213,8 @@ fn spawn_server_with_args_and_socket_env(
     cmd.env("SHELL", "/bin/sh");
 
     let child = pair.slave.spawn_command(cmd).unwrap();
-    register_spawned_herdr_pid(child.process_id());
-    SpawnedHerdr {
+    register_spawned_kitsune_pid(child.process_id());
+    SpawnedKitsune {
         _master: pair.master,
         child,
     }
@@ -431,7 +431,7 @@ fn wait_for_replacement_server_pid(runtime_dir: &Path, old_pid: u32, timeout: Du
     let deadline = Instant::now() + timeout;
     let mut last_pids = Vec::new();
     while Instant::now() < deadline {
-        last_pids = support::herdr_server_pids_for_runtime_dir(runtime_dir).unwrap_or_default();
+        last_pids = support::kitsune_server_pids_for_runtime_dir(runtime_dir).unwrap_or_default();
         if let Some(pid) = last_pids.iter().copied().find(|pid| *pid != old_pid) {
             return pid;
         }
