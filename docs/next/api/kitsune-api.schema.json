@@ -2073,20 +2073,11 @@
         "IntegrationTarget": {
           "enum": [
             "pi",
-            "omp",
             "claude",
             "codex",
             "copilot",
-            "devin",
-            "droid",
-            "kimi",
             "opencode",
-            "kilo",
-            "hermes",
-            "qodercli",
-            "cursor",
-            "mastracode",
-            "grok"
+            "djinn"
           ],
           "type": "string"
         },
@@ -6276,20 +6267,11 @@
         "IntegrationTarget": {
           "enum": [
             "pi",
-            "omp",
             "claude",
             "codex",
             "copilot",
-            "devin",
-            "droid",
-            "kimi",
             "opencode",
-            "kilo",
-            "hermes",
-            "qodercli",
-            "cursor",
-            "mastracode",
-            "grok"
+            "djinn"
           ],
           "type": "string"
         },
