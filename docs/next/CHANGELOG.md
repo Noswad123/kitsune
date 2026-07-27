@@ -3,19 +3,25 @@
 Kitsune started as a Herdr fork. Historical entries inherited from before the
 fork may retain Herdr command names and product references.
 
+## Kitsune-owned release notes
+
 ## Unreleased
 
 ### Changed
-- Relicensed Herdr from AGPL-3.0-or-later to Apache-2.0.
+- Renamed the top-level `kitsune status --json` restart-needed group from `update` to `runtime` so live handoff facts are no longer presented as hosted updater state.
+- Renamed the active agent-detection manifest setting from `[update].manifest_check` to `[agent_detection].manifest_check`; legacy `[update]` remains accepted for compatibility.
+- Replaced update-specific info toast naming with generic notice/info naming for config reloads, API notifications, and agent-detection manifest updates.
+- Moved the internal semver helper from `update` to `version` because it is used for release-note comparison, not binary updating.
 
-### Fixed
-- `ui.copy_on_select = false` now retains drag and double-click word selections without copying; `Ctrl+C`, or `Cmd+C` when the host terminal forwards it, copies and clears the selection.
-- Pane and agent read responses now report `truncated: true` when older terminal rows were omitted. (#1717)
-- Pane applications that query OSC 4 palette colors now inherit the host terminal palette. (#1752)
-- Ctrl-clicking a pane URL no longer forwards an unmatched mouse release to alternate-screen applications, preventing duplicate browser tabs. (#1761)
-- Known-agent integrations now leave pane ownership to confirmed process exit, so restarting Pi with the same saved session restores lifecycle state even with custom working UI. (#1792)
-- OMP integration install, status, and uninstall now respect `PI_CONFIG_DIR` when `PI_CODING_AGENT_DIR` is not set, and installation refuses extension-directory collisions with Pi. (#1696)
-- Physical Escape key records on native Windows now bypass raw VT report framing, so pane applications receive Escape immediately and reliably. (#1736)
+### Removed
+- Removed stale user-facing hosted update/channel wording from the active Kitsune surface while preserving runtime restart and handoff-needed reporting.
+
+## Historical Herdr changelog
+
+Entries below this point are inherited from Herdr's pre-fork history. They are
+kept for provenance and upstream comparison, and may mention Herdr commands,
+hosted update flows, plugin marketplace behavior, or upstream issue numbers that
+are not active Kitsune product surfaces.
 
 ## [0.7.5] - 2026-07-21
 

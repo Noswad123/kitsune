@@ -3,7 +3,25 @@
 Kitsune started as a Herdr fork. Historical entries inherited from before the
 fork may retain Herdr command names and product references.
 
+## Kitsune-owned release notes
+
 ## Unreleased
+
+### Changed
+- Renamed the top-level `kitsune status --json` restart-needed group from `update` to `runtime` so live handoff facts are no longer presented as hosted updater state.
+- Renamed the active agent-detection manifest setting from `[update].manifest_check` to `[agent_detection].manifest_check`; legacy `[update]` remains accepted for compatibility.
+- Replaced update-specific info toast naming with generic notice/info naming for config reloads, API notifications, and agent-detection manifest updates.
+- Moved the internal semver helper from `update` to `version` because it is used for release-note comparison, not binary updating.
+
+### Removed
+- Removed stale user-facing hosted update/channel wording from the active Kitsune surface while preserving runtime restart and handoff-needed reporting.
+
+## Historical Herdr changelog
+
+Entries below this point are inherited from Herdr's pre-fork history. They are
+kept for provenance and upstream comparison, and may mention Herdr commands,
+hosted update flows, plugin marketplace behavior, or upstream issue numbers that
+are not active Kitsune product surfaces.
 
 ## [0.7.5] - 2026-07-21
 

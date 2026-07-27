@@ -45,18 +45,8 @@ Continue removing or reshaping inherited Herdr behavior only when a specific
 feature no longer fits Kitsune's product direction. Avoid broad cleanup for its
 own sake.
 
-Explicit pruning candidates:
-
-- Release/update remnants: keep runtime restart/handoff-needed facts, but remove
-  user-facing hosted-updater, channel, auto-download, and update-install wording.
-- Plugin surface remnants: keep only active supported behavior; avoid presenting
-  inherited plugin marketplace or hosted plugin docs as Kitsune features.
-- Inherited changelog noise: keep historical context clearly separated from
-  Kitsune-owned release notes.
-- Remote attach wording: preserve compatible remote attach while avoiding remote
-  auto-install promises.
-- Removed-surface config/docs references: either remove stale settings or mark
-  compatibility-only behavior explicitly.
+No concrete pruning candidates are currently identified. Add specific stale
+surfaces here when they are found; avoid broad cleanup for its own sake.
 
 ### Internal naming debt
 

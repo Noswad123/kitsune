@@ -141,7 +141,7 @@ manual testing, reset `C:\work\repo` back to a clean checkout before finishing.
 
 ## Agent Detection Updates
 
-Agent detection changes should use the manifest hot-reload loop. Use the project-local `herdr-throwaway-repro` skill to create a disposable named session and drive the real agent UI through Herdr's CLI/API into the target state. Read the pane with `herdr agent read <pane> --source detection --format text` and inspect matching with `herdr agent explain <pane> --json`. Update the bundled manifest in `src/detect/manifests/<agent>.toml`, copy that manifest to the local override path at `~/.config/herdr/agent-detection/<agent>.toml`, then run `herdr server reload-agent-manifests` against the session under test. Before writing the override, check whether one already exists; never overwrite or remove a pre-existing override without alignment. Once the rule is correct, remove the temporary override or restore the previous one exactly so the committed bundled manifest remains the source of truth.
+Agent detection changes should use the manifest hot-reload loop. Use the project-local `kitsune-throwaway-repro` skill to create a disposable named session and drive the real agent UI through Kitsune's CLI/API into the target state. Read the pane with `kitsune agent read <pane> --source detection --format text` and inspect matching with `kitsune agent explain <pane> --json`. Update the bundled manifest in `src/detect/manifests/<agent>.toml`, copy that manifest to the local override path at `~/.config/kitsune/agent-detection/<agent>.toml`, then run `kitsune server reload-agent-manifests` against the session under test. Before writing the override, check whether one already exists; never overwrite or remove a pre-existing override without alignment. Once the rule is correct, remove the temporary override or restore the previous one exactly so the committed bundled manifest remains the source of truth.
 
 Do not add large agent-specific full-screen fixture suites for routine manifest tuning. Keep Rust tests focused on manifest parsing, rule semantics, skip-state semantics, source precedence, cache reload behavior, and update flow. Use live pane reads for agent-specific screen evidence.
 
@@ -192,7 +192,7 @@ Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue
 
 This section is maintainer-only for release actions. If the acting GitHub
 account is not a verified maintainer, do not run release commands, push release
-assets, or modify release channel files; follow the external contributor
+assets, or modify release metadata files; follow the external contributor
 guardrail.
 
 Kitsune is maintained as a personal fork. Herdr's public website, preview
@@ -210,10 +210,10 @@ the tag. GitHub Actions builds binaries and creates the GitHub release.
 
 The release workflows must publish these four assets:
 
-- `herdr-linux-x86_64`
-- `herdr-linux-aarch64`
-- `herdr-macos-x86_64`
-- `herdr-macos-aarch64`
+- `kitsune-linux-x86_64`
+- `kitsune-linux-aarch64`
+- `kitsune-macos-x86_64`
+- `kitsune-macos-aarch64`
 
 `nix/package.nix` imports `Cargo.lock` directly with `cargoLock.lockFile`, so release version bumps do not require a separate Nix cargo hash update. If Cargo git dependencies are added later, add the required `cargoLock.outputHashes` entries as part of that dependency change.
 
