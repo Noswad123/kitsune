@@ -32,11 +32,11 @@ Djinn is recognized as a first-class built-in agent kind. Kitsune accepts
 accepts Djinn session ids from those reports, and can plan resume launches with
 `djinn agent chat --resume <id>`. The local Djinn tree now includes a producer
 that reports session identity plus idle, working, and turn-failed blocked states
-when running inside Kitsune. What remains is release/install coordination for
-that Djinn build and, if needed, finer-grained blocked reporting for permission
-prompts or a bundled screen manifest once invariant Djinn TUI evidence is
-captured. Unmanaged or older Djinn panes still rely on process detection plus the
-generic known-agent idle fallback.
+when running inside Kitsune, including blocked reports for permission waits and
+provider auth/configuration failures. What remains is release/install
+coordination for that Djinn build and, if needed, a bundled screen manifest once
+invariant Djinn TUI evidence is captured. Unmanaged or older Djinn panes still
+rely on process detection plus the generic known-agent idle fallback.
 
 ### Product surface pruning
 

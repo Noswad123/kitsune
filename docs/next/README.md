@@ -52,7 +52,7 @@ Current supported integration targets are:
 - `copilot`
 - `djinn`
 
-Djinn is a built-in first-class agent kind. It participates in process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, full lifecycle authority when Djinn reports pane state with source `kitsune:djinn` and agent label `djinn`, and resume planning for reported Djinn session ids through `djinn agent chat --resume <id>`. The local Djinn CLI reports session identity plus idle, working, and turn-failed blocked states when launched inside Kitsune. Djinn does not currently require an external installer or a bundled screen manifest.
+Djinn is a built-in first-class agent kind. It participates in process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, full lifecycle authority when Djinn reports pane state with source `kitsune:djinn` and agent label `djinn`, and resume planning for reported Djinn session ids through `djinn agent chat --resume <id>`. The local Djinn CLI reports session identity plus idle, working, permission-wait blocked, auth/configuration blocked, and turn-failed blocked states when launched inside Kitsune. Djinn does not currently require an external installer or a bundled screen manifest.
 
 ## Completed fork baseline
 
@@ -68,4 +68,4 @@ The completed Kitsune baseline includes:
 - Treating Djinn-native lifecycle reports as authoritative when they are reported through Kitsune's pane agent state API.
 - Removing inherited hosted update, website, plugin marketplace, and remote auto-install flows from the active Kitsune surface.
 
-Intentionally deferred work includes source-wide internal Herdr-to-Kitsune renames only where they reduce confusion, further product-surface pruning when specific inherited behavior proves unnecessary, release/install coordination for the Djinn-side reporting adapter, and optional finer-grained Djinn blocked-state reporting or screen detection if stable signals or invariant UI evidence emerge.
+Intentionally deferred work includes source-wide internal Herdr-to-Kitsune renames only where they reduce confusion, further product-surface pruning when specific inherited behavior proves unnecessary, release/install coordination for the Djinn-side reporting adapter, and optional Djinn screen detection if stable invariant UI evidence emerges.
