@@ -391,11 +391,7 @@ impl Default for AgentsSidebarConfig {
     fn default() -> Self {
         Self {
             rows: vec![
-                vec![
-                    AgentSidebarToken::StateIcon,
-                    AgentSidebarToken::Workspace,
-                    AgentSidebarToken::Tab,
-                ],
+                vec![AgentSidebarToken::StateIcon, AgentSidebarToken::Pane],
                 vec![AgentSidebarToken::Agent],
             ],
             rows_by_agent: BTreeMap::new(),
@@ -441,11 +437,7 @@ mod tests {
         assert_eq!(
             config.agents.rows,
             vec![
-                vec![
-                    AgentSidebarToken::StateIcon,
-                    AgentSidebarToken::Workspace,
-                    AgentSidebarToken::Tab,
-                ],
+                vec![AgentSidebarToken::StateIcon, AgentSidebarToken::Pane],
                 vec![AgentSidebarToken::Agent],
             ]
         );

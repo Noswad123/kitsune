@@ -184,7 +184,7 @@ impl AppState {
     }
 
     pub(crate) fn sidebar_new_button_rect(&self) -> Rect {
-        let row = self.sidebar_header_row_rect(1);
+        let row = self.sidebar_header_row_rect(2);
         if row == Rect::default() {
             return Rect::default();
         }
@@ -210,8 +210,7 @@ impl AppState {
             6
         }
         .min(row.width.max(1));
-        let x = row.x + row.width.saturating_sub(width);
-        Rect::new(x, row.y, width, row.height)
+        Rect::new(row.x, row.y, width, row.height)
     }
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {

@@ -59,9 +59,12 @@ pub(super) fn agent_rows(
                         AgentSidebarToken::Tab => {
                             entry.primary_tab_label.clone().map(ResolvedTokenKind::Tab)
                         }
-                        AgentSidebarToken::Pane => {
-                            entry.pane_label.clone().map(ResolvedTokenKind::Pane)
-                        }
+                        AgentSidebarToken::Pane => Some(ResolvedTokenKind::Pane(
+                            entry
+                                .pane_label
+                                .clone()
+                                .unwrap_or_else(|| format!("pane {}", entry.pane_id.raw())),
+                        )),
                         AgentSidebarToken::Agent => {
                             entry.agent_label.clone().map(ResolvedTokenKind::Agent)
                         }

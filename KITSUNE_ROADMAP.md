@@ -34,10 +34,12 @@ accepts Djinn session ids from those reports, and can plan resume launches with
 compatible Djinn build can clear pane authority when chat exits.
 
 Further Djinn-side rollout is intentionally deferred while Djinn has active local
-changes in progress. What remains on the Kitsune side is release/install
-coordination for a compatible Djinn build and, if needed, a bundled screen
-manifest once invariant Djinn TUI evidence is captured. Unmanaged or older Djinn
-panes still rely on process detection plus the generic known-agent idle fallback.
+changes in progress. Kitsune should not fetch, compare, or install Djinn
+versions; install/update compatibility belongs to the Arcana-managed tool suite,
+with user guidance to run `arcana update`. What remains on the Kitsune side is,
+if needed, a bundled screen manifest once invariant Djinn TUI evidence is
+captured. Unmanaged or older Djinn panes still rely on process detection plus the
+generic known-agent idle fallback.
 
 ### Product surface pruning
 

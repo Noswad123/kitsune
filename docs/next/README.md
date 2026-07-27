@@ -52,7 +52,9 @@ Current supported integration targets are:
 - `copilot`
 - `djinn`
 
-Djinn is a built-in first-class agent kind. It participates in process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, full lifecycle authority when compatible Djinn builds report pane state with source `kitsune:djinn` and agent label `djinn`, resume planning for reported Djinn session ids through `djinn agent chat --resume <id>`, and authority release when compatible Djinn builds report chat exit. Kitsune does not currently require an external Djinn installer or a bundled Djinn screen manifest.
+Djinn is a built-in first-class agent kind. It participates in process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, full lifecycle authority when compatible Djinn builds report pane state with source `kitsune:djinn` and agent label `djinn`, resume planning for reported Djinn session ids through `djinn agent chat --resume <id>`, and authority release when compatible Djinn builds report chat exit.
+
+Kitsune intentionally does not fetch, compare, or install Djinn versions. Install or update the managed Jamal Arcana tool suite with `arcana update` to keep Kitsune and Djinn on compatible builds. Older or unmanaged Djinn panes continue to fall back to process detection plus the generic known-agent idle behavior when lifecycle reports are unavailable.
 
 ## Windows support
 
@@ -72,7 +74,8 @@ The completed Kitsune baseline includes:
 - Providing a full session navigator and an agents-only selector.
 - Carrying only the currently supported integration targets listed above.
 - Treating Djinn-native lifecycle reports as authoritative when they are reported through Kitsune's pane agent state API.
+- Delegating Kitsune/Djinn install and update compatibility to Arcana instead of embedding version-resolution logic in Kitsune.
 - Removing inherited hosted update, website, plugin marketplace, and remote auto-install flows from the active Kitsune surface.
 - Using system ConPTY on Windows instead of shipping a pinned app-local ConPTY bundle.
 
-Intentionally deferred work includes source-wide internal Herdr-to-Kitsune renames only where they reduce confusion, further product-surface pruning when specific inherited behavior proves unnecessary, release/install coordination for a compatible Djinn-side reporting adapter, and optional Djinn screen detection if stable invariant UI evidence emerges.
+Intentionally deferred work includes source-wide internal Herdr-to-Kitsune renames only where they reduce confusion, further product-surface pruning when specific inherited behavior proves unnecessary, Djinn-side reporting adapter rollout through Arcana-managed builds, and optional Djinn screen detection if stable invariant UI evidence emerges.

@@ -47,6 +47,8 @@ Kitsune includes a session navigator and an agents-only selector:
 
 Supported integration targets are `pi`, `opencode`, `claude`, `codex`, `copilot`, and `djinn`. Djinn support is built in as a first-class agent kind for process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, and authoritative lifecycle reports from source `kitsune:djinn`.
 
+Kitsune does not resolve or install Djinn versions itself. Install or update the managed Jamal Arcana tool suite with `arcana update` to keep Kitsune and Djinn on compatible builds.
+
 ## Windows note
 
 Native Windows builds use the system ConPTY included with Windows 10 October 2018 or newer. Kitsune does not currently ship a pinned app-local ConPTY bundle.

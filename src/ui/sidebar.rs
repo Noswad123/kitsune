@@ -17,7 +17,7 @@ use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
 
-const WORKSPACE_SECTION_HEADER_ROWS: u16 = 2;
+const WORKSPACE_SECTION_HEADER_ROWS: u16 = 3;
 const AGENT_PANEL_HEADER_ROWS: u16 = 3;
 
 pub(crate) struct AgentPanelEntry {
@@ -1040,14 +1040,13 @@ fn resolved_token_spans(
                     apply_token_style(state_text_style, token.style),
                 ));
             }
-            ResolvedTokenKind::Workspace(text) => {
+            ResolvedTokenKind::Workspace(text) | ResolvedTokenKind::Pane(text) => {
                 spans.push(Span::styled(
                     truncate_end(text, budgets[index]),
                     apply_token_style(workspace_style, token.style),
                 ));
             }
             ResolvedTokenKind::Tab(text)
-            | ResolvedTokenKind::Pane(text)
             | ResolvedTokenKind::Agent(text)
             | ResolvedTokenKind::Branch(text) => {
                 spans.push(Span::styled(
@@ -1130,21 +1129,13 @@ fn render_workspace_list(
     };
 
     let list_bottom = area.y + area.height.saturating_sub(1);
-    if area.height > 1 {
+    if area.height > 2 {
         frame.render_widget(
             Paragraph::new(Line::from(vec![Span::styled(
                 " spaces",
                 Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
             )])),
-            Rect::new(area.x, area.y + 1, area.width, 1),
-        );
-    } else if area.height > 0 {
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled(
-                " spaces",
-                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
-            )])),
-            Rect::new(area.x, area.y, area.width, 1),
+            Rect::new(area.x, area.y + 2, area.width, 1),
         );
     }
 
@@ -1312,10 +1303,7 @@ fn render_workspace_list(
             } else {
                 Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
             };
-            frame.render_widget(
-                Paragraph::new(menu_line).alignment(Alignment::Right),
-                menu_rect,
-            );
+            frame.render_widget(Paragraph::new(menu_line), menu_rect);
         }
     }
 }
@@ -1511,7 +1499,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_header_places_menu_above_spaces_and_new_on_spaces_row() {
+    fn workspace_header_places_menu_above_blank_row_and_new_on_spaces_row() {
         let mut app = crate::app::state::AppState::test_new();
         app.mouse_capture = true;
         app.view.sidebar_rect = Rect::new(0, 0, 16, 12);
@@ -1524,12 +1512,13 @@ mod tests {
             })
             .unwrap();
 
-        assert!(row_text(terminal.backend().buffer(), 0, ws_area.width).ends_with("menu"));
-        let spaces_row = row_text(terminal.backend().buffer(), 1, ws_area.width);
+        assert!(row_text(terminal.backend().buffer(), 0, ws_area.width).starts_with("menu"));
+        assert_eq!(row_text(terminal.backend().buffer(), 1, ws_area.width), "");
+        let spaces_row = row_text(terminal.backend().buffer(), 2, ws_area.width);
         assert!(spaces_row.starts_with(" spaces"));
         assert!(spaces_row.ends_with("new"));
         assert_eq!(app.global_launcher_rect().y, ws_area.y);
-        assert_eq!(app.sidebar_new_button_rect().y, ws_area.y + 1);
+        assert_eq!(app.sidebar_new_button_rect().y, ws_area.y + 2);
     }
 
     #[test]
@@ -1769,6 +1758,11 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             .attached_terminal_id
             .clone();
         app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
+        app.sidebar_agents.rows = vec![vec![
+            crate::config::AgentSidebarToken::StateIcon,
+            crate::config::AgentSidebarToken::Workspace,
+            crate::config::AgentSidebarToken::Tab,
+        ]];
 
         let area = Rect::new(0, 0, 18, 20);
         let mut terminal = Terminal::new(TestBackend::new(18, 20)).unwrap();
@@ -1782,6 +1776,62 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
 
         assert!(first.contains("logs"), "rendered row: {first:?}");
         assert!(first.contains('·'), "rendered row: {first:?}");
+    }
+
+    #[test]
+    fn default_agent_rows_prefer_pane_label_over_workspace() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("workspace-name");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        let terminal = app.terminals.get_mut(&terminal_id).unwrap();
+        terminal.detected_agent = Some(Agent::Claude);
+        terminal.set_manual_label("reviewer".into());
+
+        let area = Rect::new(0, 0, 24, 12);
+        let mut terminal = Terminal::new(TestBackend::new(24, 12)).unwrap();
+        terminal
+            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
+            .unwrap();
+        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+        let body = agent_panel_body_rect(agent_area, false);
+        let first = row_text(terminal.backend().buffer(), body.y, 23);
+
+        assert!(first.contains("reviewer"), "rendered row: {first:?}");
+        assert!(!first.contains("workspace-name"), "rendered row: {first:?}");
+    }
+
+    #[test]
+    fn default_agent_rows_generate_pane_label_when_missing() {
+        let mut app = crate::app::state::AppState::test_new();
+        let workspace = Workspace::test_new("workspace-name");
+        let pane_id = workspace.tabs[0].root_pane;
+        app.workspaces = vec![workspace];
+        app.ensure_test_terminals();
+        let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
+            .attached_terminal_id
+            .clone();
+        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Claude);
+
+        let entry = agent_panel_entries(&app).into_iter().next().unwrap();
+        let rows = resolved_agent_rows(&app, &entry);
+
+        assert!(rows[0].iter().any(|token| {
+            matches!(
+                &token.kind,
+                ResolvedTokenKind::Pane(label) if label == &format!("pane {}", pane_id.raw())
+            )
+        }));
+        assert!(rows[0].iter().all(|token| {
+            !matches!(
+                &token.kind,
+                ResolvedTokenKind::Workspace(label) if label == "workspace-name"
+            )
+        }));
     }
 
     #[test]
@@ -2372,8 +2422,8 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             spacious[2].rect.y + spacious[2].rect.height + 2
         );
         let spacious_metrics = workspace_list_scroll_metrics(&app, Rect::new(0, 0, 30, 7));
-        assert_eq!(spacious_metrics.viewport_rows, 2);
-        assert_eq!(spacious_metrics.max_offset_from_bottom, 2);
+        assert_eq!(spacious_metrics.viewport_rows, 1);
+        assert_eq!(spacious_metrics.max_offset_from_bottom, 3);
 
         app.sidebar_spaces.row_gap = 0;
         let (packed, _) = compute_workspace_list_areas(&app, Rect::new(0, 0, 30, 30));
@@ -2381,8 +2431,8 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             .windows(2)
             .all(|pair| pair[1].rect.y == pair[0].rect.y + pair[0].rect.height));
         let packed_metrics = workspace_list_scroll_metrics(&app, Rect::new(0, 0, 30, 7));
-        assert_eq!(packed_metrics.viewport_rows, 4);
-        assert_eq!(packed_metrics.max_offset_from_bottom, 0);
+        assert_eq!(packed_metrics.viewport_rows, 3);
+        assert_eq!(packed_metrics.max_offset_from_bottom, 1);
     }
 
     #[test]
