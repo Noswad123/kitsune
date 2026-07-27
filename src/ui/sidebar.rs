@@ -17,7 +17,7 @@ use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
 
-const WORKSPACE_SECTION_HEADER_ROWS: u16 = 3;
+const WORKSPACE_SECTION_HEADER_ROWS: u16 = 4;
 const AGENT_PANEL_HEADER_ROWS: u16 = 3;
 
 pub(crate) struct AgentPanelEntry {
@@ -1517,6 +1517,7 @@ mod tests {
         let spaces_row = row_text(terminal.backend().buffer(), 2, ws_area.width);
         assert!(spaces_row.starts_with(" spaces"));
         assert!(spaces_row.ends_with("new"));
+        assert_eq!(row_text(terminal.backend().buffer(), 3, ws_area.width), "");
         assert_eq!(app.global_launcher_rect().y, ws_area.y);
         assert_eq!(app.sidebar_new_button_rect().y, ws_area.y + 2);
     }
@@ -2431,8 +2432,8 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             .windows(2)
             .all(|pair| pair[1].rect.y == pair[0].rect.y + pair[0].rect.height));
         let packed_metrics = workspace_list_scroll_metrics(&app, Rect::new(0, 0, 30, 7));
-        assert_eq!(packed_metrics.viewport_rows, 3);
-        assert_eq!(packed_metrics.max_offset_from_bottom, 1);
+        assert_eq!(packed_metrics.viewport_rows, 2);
+        assert_eq!(packed_metrics.max_offset_from_bottom, 2);
     }
 
     #[test]
