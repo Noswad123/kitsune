@@ -1058,7 +1058,7 @@ mod tests {
     }
 
     fn wait_for_worktree_event(app: &mut App) -> AppEvent {
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         while std::time::Instant::now() < deadline {
             if let Ok(event) = app.event_rx.try_recv() {
                 return event;

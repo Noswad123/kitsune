@@ -8,7 +8,6 @@ const originalPlatform = process.platform;
 const originalCreateConnection = net.createConnection;
 const originalEnvironment = {
   KITSUNE_ENV: process.env.KITSUNE_ENV,
-  KITSUNE_OMP_IDLE_DEBOUNCE_MS: process.env.KITSUNE_OMP_IDLE_DEBOUNCE_MS,
   KITSUNE_PANE_ID: process.env.KITSUNE_PANE_ID,
   KITSUNE_SOCKET_PATH: process.env.KITSUNE_SOCKET_PATH,
 };
@@ -45,7 +44,6 @@ afterEach(async () => {
 
 const integrations = [
   { name: "Pi", modulePath: "./pi/kitsune-agent-state.ts" },
-  { name: "Oh My Pi", modulePath: "./omp/kitsune-agent-state.ts" },
 ] as const;
 
 const socketPlugins = [
@@ -54,7 +52,6 @@ const socketPlugins = [
     modulePath: "./opencode/kitsune-agent-state.js",
     sessionID: "opencode-session",
   },
-  { name: "Kilo", modulePath: "./kilo/kitsune-agent-state.js", sessionID: "kilo-session" },
 ] as const;
 
 function importFresh(modulePath: string) {
@@ -433,36 +430,6 @@ async function startDroppedFirstResponseServer(name: string) {
     connectionCount: () => connectionCount,
   };
 }
-
-test("Oh My Pi retries working before a queued idle state", async () => {
-  const { attemptedRequests } = await startDroppedFirstResponseServer("omp-retry");
-  process.env.KITSUNE_OMP_IDLE_DEBOUNCE_MS = "0";
-  const { handlers, pi } = createExtensionHarness();
-
-  const { default: install } = await importFresh("./omp/kitsune-agent-state.ts");
-  install(pi);
-
-  const context = {
-    hasUI: true,
-    isIdle: () => false,
-    sessionManager: {
-      getSessionFile: () => undefined,
-      getSessionId: () => undefined,
-    },
-  };
-  handlers.get("session_start")?.({ reason: "startup" }, context);
-  handlers.get("agent_end")?.({ messages: [] }, context);
-
-  const deadline = Date.now() + 2_500;
-  while (Date.now() < deadline && attemptedRequests.length < 3) {
-    await Bun.sleep(5);
-  }
-
-  expect(attemptedRequests).toHaveLength(3);
-  expect(attemptedRequests[1]).toEqual(attemptedRequests[0]);
-  expect(requestState(attemptedRequests[0])).toBe("working");
-  expect(requestState(attemptedRequests[2])).toBe("idle");
-});
 
 test("Pi retries working state after an unanswered socket attempt", async () => {
   const { attemptedRequests, deliveredRequests, connectionCount } =

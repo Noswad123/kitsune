@@ -52,7 +52,7 @@ handoff:
 # Run tests
 test:
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_hermes_integration_asset scripts.test_package_windows_conpty scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_package_windows_conpty scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
     just integration-assets-test
     just plugin-marketplace-test
 
@@ -78,7 +78,7 @@ windows-lint:
 
 # Check formatting + run unit tests + Windows target lint + maintenance script tests
 check: ci windows-lint
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_hermes_integration_asset scripts.test_package_windows_conpty scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_package_windows_conpty scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
 
 # Install repo-local git hooks
 install-hooks:
