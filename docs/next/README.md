@@ -54,6 +54,12 @@ Current supported integration targets are:
 
 Djinn is a built-in first-class agent kind. It participates in process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, full lifecycle authority when compatible Djinn builds report pane state with source `kitsune:djinn` and agent label `djinn`, resume planning for reported Djinn session ids through `djinn agent chat --resume <id>`, and authority release when compatible Djinn builds report chat exit. Kitsune does not currently require an external Djinn installer or a bundled Djinn screen manifest.
 
+## Windows support
+
+Kitsune no longer ships a pinned app-local Microsoft ConPTY runtime. Native Windows builds use the system ConPTY exports from `kernel32.dll`, so Windows support depends on the ConPTY implementation included with Windows 10 October 2018 or newer. Kitsune also keeps the portable-pty patch that avoids probing a bare `conpty.dll` through `PATH`, so it should not load another application's ConPTY DLL by accident.
+
+If pinned ConPTY behavior is needed again, reimplement it as a Kitsune-owned packaging feature: pin the Microsoft package metadata, verify every bundled DLL/host binary by hash, reject reparse points and unexpected files, load by absolute path with constrained DLL search, document the license/notice files, and restore Windows CI coverage that validates both tamper rejection and the selected console host path.
+
 ## Completed fork baseline
 
 The completed Kitsune baseline includes:
@@ -67,5 +73,6 @@ The completed Kitsune baseline includes:
 - Carrying only the currently supported integration targets listed above.
 - Treating Djinn-native lifecycle reports as authoritative when they are reported through Kitsune's pane agent state API.
 - Removing inherited hosted update, website, plugin marketplace, and remote auto-install flows from the active Kitsune surface.
+- Using system ConPTY on Windows instead of shipping a pinned app-local ConPTY bundle.
 
 Intentionally deferred work includes source-wide internal Herdr-to-Kitsune renames only where they reduce confusion, further product-surface pruning when specific inherited behavior proves unnecessary, release/install coordination for a compatible Djinn-side reporting adapter, and optional Djinn screen detection if stable invariant UI evidence emerges.

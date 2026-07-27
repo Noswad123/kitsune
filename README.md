@@ -47,6 +47,10 @@ Kitsune includes a session navigator and an agents-only selector:
 
 Supported integration targets are `pi`, `opencode`, `claude`, `codex`, `copilot`, and `djinn`. Djinn support is built in as a first-class agent kind for process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, and authoritative lifecycle reports from source `kitsune:djinn`.
 
+## Windows note
+
+Native Windows builds use the system ConPTY included with Windows 10 October 2018 or newer. Kitsune does not currently ship a pinned app-local ConPTY bundle.
+
 ## Notes
 
 - Agent integrations remain available unless removed separately.

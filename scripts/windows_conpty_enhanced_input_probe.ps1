@@ -2,9 +2,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string] $ExePath,
 
-    [string] $Session = "conpty-input-$([guid]::NewGuid().ToString('N'))",
-
-    [string] $ExpectedConsoleHostPath = ""
+    [string] $Session = "conpty-input-$([guid]::NewGuid().ToString('N'))"
 )
 
 Set-StrictMode -Version Latest
@@ -143,11 +141,6 @@ $server = $null
 $report = [ordered]@{}
 $failed = $false
 $initialConsoleHostIds = @(Get-Process -Name conhost, OpenConsole -ErrorAction SilentlyContinue | ForEach-Object { $_.Id })
-$expectedConsoleHost = if ([string]::IsNullOrWhiteSpace($ExpectedConsoleHostPath)) {
-    $null
-} else {
-    (Resolve-Path $ExpectedConsoleHostPath).Path
-}
 
 try {
     New-Item -ItemType Directory -Force -Path $workDir | Out-Null
@@ -326,15 +319,6 @@ fn main() {
             }
         })
     $report.new_console_hosts = $consoleHosts
-    $appLocalHostRequired = $null -ne $expectedConsoleHost
-    if ($appLocalHostRequired) {
-        $report.expected_console_host = $expectedConsoleHost
-        $report.app_local_console_host = @($consoleHosts | Where-Object {
-            $_.name -ieq "OpenConsole" -and $_.path -ieq $expectedConsoleHost
-        }).Count -gt 0
-    } else {
-        $report.app_local_console_host = $null
-    }
 
     $failed = -not $report.legacy_alt_v.delivered `
         -or -not $report.device_attributes_response `
@@ -353,8 +337,7 @@ fn main() {
         -or -not $report.raw_kitty_ctrl_backspace.delivered `
         -or -not $report.raw_kitty_ctrl_delete.delivered `
         -or -not $report.raw_alt_v.delivered `
-        -or -not $report.raw_ctrl_u.delivered `
-        -or ($appLocalHostRequired -and -not $report.app_local_console_host)
+        -or -not $report.raw_ctrl_u.delivered
 } finally {
     if ($null -ne $server) {
         try {
@@ -369,26 +352,6 @@ fn main() {
         $server.Refresh()
         if (-not $server.HasExited) {
             & taskkill.exe /PID $server.Id /T /F 2>&1 | Out-Null
-        }
-    }
-    if ($null -ne $expectedConsoleHost) {
-        $hostExitDeadline = (Get-Date).AddSeconds(5)
-        do {
-            $remainingHosts = @(Get-Process -Name OpenConsole -ErrorAction SilentlyContinue |
-                Where-Object { $initialConsoleHostIds -notcontains $_.Id } |
-                Where-Object {
-                    $path = ""
-                    try { $path = $_.Path } catch {}
-                    $path -ieq $expectedConsoleHost
-                })
-            if ($remainingHosts.Count -eq 0) {
-                break
-            }
-            Start-Sleep -Milliseconds 100
-        } while ((Get-Date) -lt $hostExitDeadline)
-        $report.app_local_console_host_exited = $remainingHosts.Count -eq 0
-        if (-not $report.app_local_console_host_exited) {
-            $failed = $true
         }
     }
     $global:LASTEXITCODE = 0

@@ -225,13 +225,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $package = Join-Path $env:RUNNER_TEMP "Microsoft.Windows.Console.ConPTY.nupkg"
           $stage = Join-Path $env:RUNNER_TEMP "kitsune-windows-x86_64"
-          .\scripts\package_windows_conpty.ps1 `
-            -KitsuneExe target\x86_64-pc-windows-msvc\release\kitsune.exe `
-            -PackagePath $package `
-            -StageDir $stage `
-            -OutputPath kitsune-windows-x86_64.zip
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item target\x86_64-pc-windows-msvc\release\kitsune.exe (Join-Path $stage "kitsune.exe")
+          Compress-Archive -Path (Join-Path $stage "kitsune.exe") -DestinationPath kitsune-windows-x86_64.zip -Force
           "commit=$env:GITHUB_SHA" | Out-File -Encoding utf8 BUILD_INFO.txt
           "target=x86_64-pc-windows-msvc" | Out-File -Encoding utf8 -Append BUILD_INFO.txt
           "libghostty_vt_optimize=$env:LIBGHOSTTY_VT_OPTIMIZE" | Out-File -Encoding utf8 -Append BUILD_INFO.txt
