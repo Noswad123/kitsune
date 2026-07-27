@@ -1389,7 +1389,7 @@ fn resolve_shell_for_login_mode(shell: &str) -> io::Result<String> {
 /// The original prompt must be invoked before any other statement in the
 /// wrapper: anything that runs first resets `$?`, so a status-aware user
 /// prompt would show success after a failed command (verified on 5.1).
-pub(crate) const WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND: &str = r"if ($null -eq $global:__KitsuneOriginalPrompt) { if ($null -ne $global:__HerdrOriginalPrompt) { $global:__KitsuneOriginalPrompt = $global:__HerdrOriginalPrompt } else { $global:__KitsuneOriginalPrompt = $function:prompt }; function global:prompt { $out = @(& $global:__KitsuneOriginalPrompt) -join ' '; $loc = $ExecutionContext.SessionState.Path.CurrentLocation; if ($loc.Provider.Name -eq 'FileSystem') { $esc = [string][char]27; $out += $esc + ']9;9;' + $loc.ProviderPath + '\' }; $out } }";
+pub(crate) const WINDOWS_POWERSHELL_SHELL_INTEGRATION_COMMAND: &str = r"if ($null -eq $global:__KitsuneOriginalPrompt) { $global:__KitsuneOriginalPrompt = $function:prompt; function global:prompt { $out = @(& $global:__KitsuneOriginalPrompt) -join ' '; $loc = $ExecutionContext.SessionState.Path.CurrentLocation; if ($loc.Provider.Name -eq 'FileSystem') { $esc = [string][char]27; $out += $esc + ']9;9;' + $loc.ProviderPath + '\' }; $out } }";
 
 fn pane_shell_command_builder_for_target(
     shell_config: PaneShellConfig<'_>,
@@ -3101,10 +3101,6 @@ mod tests {
         assert!(
             script.contains("$null -eq $global:__KitsuneOriginalPrompt"),
             "wrap must be idempotent for nested sessions: {script}"
-        );
-        assert!(
-            script.contains("$global:__KitsuneOriginalPrompt = $global:__HerdrOriginalPrompt"),
-            "must avoid double-wrapping shells that already have the legacy Herdr prompt wrapper: {script}"
         );
         assert!(
             script.contains("'FileSystem'"),

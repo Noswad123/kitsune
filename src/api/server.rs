@@ -823,7 +823,11 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        std::env::temp_dir().join(format!("kitsune-{name}-{}-{nanos}", std::process::id()))
+        // macOS limits Unix-domain socket paths to roughly 104 bytes. The
+        // per-user temp dir under /var/folders/... is often already long
+        // enough that otherwise valid socket tests fail before exercising the
+        // behavior under test, so keep Unix test sockets under /tmp.
+        PathBuf::from("/tmp").join(format!("kitsune-{name}-{}-{nanos}", std::process::id()))
     }
 
     fn read_line(stream: &mut LocalStream) -> String {
