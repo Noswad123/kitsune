@@ -138,6 +138,15 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
         ("kitsune:droid", "droid", AgentSessionRefKind::Id) => {
             vec!["droid".into(), "--resume".into(), session_ref.value.clone()]
         }
+        ("kitsune:djinn", "djinn", AgentSessionRefKind::Id) => {
+            vec![
+                "djinn".into(),
+                "agent".into(),
+                "chat".into(),
+                "--resume".into(),
+                session_ref.value.clone(),
+            ]
+        }
         ("kitsune:kimi", "kimi", AgentSessionRefKind::Id) => {
             vec!["kimi".into(), "--session".into(), session_ref.value.clone()]
         }
@@ -214,6 +223,7 @@ pub(crate) fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("kitsune:codex", "codex")
             | ("kitsune:copilot", "copilot")
             | ("kitsune:devin", "devin")
+            | ("kitsune:djinn", "djinn")
             | ("kitsune:droid", "droid")
             | ("kitsune:kimi", "kimi")
             | ("kitsune:omp", "omp")
@@ -256,6 +266,7 @@ mod tests {
         assert!(is_reserved_native_state_source("kitsune:claude", "claude"));
         assert!(is_reserved_native_state_source("kitsune:codex", "codex"));
         assert!(is_reserved_native_state_source("kitsune:devin", "devin"));
+        assert!(!is_reserved_native_state_source("kitsune:djinn", "djinn"));
         assert!(!is_reserved_native_state_source("kitsune:kimi", "kimi"));
         assert!(!is_reserved_native_state_source(
             "kitsune:opencode",
@@ -316,6 +327,16 @@ mod tests {
             .unwrap()
             .argv,
             vec!["droid", "--resume", "droid-session"]
+        );
+        assert_eq!(
+            plan(
+                "kitsune:djinn",
+                "djinn",
+                &AgentSessionRef::id("djinn-session").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["djinn", "agent", "chat", "--resume", "djinn-session"]
         );
         assert_eq!(
             plan(
@@ -524,6 +545,19 @@ mod tests {
             "droid",
             None,
             Some("/tmp/droid-session".into())
+        )
+        .is_none());
+
+        let session_ref =
+            session_ref_from_report("kitsune:djinn", "djinn", Some("djinn-id".into()), None)
+                .unwrap();
+        assert_eq!(session_ref.kind, AgentSessionRefKind::Id);
+        assert_eq!(session_ref.value, "djinn-id");
+        assert!(session_ref_from_report(
+            "kitsune:djinn",
+            "djinn",
+            None,
+            Some("/tmp/djinn-session".into())
         )
         .is_none());
 

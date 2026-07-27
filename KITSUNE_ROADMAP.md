@@ -1,17 +1,17 @@
 # Kitsune fork roadmap
 
-This fork started as a Kitsune-branded distribution of Herdr. The completed
-runtime identity and session recall baseline is documented in `README.md` and
-`docs/next/README.md`. This roadmap now tracks forward-looking divergence work.
+This fork started as a Kitsune-branded distribution of Herdr. Completed product
+baseline and feature behavior live in `README.md` and `docs/next/README.md`.
+This file tracks only work that is still intentionally open.
 
-## Product goal
+## Product direction
 
 Kitsune should provide Herdr's core terminal-agent runtime while presenting a
 Kitsune-owned product surface. Users interact through the canonical `kitsune`
 command, which targets Kitsune-owned state rather than Herdr state.
 
-The remaining product goal is no longer basic rebranding; it is choosing the
-defaults and workflows that make Kitsune its own product.
+The remaining goal is not basic rebranding; it is choosing the defaults,
+integrations, and workflows that make Kitsune its own product.
 
 ## Architecture principles
 
@@ -23,44 +23,41 @@ defaults and workflows that make Kitsune its own product.
 - Avoid broad internal renames until the user-facing identity and runtime
   separation are already stable.
 
-## Phase 3: intentional divergence — active
+## Remaining work
 
-Goal: make Kitsune its own product while preserving a working runtime.
+### Djinn lifecycle producer integration
 
-Completed in this phase:
+Djinn is recognized as a first-class built-in agent kind. Kitsune accepts
+`kitsune:djinn` reports as full lifecycle authority for the `djinn` agent label,
+accepts Djinn session ids from those reports, and can plan resume launches with
+`djinn agent chat --resume <id>`. The local Djinn tree now includes a producer
+that reports session identity plus idle, working, and turn-failed blocked states
+when running inside Kitsune. What remains is release/install coordination for
+that Djinn build and, if needed, finer-grained blocked reporting for permission
+prompts or a bundled screen manifest once invariant Djinn TUI evidence is
+captured. Unmanaged or older Djinn panes still rely on process detection plus the
+generic known-agent idle fallback.
 
-- Removed Herdr release/update command surfaces and hosted stable/preview
-  channel behavior from the active Kitsune CLI/UI path.
-- Replaced low-risk Herdr-branded docs, assets, integration text, and package
-  metadata while keeping historical Herdr references where context matters.
-- Aligned the `kitsune` help/completion surface so generated shell completions
-  and command examples use the canonical entry point.
-- Deleted dead supporting code for removed updater, remote auto-install, and
-  inherited integration targets so Kitsune only carries supported integration
-  plumbing.
-- Added Djinn as a built-in first-class agent kind for process detection,
-  interactive `agent start --kind djinn`, and integration status.
+### Product surface pruning
 
-Remaining candidate work:
+Continue removing or reshaping inherited Herdr behavior only when a specific
+feature no longer fits Kitsune's product direction. Avoid broad cleanup for its
+own sake.
 
-- Remove features that do not fit Kitsune's product direction.
-- Rename internal modules/types only when it reduces confusion more than it
-  increases merge pain.
-- Continue auditing `kitsune` behavior so editor integrations, shell aliases,
-  and remote workflows use the canonical entry point predictably.
+### Internal naming debt
 
-## Agent selector
-- Right now I leverage prefix+a to shift focus from agent to agent
-- I would like to pull a view of just agents then have the ability to navigate them or change the name of their panes
-## Support djinn agent harness
-- my djinn harness can be found ~/projects/djinn
-- It needs to be treated like a first class harness akin to opencode, pi, etc
-- Status: Djinn is now recognized as a first-class built-in agent kind. Future
-  work can add deeper Djinn-specific lifecycle reporting if the harness exposes
-  stable hooks/events for working and blocked states.
+Keep internal Herdr module/type names where they help upstream comparison. Rename
+internals only when the old name causes active confusion or blocks a product
+change.
 
-## Near-term working branch
+### Validation hygiene
 
-Use `kitsune-integration` as the integration branch until the first Kitsune
-release line is stable. Keep changes small and validate after each phase so the
-fork remains runnable throughout the transition.
+Resolve the remaining local full-suite blockers so `cargo test --locked` is a
+clean validation path on this machine. Known blockers observed recently include
+macOS Unix socket path length failures, stale generated API schema artifacts,
+unicode-width expectation drift, and poison-error cascades after early failures.
+
+## Working approach
+
+Keep changes small and validate after each product slice so the fork remains
+runnable throughout the transition.

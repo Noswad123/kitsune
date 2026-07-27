@@ -34,6 +34,19 @@ Kitsune includes a `session_recall` action bound by default to `prefix+shift+s`.
 
 The helper receives `KITSUNE_ENV`, `KITSUNE_BIN_PATH`, `KITSUNE_SOCKET_PATH`, `KITSUNE_CLIENT_SOCKET_PATH`, and active workspace/tab/pane context. Herdr, tmux, and Kitsune are selected as normal helper backends; Kitsune does not mirror one backend's environment variables into another backend.
 
+## Agent navigation
+
+Kitsune includes a session navigator and an agents-only selector:
+
+- `prefix+g` opens the full session navigator.
+- `prefix+a` opens the navigator directly in agents-only scope.
+- `Tab` toggles the navigator between full tree and agents-only scope.
+- In agents-only scope, `r` renames the selected agent pane's pane label.
+
+## Agent integrations
+
+Supported integration targets are `pi`, `opencode`, `claude`, `codex`, `copilot`, and `djinn`. Djinn support is built in as a first-class agent kind for process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, and authoritative lifecycle reports from source `kitsune:djinn`.
+
 ## Notes
 
 - Agent integrations remain available unless removed separately.

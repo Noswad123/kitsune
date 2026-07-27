@@ -294,6 +294,7 @@ pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> 
             | ("kitsune:opencode", "opencode")
             | ("kitsune:kilo", "kilo")
             | ("kitsune:kimi", "kimi")
+            | ("kitsune:djinn", "djinn")
     )
 }
 
@@ -776,6 +777,12 @@ mod tests {
             "mastracode"
         ));
         assert!(!Agent::SCREEN_MANIFEST_AGENTS.contains(&Agent::Mastracode));
+    }
+
+    #[test]
+    fn djinn_is_full_lifecycle_hook_authority_without_screen_manifest() {
+        assert!(full_lifecycle_hook_authority("kitsune:djinn", "djinn"));
+        assert!(!Agent::SCREEN_MANIFEST_AGENTS.contains(&Agent::Djinn));
     }
 
     #[test]

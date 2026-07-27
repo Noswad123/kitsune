@@ -8,6 +8,7 @@ HANDOFF_ARGS ?=
 build:
 	@echo "🔨 Building $(APP_NAME)..."
 	cargo build --bin $(APP_NAME)
+	@scripts/sign_dev_binary.sh target/debug/$(APP_NAME)
 
 check:
 	cargo check --tests
@@ -28,6 +29,7 @@ install: build
 	@echo "📦 Installing to $(INSTALL_DIR)"
 	@mkdir -p $(INSTALL_DIR)
 	cp target/debug/$(APP_NAME) $(INSTALL_DIR)/$(APP_NAME)
+	@scripts/sign_dev_binary.sh $(INSTALL_DIR)/$(APP_NAME)
 	@echo "✅ Installed. Run with: kitsune"
 
 handoff:

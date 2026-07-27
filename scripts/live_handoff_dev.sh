@@ -28,6 +28,8 @@ Examples:
 
 Notes:
   - The script invokes target/<profile>/kitsune directly, not an installed CLI.
+  - On macOS, the selected binary is ad-hoc signed before launch so Gatekeeper
+    does not kill freshly built dev binaries during handoff.
   - If KITSUNE_SOCKET_PATH is set, handoff targets that attached session.
   - If KITSUNE_SOCKET_PATH is unset, the CLI's normal default/session selection applies.
 EOF
@@ -114,6 +116,12 @@ if [[ $DRY_RUN -eq 0 && ! -x "$IMPORT_EXE" ]]; then
   echo "error: expected executable not found: $IMPORT_EXE" >&2
   echo "hint: rerun without --no-build or choose the matching --release/profile" >&2
   exit 1
+fi
+
+if [[ $DRY_RUN -eq 0 ]]; then
+  "$ROOT_DIR/scripts/sign_dev_binary.sh" "$IMPORT_EXE"
+elif [[ "$(uname -s)" == "Darwin" ]]; then
+  echo "+ $ROOT_DIR/scripts/sign_dev_binary.sh $IMPORT_EXE" >&2
 fi
 
 if [[ -n "${KITSUNE_SOCKET_PATH:-}" ]]; then

@@ -2240,6 +2240,44 @@ mod tests {
     }
 
     #[test]
+    fn djinn_hook_authority_overrides_detected_fallback() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Djinn), AgentState::Idle);
+        anchor_full_lifecycle_session(
+            &mut terminal,
+            Agent::Djinn,
+            "kitsune:djinn",
+            "djinn",
+            crate::agent_resume::AgentSessionRef::id("djinn-root").unwrap(),
+        );
+        terminal.set_hook_authority(
+            "kitsune:djinn".into(),
+            "djinn".into(),
+            AgentState::Working,
+            None,
+            None,
+        );
+
+        assert_eq!(terminal.detected_agent, Some(Agent::Djinn));
+        assert_eq!(terminal.effective_agent_label(), Some("djinn"));
+        assert_eq!(terminal.effective_known_agent(), Some(Agent::Djinn));
+        assert_eq!(terminal.state, AgentState::Working);
+        assert!(terminal.full_lifecycle_hook_authority_active());
+
+        let change = terminal.set_detected_state_with_visible_blocker(
+            Some(Agent::Djinn),
+            AgentState::Idle,
+            false,
+            true,
+            false,
+        );
+
+        assert_eq!(terminal.fallback_state, AgentState::Idle);
+        assert_eq!(terminal.state, AgentState::Working);
+        assert!(change.is_none());
+    }
+
+    #[test]
     fn session_only_report_does_not_create_hook_authority() {
         for (agent, source, label, session_id) in [
             (Agent::Codex, "kitsune:codex", "codex", "codex-session"),
