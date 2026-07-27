@@ -90,7 +90,7 @@ fn print_full_status(json: bool) -> std::io::Result<i32> {
         print_json(&FullStatusJson {
             client: client_status_json(),
             server: server_status_json(&server),
-            update: update_status_json(&server),
+            runtime: runtime_status_json(&server),
         })?;
         return Ok(0);
     }
@@ -103,7 +103,7 @@ fn print_full_status(json: bool) -> std::io::Result<i32> {
     println!("server:");
     print_server_status_body(&server, "  ");
     println!();
-    println!("update:");
+    println!("runtime:");
     println!("  restart_needed: {}", restart_needed_label(&server));
 
     Ok(0)
@@ -211,7 +211,7 @@ fn restart_needed_label(server: &ServerRuntimeStatus) -> &'static str {
 struct FullStatusJson {
     client: ClientStatusJson,
     server: ServerStatusJson,
-    update: UpdateStatusJson,
+    runtime: RuntimeStatusJson,
 }
 
 #[derive(Serialize)]
@@ -243,7 +243,7 @@ struct ServerCapabilitiesJson {
 }
 
 #[derive(Serialize)]
-struct UpdateStatusJson {
+struct RuntimeStatusJson {
     restart_needed: Option<bool>,
 }
 
@@ -293,8 +293,8 @@ fn server_status_json(server: &ServerRuntimeStatus) -> ServerStatusJson {
     }
 }
 
-fn update_status_json(server: &ServerRuntimeStatus) -> UpdateStatusJson {
-    UpdateStatusJson {
+fn runtime_status_json(server: &ServerRuntimeStatus) -> RuntimeStatusJson {
+    RuntimeStatusJson {
         restart_needed: restart_needed_bool(server),
     }
 }

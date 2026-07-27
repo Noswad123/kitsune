@@ -56,7 +56,7 @@ Bug reports should answer these questions clearly:
 - what is the expected behavior
 - what is the shortest reproduction
 - how does this affect you
-- what Kitsune version, update channel, OS, and terminal are affected
+- what Kitsune version, install source, OS, and terminal are affected
 - what shell and config are relevant, if any
 
 If there is no reproduction yet, start a discussion instead. Search open and closed issues before submitting; add evidence to an existing issue instead of opening a duplicate.

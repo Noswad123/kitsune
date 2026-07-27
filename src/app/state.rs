@@ -1319,7 +1319,7 @@ impl ContextMenuState {
 pub enum ToastKind {
     NeedsAttention,
     Finished,
-    UpdateInstalled,
+    Info,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

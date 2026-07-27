@@ -198,7 +198,7 @@ fn toast_event_text(kind: ToastKind) -> &'static str {
     match kind {
         ToastKind::NeedsAttention => "needs attention",
         ToastKind::Finished => "finished",
-        ToastKind::UpdateInstalled => "updated",
+        ToastKind::Info => "notice",
     }
 }
 
@@ -211,7 +211,7 @@ fn sound_for_toast_kind(
         ToastKind::Finished if !suppress_active_tab_notifications => {
             Some(crate::sound::Sound::Done)
         }
-        ToastKind::Finished | ToastKind::UpdateInstalled => None,
+        ToastKind::Finished | ToastKind::Info => None,
     }
 }
 
@@ -2801,7 +2801,7 @@ impl AppState {
                         .collect::<Vec<_>>()
                         .join(", ");
                     self.toast = Some(ToastNotification {
-                        kind: ToastKind::UpdateInstalled,
+                        kind: ToastKind::Info,
                         title: "Agent detection rules updated".to_string(),
                         context: agent_list,
                         position: None,
@@ -5521,7 +5521,7 @@ mod tests {
             Some("checked")
         );
         let toast = state.toast.as_ref().expect("manifest update toast");
-        assert_eq!(toast.kind, ToastKind::UpdateInstalled);
+        assert_eq!(toast.kind, ToastKind::Info);
         assert_eq!(toast.title, "Agent detection rules updated");
         assert_eq!(toast.context, "codex 2026.06.10.1");
     }

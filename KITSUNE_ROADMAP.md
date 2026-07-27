@@ -30,19 +30,33 @@ integrations, and workflows that make Kitsune its own product.
 Djinn is recognized as a first-class built-in agent kind. Kitsune accepts
 `kitsune:djinn` reports as full lifecycle authority for the `djinn` agent label,
 accepts Djinn session ids from those reports, and can plan resume launches with
-`djinn agent chat --resume <id>`. The local Djinn tree now includes a producer
-that reports session identity plus idle, working, and turn-failed blocked states
-when running inside Kitsune, including blocked reports for permission waits and
-provider auth/configuration failures. What remains is release/install
-coordination for that Djinn build and, if needed, a bundled screen manifest once
-invariant Djinn TUI evidence is captured. Unmanaged or older Djinn panes still
-rely on process detection plus the generic known-agent idle fallback.
+`djinn agent chat --resume <id>`. Kitsune also accepts release reports so a
+compatible Djinn build can clear pane authority when chat exits.
+
+Further Djinn-side rollout is intentionally deferred while Djinn has active local
+changes in progress. What remains on the Kitsune side is release/install
+coordination for a compatible Djinn build and, if needed, a bundled screen
+manifest once invariant Djinn TUI evidence is captured. Unmanaged or older Djinn
+panes still rely on process detection plus the generic known-agent idle fallback.
 
 ### Product surface pruning
 
 Continue removing or reshaping inherited Herdr behavior only when a specific
 feature no longer fits Kitsune's product direction. Avoid broad cleanup for its
 own sake.
+
+Explicit pruning candidates:
+
+- Release/update remnants: keep runtime restart/handoff-needed facts, but remove
+  user-facing hosted-updater, channel, auto-download, and update-install wording.
+- Plugin surface remnants: keep only active supported behavior; avoid presenting
+  inherited plugin marketplace or hosted plugin docs as Kitsune features.
+- Inherited changelog noise: keep historical context clearly separated from
+  Kitsune-owned release notes.
+- Remote attach wording: preserve compatible remote attach while avoiding remote
+  auto-install promises.
+- Removed-surface config/docs references: either remove stale settings or mark
+  compatibility-only behavior explicitly.
 
 ### Internal naming debt
 

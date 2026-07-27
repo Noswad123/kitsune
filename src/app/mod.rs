@@ -672,7 +672,7 @@ impl App {
         // and in debug/test builds so local development never mutates the
         // running binary out from under spawned test processes.
         let manifest_check_enabled =
-            background_update_check_enabled(no_session, config.update.manifest_check);
+            background_update_check_enabled(no_session, config.agent_detection.manifest_check);
         if manifest_check_enabled {
             let manifest_update_tx = event_tx.clone();
             std::thread::spawn(move || {
@@ -713,7 +713,7 @@ impl App {
             next_animation_tick: None,
             next_agent_manifest_update_check: manifest_check_enabled
                 .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
-            update_manifest_check_enabled: config.update.manifest_check,
+            update_manifest_check_enabled: config.agent_detection.manifest_check,
             loaded_host_cursor: config.ui.host_cursor,
             agent_metadata_deadline: None,
             pending_agent_resume_deadline: None,
@@ -1447,10 +1447,10 @@ impl App {
             self.state.pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes;
         }
 
-        if !invalid_section("update") {
+        if !invalid_section("agent_detection") && !invalid_section("update") {
             let now = Instant::now();
             let previous_manifest_check_enabled = self.update_manifest_check_enabled;
-            self.update_manifest_check_enabled = config.update.manifest_check;
+            self.update_manifest_check_enabled = config.agent_detection.manifest_check;
 
             if !self.update_manifest_check_enabled {
                 self.next_agent_manifest_update_check = None;
@@ -1491,7 +1491,7 @@ impl App {
             self.config_diagnostic_deadline = None;
             if notify_success {
                 self.state.toast = Some(crate::app::state::ToastNotification {
-                    kind: crate::app::state::ToastKind::UpdateInstalled,
+                    kind: crate::app::state::ToastKind::Info,
                     title: "reloaded config".to_string(),
                     context: "using config.toml".to_string(),
                     position: None,
@@ -1503,7 +1503,7 @@ impl App {
             self.config_diagnostic_deadline = None;
             if notify_success {
                 self.state.toast = Some(crate::app::state::ToastNotification {
-                    kind: crate::app::state::ToastKind::UpdateInstalled,
+                    kind: crate::app::state::ToastKind::Info,
                     title: "reloaded config".to_string(),
                     context: "with warnings".to_string(),
                     position: None,
@@ -2651,7 +2651,7 @@ mod tests {
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+m\"\nprefix = \"ctrl+a\"\n[update]\nversion_check = false\nmanifest_check = false\n[ui]\nagent_panel_sort = \"priority\"\nredraw_on_focus_gained = false\ncopy_on_select = false\nright_click_passthrough_modifier = \"ctrl\"\nprompt_new_workspace_name = true\n[ui.toast]\ndelivery = \"kitsune\"\n[experimental]\nswitch_ascii_input_source_in_prefix = true\n",
+            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+m\"\nprefix = \"ctrl+a\"\n[agent_detection]\nmanifest_check = false\n[ui]\nagent_panel_sort = \"priority\"\nredraw_on_focus_gained = false\ncopy_on_select = false\nright_click_passthrough_modifier = \"ctrl\"\nprompt_new_workspace_name = true\n[ui.toast]\ndelivery = \"kitsune\"\n[experimental]\nswitch_ascii_input_source_in_prefix = true\n",
         )
         .unwrap();
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -2738,7 +2738,7 @@ mod tests {
         assert!(app.state.switch_ascii_input_source_in_prefix);
         assert!(app.state.config_diagnostic.is_none());
         let toast = app.state.toast.as_ref().unwrap();
-        assert_eq!(toast.kind, crate::app::state::ToastKind::UpdateInstalled);
+        assert_eq!(toast.kind, crate::app::state::ToastKind::Info);
         assert_eq!(toast.title, "reloaded config");
         assert_eq!(toast.context, "using config.toml");
 

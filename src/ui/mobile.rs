@@ -247,7 +247,7 @@ pub(crate) fn render_mobile_toast_banner(
     let dot_color = match toast.kind {
         ToastKind::NeedsAttention => p.red,
         ToastKind::Finished => p.blue,
-        ToastKind::UpdateInstalled => p.accent,
+        ToastKind::Info => p.accent,
     };
     let banner = mobile_toast_banner_rect(area, offset_for_warning);
     let bg = p.surface0;
@@ -1122,7 +1122,7 @@ fn mobile_toast_title(toast: &ToastNotification) -> String {
             .strip_suffix(" finished")
             .map(|agent| format!("{agent} done"))
             .unwrap_or_else(|| toast.title.clone()),
-        ToastKind::UpdateInstalled => "updated".to_string(),
+        ToastKind::Info => "notice".to_string(),
     }
 }
 

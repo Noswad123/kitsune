@@ -92,7 +92,7 @@ mod terminal_modes;
 mod terminal_notify;
 mod terminal_theme;
 mod ui;
-mod update;
+mod version;
 mod workspace;
 mod worktree;
 
@@ -141,7 +141,7 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # "current" for Kitsune's process directory, or a fixed path such as "~/Projects".
 # new_cwd = "follow"
 
-[update]
+[agent_detection]
 # Check for remote agent-detection manifest updates in the background.
 # Disabled by default in this fork unless KITSUNE_AGENT_DETECTION_MANIFEST_CATALOG_URL is set.
 # manifest_check = false

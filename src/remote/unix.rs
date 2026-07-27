@@ -1515,7 +1515,13 @@ mod tests {
 
     #[test]
     fn extract_remote_args_preserves_handoff_without_remote() {
-        let args = vec!["kitsune".into(), "update".into(), "--handoff".into()];
+        let args = vec![
+            "kitsune".into(),
+            "session".into(),
+            "attach".into(),
+            "dev".into(),
+            "--handoff".into(),
+        ];
 
         let (cleaned, remote) = extract_remote_args(&args).unwrap();
 

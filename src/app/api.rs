@@ -629,7 +629,7 @@ impl App {
             let event_text = match kind {
                 ToastKind::NeedsAttention => "needs attention",
                 ToastKind::Finished => "finished",
-                ToastKind::UpdateInstalled => "updated",
+                ToastKind::Info => "notice",
             };
             let workspace_label =
                 ws.display_name_from(&self.state.terminals, &self.terminal_runtimes);
@@ -654,7 +654,7 @@ impl App {
                 let duration = match toast.kind {
                     ToastKind::NeedsAttention => Duration::from_secs(8),
                     ToastKind::Finished => Duration::from_secs(5),
-                    ToastKind::UpdateInstalled => Duration::from_secs(3),
+                    ToastKind::Info => Duration::from_secs(3),
                 };
                 Instant::now() + duration
             });
@@ -1110,7 +1110,7 @@ impl App {
                     let previous_toast = self.state.toast.clone();
                     self.mark_api_notification_shown(Instant::now());
                     self.state.toast = Some(crate::app::state::ToastNotification {
-                        kind: ToastKind::UpdateInstalled,
+                        kind: ToastKind::Info,
                         title,
                         context: body.unwrap_or_default(),
                         position: params.position,

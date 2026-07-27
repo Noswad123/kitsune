@@ -13,7 +13,7 @@ pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
 
 #[derive(Debug, Clone, Copy, Default, Deserialize)]
 #[serde(default)]
-pub struct UpdateConfig {
+pub struct AgentDetectionConfig {
     /// Check for remote agent-detection manifest updates in the background.
     /// This is disabled by default and requires an explicit manifest catalog URL.
     pub manifest_check: bool,
@@ -256,7 +256,8 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub terminal: TerminalConfig,
     pub session: SessionConfig,
-    pub update: UpdateConfig,
+    #[serde(alias = "update")]
+    pub agent_detection: AgentDetectionConfig,
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub worktrees: WorktreesConfig,
@@ -1092,16 +1093,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn update_config_defaults_and_parses() {
+    fn agent_detection_config_defaults_and_parses() {
         let default_config = Config::default();
-        assert!(!default_config.update.manifest_check);
+        assert!(!default_config.agent_detection.manifest_check);
 
         let toml = r#"
-[update]
+[agent_detection]
 manifest_check = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.update.manifest_check);
+        assert!(!config.agent_detection.manifest_check);
+
+        let legacy_toml = r#"
+[update]
+manifest_check = true
+"#;
+        let legacy_config: Config = toml::from_str(legacy_toml).unwrap();
+        assert!(legacy_config.agent_detection.manifest_check);
     }
 
     #[test]

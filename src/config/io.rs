@@ -6,6 +6,7 @@ use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
+    "agent_detection",
     "experimental",
     "keys",
     "onboarding",
@@ -325,14 +326,25 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut invalid_sections,
         |section| config.session = section,
     );
-    load_live_section(
-        table,
-        "update",
-        "update config",
-        &mut diagnostics,
-        &mut invalid_sections,
-        |section| config.update = section,
-    );
+    if table.contains_key("agent_detection") {
+        load_live_section(
+            table,
+            "agent_detection",
+            "agent detection config",
+            &mut diagnostics,
+            &mut invalid_sections,
+            |section| config.agent_detection = section,
+        );
+    } else {
+        load_live_section(
+            table,
+            "update",
+            "legacy update config",
+            &mut diagnostics,
+            &mut invalid_sections,
+            |section| config.agent_detection = section,
+        );
+    }
     load_live_section(
         table,
         "ui",
@@ -894,6 +906,49 @@ resume_agents_on_restore = true
         assert!(loaded.config.session.resume_agents_on_restore);
         assert!(loaded.diagnostics.is_empty());
         assert!(loaded.invalid_sections.is_empty());
+    }
+
+    #[test]
+    fn load_live_config_parses_agent_detection_section_and_legacy_update_alias() {
+        let loaded = load_live_config_from_str(
+            r#"
+[agent_detection]
+manifest_check = true
+"#,
+        )
+        .unwrap();
+
+        assert!(loaded.config.agent_detection.manifest_check);
+        assert!(loaded.diagnostics.is_empty());
+        assert!(loaded.invalid_sections.is_empty());
+
+        let legacy_loaded = load_live_config_from_str(
+            r#"
+[update]
+manifest_check = true
+"#,
+        )
+        .unwrap();
+
+        assert!(legacy_loaded.config.agent_detection.manifest_check);
+        assert!(legacy_loaded.diagnostics.is_empty());
+        assert!(legacy_loaded.invalid_sections.is_empty());
+    }
+
+    #[test]
+    fn load_live_config_reports_invalid_agent_detection_section() {
+        let loaded = load_live_config_from_str(
+            r#"
+[agent_detection]
+manifest_check = "yes"
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(loaded.invalid_sections, vec!["agent_detection"]);
+        assert_eq!(loaded.config.agent_detection.manifest_check, false);
+        assert_eq!(loaded.diagnostics.len(), 1);
+        assert!(loaded.diagnostics[0].contains("invalid agent detection config"));
     }
 
     #[test]

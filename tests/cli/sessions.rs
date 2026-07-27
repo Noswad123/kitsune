@@ -338,6 +338,7 @@ fn status_commands_report_client_and_server_versions() {
         full_stdout.contains("  compatible: yes"),
         "stdout: {full_stdout}"
     );
+    assert!(full_stdout.contains("runtime:\n"), "stdout: {full_stdout}");
     assert!(
         full_stdout.contains("  restart_needed: no"),
         "stdout: {full_stdout}"
@@ -390,7 +391,7 @@ fn status_commands_report_client_and_server_versions() {
         socket_path.display().to_string()
     );
     assert_eq!(full_json["server"]["restart_needed"], false);
-    assert_eq!(full_json["update"]["restart_needed"], false);
+    assert_eq!(full_json["runtime"]["restart_needed"], false);
 
     let server_json = run_cli_json(&socket_path, &["status", "server", "--json"]);
     assert_eq!(server_json["status"], "running");
@@ -434,7 +435,7 @@ fn status_reports_not_running_when_server_socket_is_missing() {
         socket_path.display().to_string()
     );
     assert_eq!(status_json["server"]["restart_needed"], false);
-    assert_eq!(status_json["update"]["restart_needed"], false);
+    assert_eq!(status_json["runtime"]["restart_needed"], false);
 
     cleanup_test_base(&base);
 }
