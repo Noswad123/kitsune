@@ -174,10 +174,24 @@ impl AppState {
         Rect::new(ws_area.x, y, ws_area.width, 1)
     }
 
+    fn sidebar_header_row_rect(&self, row_offset: u16) -> Rect {
+        let ws_area = self.workspace_list_rect();
+        if ws_area == Rect::default() || ws_area.height <= row_offset {
+            return Rect::default();
+        }
+
+        Rect::new(ws_area.x, ws_area.y + row_offset, ws_area.width, 1)
+    }
+
     pub(crate) fn sidebar_new_button_rect(&self) -> Rect {
-        let footer = self.sidebar_footer_rect();
-        let width = 5u16.min(footer.width.max(1));
-        Rect::new(footer.x, footer.y, width, footer.height)
+        let row = self.sidebar_header_row_rect(1);
+        if row == Rect::default() {
+            return Rect::default();
+        }
+
+        let width = 3u16.min(row.width.max(1));
+        let x = row.x + row.width.saturating_sub(width);
+        Rect::new(x, row.y, width, row.height)
     }
 
     pub(crate) fn global_launcher_rect(&self) -> Rect {
@@ -185,15 +199,19 @@ impl AppState {
             return self.view.mobile_menu_hit_area;
         }
 
-        let footer = self.sidebar_footer_rect();
+        let row = self.sidebar_header_row_rect(0);
+        if row == Rect::default() {
+            return Rect::default();
+        }
+
         let width = if self.global_menu_attention_badge_visible() {
             8
         } else {
             6
         }
-        .min(footer.width.max(1));
-        let x = footer.x + footer.width.saturating_sub(width);
-        Rect::new(x, footer.y, width, footer.height)
+        .min(row.width.max(1));
+        let x = row.x + row.width.saturating_sub(width);
+        Rect::new(x, row.y, width, row.height)
     }
 
     pub(crate) fn global_menu_labels(&self) -> Vec<&'static str> {

@@ -1130,7 +1130,15 @@ fn render_workspace_list(
     };
 
     let list_bottom = area.y + area.height.saturating_sub(1);
-    if area.height > 0 {
+    if area.height > 1 {
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![Span::styled(
+                " spaces",
+                Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
+            )])),
+            Rect::new(area.x, area.y + 1, area.width, 1),
+        );
+    } else if area.height > 0 {
         frame.render_widget(
             Paragraph::new(Line::from(vec![Span::styled(
                 " spaces",
@@ -1281,29 +1289,34 @@ fn render_workspace_list(
         render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
     }
 
-    if app.mouse_capture && list_bottom > area.y {
+    if app.mouse_capture {
         let new_rect = app.sidebar_new_button_rect();
-        frame.render_widget(
-            Paragraph::new(Span::styled(" new", Style::default().fg(p.overlay0))),
-            new_rect,
-        );
+        if new_rect != Rect::default() {
+            frame.render_widget(
+                Paragraph::new(Span::styled("new", Style::default().fg(p.overlay0)))
+                    .alignment(Alignment::Right),
+                new_rect,
+            );
+        }
 
         let menu_rect = app.global_launcher_rect();
-        let menu_line = if app.global_menu_attention_badge_visible() {
-            Line::from(vec![
-                Span::styled(
-                    "● ",
-                    Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("menu", Style::default().fg(p.overlay0)),
-            ])
-        } else {
-            Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
-        };
-        frame.render_widget(
-            Paragraph::new(menu_line).alignment(Alignment::Right),
-            menu_rect,
-        );
+        if menu_rect != Rect::default() {
+            let menu_line = if app.global_menu_attention_badge_visible() {
+                Line::from(vec![
+                    Span::styled(
+                        "● ",
+                        Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("menu", Style::default().fg(p.overlay0)),
+                ])
+            } else {
+                Line::from(vec![Span::styled("menu", Style::default().fg(p.overlay0))])
+            };
+            frame.render_widget(
+                Paragraph::new(menu_line).alignment(Alignment::Right),
+                menu_rect,
+            );
+        }
     }
 }
 
@@ -1495,6 +1508,28 @@ mod tests {
                     row_text(buffer, row, width)
                 )
             })
+    }
+
+    #[test]
+    fn workspace_header_places_menu_above_spaces_and_new_on_spaces_row() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.mouse_capture = true;
+        app.view.sidebar_rect = Rect::new(0, 0, 16, 12);
+        let ws_area = workspace_list_rect(app.view.sidebar_rect, app.sidebar_section_split);
+        let mut terminal = Terminal::new(TestBackend::new(ws_area.width, ws_area.height)).unwrap();
+
+        terminal
+            .draw(|frame| {
+                render_workspace_list(&app, &TerminalRuntimeRegistry::new(), frame, ws_area, false)
+            })
+            .unwrap();
+
+        assert!(row_text(terminal.backend().buffer(), 0, ws_area.width).ends_with("menu"));
+        let spaces_row = row_text(terminal.backend().buffer(), 1, ws_area.width);
+        assert!(spaces_row.starts_with(" spaces"));
+        assert!(spaces_row.ends_with("new"));
+        assert_eq!(app.global_launcher_rect().y, ws_area.y);
+        assert_eq!(app.sidebar_new_button_rect().y, ws_area.y + 1);
     }
 
     #[test]
