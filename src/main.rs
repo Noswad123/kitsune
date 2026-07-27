@@ -232,7 +232,10 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # agents = ""     # e.g. "alt" makes alt+1..9 focus agent rows directly
 
 # [worktrees]
-# directory = "~/.kitsune/worktrees"
+# Empty creates new checkouts next to the source checkout, for example
+# /repo/kitsune -> /repo/kitsune-feature-branch. Set a directory to centralize
+# checkouts under <directory>/<repo>/<branch-slug> instead.
+# directory = ""
 
 [ui]
 # Sidebar width (auto-scaled based on workspace names, this sets the default)

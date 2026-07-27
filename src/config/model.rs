@@ -746,7 +746,8 @@ pub struct IndexedKeysConfig {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct WorktreesConfig {
-    /// Root directory under which Kitsune creates <repo>/<branch-slug> checkouts.
+    /// Optional root directory under which Kitsune creates <repo>/<branch-slug>
+    /// checkouts. Empty uses a sibling of the source checkout.
     pub directory: String,
 }
 
@@ -967,7 +968,7 @@ impl Default for KeysConfig {
 impl Default for WorktreesConfig {
     fn default() -> Self {
         Self {
-            directory: "~/.kitsune/worktrees".into(),
+            directory: String::new(),
         }
     }
 }
@@ -1225,7 +1226,7 @@ hide_tab_bar_when_single_tab = true
     #[test]
     fn worktrees_directory_defaults_and_parses() {
         let default_config = Config::default();
-        assert_eq!(default_config.worktrees.directory, "~/.kitsune/worktrees");
+        assert_eq!(default_config.worktrees.directory, "");
 
         let toml = r#"
 [worktrees]

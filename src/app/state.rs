@@ -1802,7 +1802,7 @@ impl AppState {
             worktree_create: None,
             worktree_open: None,
             worktree_remove: None,
-            worktree_directory: std::path::PathBuf::from("/tmp/kitsune-worktrees"),
+            worktree_directory: std::path::PathBuf::new(),
             collapsed_space_keys: std::collections::HashSet::new(),
             request_complete_onboarding: false,
             name_input: String::new(),

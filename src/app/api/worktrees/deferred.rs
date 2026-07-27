@@ -131,8 +131,9 @@ impl App {
                     return;
                 }
             },
-            None => crate::worktree::default_checkout_path(
+            None => crate::worktree::default_checkout_path_for_source(
                 &self.state.worktree_directory,
+                &source.source_checkout_path,
                 &source.repo_name,
                 &branch,
             ),

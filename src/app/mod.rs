@@ -232,6 +232,14 @@ fn agent_panel_sort_from_config(
     }
 }
 
+fn configured_worktree_directory(directory: &str) -> std::path::PathBuf {
+    if directory.trim().is_empty() {
+        std::path::PathBuf::new()
+    } else {
+        crate::worktree::expand_tilde_absolute_path(directory)
+    }
+}
+
 /// Parse the configured agent name list into a deduplicated set of `Agent`
 /// values. Unknown agent names are silently dropped so a typo cannot disable
 /// other valid entries.
@@ -469,8 +477,7 @@ impl App {
             (18, 36)
         });
 
-        let worktree_directory =
-            crate::worktree::expand_tilde_absolute_path(&config.worktrees.directory);
+        let worktree_directory = configured_worktree_directory(&config.worktrees.directory);
 
         info!(
             pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes,
@@ -1472,7 +1479,7 @@ impl App {
 
         if !invalid_section("worktrees") {
             self.state.worktree_directory =
-                crate::worktree::expand_tilde_absolute_path(&config.worktrees.directory);
+                configured_worktree_directory(&config.worktrees.directory);
         }
 
         if !invalid_section("theme") {

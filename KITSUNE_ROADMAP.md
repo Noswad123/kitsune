@@ -23,9 +23,9 @@ integrations, and workflows that make Kitsune its own product.
 - Avoid broad internal renames until the user-facing identity and runtime
   separation are already stable.
 
-## Remaining work
+## Open work
 
-### Djinn lifecycle producer integration
+### Djinn lifecycle rollout
 
 Djinn is recognized as a first-class built-in agent kind. Kitsune accepts
 `kitsune:djinn` reports as full lifecycle authority for the `djinn` agent label,
@@ -33,35 +33,35 @@ accepts Djinn session ids from those reports, and can plan resume launches with
 `djinn agent chat --resume <id>`. Kitsune also accepts release reports so a
 compatible Djinn build can clear pane authority when chat exits.
 
-Further Djinn-side rollout is intentionally deferred while Djinn has active local
-changes in progress. Kitsune should not fetch, compare, or install Djinn
+Djinn-side reporting rollout is intentionally deferred while Djinn has active
+local changes in progress. Kitsune should not fetch, compare, or install Djinn
 versions; install/update compatibility belongs to the Arcana-managed tool suite,
-with user guidance to run `arcana update`. What remains on the Kitsune side is,
-if needed, a bundled screen manifest once invariant Djinn TUI evidence is
-captured. Unmanaged or older Djinn panes still rely on process detection plus the
-generic known-agent idle fallback.
+with user guidance to run `arcana update`. Older or unmanaged Djinn panes still
+fall back to process detection plus the generic known-agent idle behavior.
 
-### Product surface pruning
+Kitsune-side follow-up is limited to optional screen detection: add a bundled
+Djinn manifest only if stable invariant TUI evidence emerges and live pane reads
+show that process detection plus lifecycle reports are insufficient.
 
-Continue removing or reshaping inherited Herdr behavior only when a specific
-feature no longer fits Kitsune's product direction. Avoid broad cleanup for its
-own sake.
+### As-needed product pruning
 
-No concrete pruning candidates are currently identified. Add specific stale
-surfaces here when they are found; avoid broad cleanup for its own sake.
+No concrete pruning candidates are currently identified. Remove or reshape
+inherited Herdr behavior only when a specific surface no longer fits Kitsune's
+product direction.
 
-### Internal naming debt
+### As-needed internal naming cleanup
 
-Keep internal Herdr module/type names where they help upstream comparison. Rename
-internals only when the old name causes active confusion or blocks a product
-change.
+Keep internal Herdr module/type names where they help upstream comparison.
+Rename internals only when the old name causes active confusion or blocks a
+product change.
 
-### Validation hygiene
+### Validation hygiene audit
 
-Resolve the remaining local full-suite blockers so `cargo test --locked` is a
-clean validation path on this machine. Known blockers observed recently include
-macOS Unix socket path length failures, stale generated API schema artifacts,
-unicode-width expectation drift, and poison-error cascades after early failures.
+Audit current full-suite behavior before listing blockers. Several previously
+observed local failures have been fixed or may be stale, so future validation
+work should start by running the narrowest useful check, recording any live
+failure, and fixing only confirmed blockers. Do not run the resource-heavy
+`just check` path without explicit approval.
 
 ## Working approach
 

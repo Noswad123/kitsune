@@ -94,8 +94,9 @@ impl App {
             .map(|duration| duration.as_micros().min(u128::from(u64::MAX)) as u64)
             .unwrap_or(0);
         let branch = crate::worktree::generated_branch_slug(seed);
-        let checkout_path = crate::worktree::default_checkout_path(
+        let checkout_path = crate::worktree::default_checkout_path_for_source(
             &self.state.worktree_directory,
+            &source_checkout_path,
             &repo_name,
             &branch,
         );
@@ -493,8 +494,9 @@ impl App {
             return;
         };
         create.branch = self.state.name_input.clone();
-        create.checkout_path = crate::worktree::default_checkout_path(
+        create.checkout_path = crate::worktree::default_checkout_path_for_source(
             &self.state.worktree_directory,
+            &create.source_checkout_path,
             &create.repo_name,
             &create.branch,
         );
@@ -518,8 +520,9 @@ impl App {
 
         create.branch = branch.clone();
         self.state.name_input = branch.clone();
-        create.checkout_path = crate::worktree::default_checkout_path(
+        create.checkout_path = crate::worktree::default_checkout_path_for_source(
             &self.state.worktree_directory,
+            &create.source_checkout_path,
             &create.repo_name,
             &branch,
         );
@@ -580,8 +583,9 @@ impl App {
 
         create.branch = branch.clone();
         self.state.name_input = branch.clone();
-        create.checkout_path = crate::worktree::default_checkout_path(
+        create.checkout_path = crate::worktree::default_checkout_path_for_source(
             &self.state.worktree_directory,
+            &create.source_checkout_path,
             &create.repo_name,
             &branch,
         );
@@ -1548,6 +1552,35 @@ mod tests {
         assert_eq!(
             create.checkout_path,
             std::path::PathBuf::from("/w/kitsune/issue-137")
+        );
+        assert_eq!(create.error, None);
+    }
+
+    #[test]
+    fn sync_worktree_branch_defaults_to_sibling_checkout_path() {
+        let mut app = app_for_worktree_tests();
+        app.state.worktree_directory = std::path::PathBuf::new();
+        app.state.name_input = "issue/137".into();
+        app.state.worktree_create = Some(WorktreeCreateState {
+            source_workspace_id: "source".into(),
+            source_checkout_path: std::path::PathBuf::from("/repo/kitsune"),
+            source_existing_membership: None,
+            source_repo_root: std::path::PathBuf::from("/repo/kitsune"),
+            repo_key: "repo-key".into(),
+            repo_name: "kitsune".into(),
+            branch: "old".into(),
+            checkout_path: std::path::PathBuf::from("/old"),
+            error: Some("old error".into()),
+            creating: false,
+        });
+
+        app.sync_worktree_branch_from_input();
+
+        let create = app.state.worktree_create.unwrap();
+        assert_eq!(create.branch, "issue/137");
+        assert_eq!(
+            create.checkout_path,
+            std::path::PathBuf::from("/repo/kitsune-issue-137")
         );
         assert_eq!(create.error, None);
     }

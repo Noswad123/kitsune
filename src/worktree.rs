@@ -155,6 +155,28 @@ pub(crate) fn default_checkout_path(root: &Path, repo_name: &str, branch: &str) 
     root.join(repo_name).join(branch_to_path_slug(branch))
 }
 
+pub(crate) fn default_checkout_path_for_source(
+    configured_root: &Path,
+    source_checkout_path: &Path,
+    repo_name: &str,
+    branch: &str,
+) -> PathBuf {
+    let branch_slug = branch_to_path_slug(branch);
+    if !configured_root.as_os_str().is_empty() {
+        return default_checkout_path(configured_root, repo_name, branch);
+    }
+
+    let parent = source_checkout_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    let source_name = source_checkout_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(repo_name);
+    parent.join(format!("{source_name}-{branch_slug}"))
+}
+
 pub(crate) fn build_worktree_remove_command(
     repo_root: &Path,
     path: &Path,
@@ -708,6 +730,32 @@ prunable stale
                 "worktree/brave-river",
             ),
             PathBuf::from("/home/me/.kitsune/worktrees/kitsune/worktree-brave-river")
+        );
+    }
+
+    #[test]
+    fn default_checkout_path_for_source_uses_sibling_when_root_is_empty() {
+        assert_eq!(
+            default_checkout_path_for_source(
+                Path::new(""),
+                Path::new("/home/me/Projects/kitsune"),
+                "kitsune",
+                "feature/sidebar polish",
+            ),
+            PathBuf::from("/home/me/Projects/kitsune-feature-sidebar-polish")
+        );
+    }
+
+    #[test]
+    fn default_checkout_path_for_source_uses_configured_root_when_set() {
+        assert_eq!(
+            default_checkout_path_for_source(
+                Path::new("/home/me/worktrees"),
+                Path::new("/home/me/Projects/kitsune"),
+                "kitsune",
+                "feature/sidebar polish",
+            ),
+            PathBuf::from("/home/me/worktrees/kitsune/feature-sidebar-polish")
         );
     }
 
