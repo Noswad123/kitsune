@@ -1013,7 +1013,7 @@ mod tests {
     // must still classify as a shell, not an agent, even though its argv now
     // carries a -Command payload.
     #[test]
-    fn identify_agent_in_job_ignores_herdr_powershell_shell_integration_argv() {
+    fn identify_agent_in_job_ignores_kitsune_powershell_shell_integration_argv() {
         let job = crate::platform::ForegroundJob {
             process_group_id: 123,
             processes: vec![foreground_process(

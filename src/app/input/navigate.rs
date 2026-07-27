@@ -2110,10 +2110,10 @@ mod tests {
             .attached_terminal_id
             .clone();
         state.workspaces[0].custom_name = None;
-        state.workspaces[0].identity_cwd = "/__herdr_original__".into();
+        state.workspaces[0].identity_cwd = "/__kitsune_original__".into();
         state.terminals.insert(
             terminal_id.clone(),
-            TerminalState::new(terminal_id, "/__herdr_projects__".into()),
+            TerminalState::new(terminal_id, "/__kitsune_projects__".into()),
         );
         state.keybinds.rename_workspace = crate::config::ActionKeybinds::prefix("g");
 
@@ -2123,8 +2123,8 @@ mod tests {
         );
 
         assert_eq!(state.mode, Mode::RenameWorkspace);
-        assert_eq!(state.name_input, "__herdr_projects__");
-        assert_eq!(state.workspaces[0].display_name(), "__herdr_original__");
+        assert_eq!(state.name_input, "__kitsune_projects__");
+        assert_eq!(state.workspaces[0].display_name(), "__kitsune_original__");
     }
 
     #[test]

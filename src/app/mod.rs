@@ -2179,7 +2179,7 @@ mod tests {
     }
 
     #[test]
-    fn notification_show_api_creates_herdr_toast_with_position() {
+    fn notification_show_api_creates_kitsune_toast_with_position() {
         let mut app = test_app();
         app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
 
@@ -2215,7 +2215,7 @@ mod tests {
     }
 
     #[test]
-    fn notification_show_api_herdr_toast_expires() {
+    fn notification_show_api_kitsune_toast_expires() {
         let mut app = test_app();
         app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
 

@@ -167,16 +167,16 @@ pub(crate) fn run_remote(remote: RemoteLaunch) -> io::Result<()> {
         .remote
         .manage_ssh_config;
     let remote_ssh = RemoteSsh::new(remote.target.clone(), manage_ssh_config);
-    let prepared_remote = prepare_remote_herdr(&remote_ssh, remote.live_handoff)?;
+    let prepared_remote = prepare_remote_kitsune(&remote_ssh, remote.live_handoff)?;
     ensure_remote_server_ready(
         &remote_ssh,
-        &prepared_remote.remote_herdr,
+        &prepared_remote.remote_kitsune,
         remote.live_handoff,
     )?;
 
     let _bridge = SshStdioBridge::start(
         remote.target,
-        prepared_remote.remote_herdr,
+        prepared_remote.remote_kitsune,
         local_socket.clone(),
         session_name,
         remote_ssh.options(),
@@ -255,12 +255,12 @@ impl RemotePlatform {
 }
 
 #[derive(Debug, Clone)]
-struct RemoteHerdr {
+struct RemoteKitsune {
     shell_path: String,
     platform: RemotePlatform,
 }
 
-impl RemoteHerdr {
+impl RemoteKitsune {
     fn for_platform(platform: RemotePlatform) -> Self {
         let shell_path = "\"$HOME/.local/bin/kitsune\"".to_string();
         Self {
@@ -279,8 +279,8 @@ fn current_version() -> String {
     crate::build_info::version()
 }
 
-struct PreparedRemoteHerdr {
-    remote_herdr: RemoteHerdr,
+struct PreparedRemoteKitsune {
+    remote_kitsune: RemoteKitsune,
 }
 
 #[derive(Clone)]
@@ -407,23 +407,23 @@ fn apply_managed_ssh_options(command: &mut Command, options: Option<&ManagedSshO
         .arg("ControlPersist=yes");
 }
 
-fn prepare_remote_herdr(
+fn prepare_remote_kitsune(
     ssh: &RemoteSsh,
     _live_handoff_enabled: bool,
-) -> io::Result<PreparedRemoteHerdr> {
+) -> io::Result<PreparedRemoteKitsune> {
     let platform = detect_remote_platform(ssh)?;
-    let remote_herdr = RemoteHerdr::for_platform(platform);
-    let remote_binary_candidates = remote_binary_candidates(ssh, &remote_herdr)?;
+    let remote_kitsune = RemoteKitsune::for_platform(platform);
+    let remote_binary_candidates = remote_binary_candidates(ssh, &remote_kitsune)?;
 
     for candidate in &remote_binary_candidates {
         if remote_binary_matches(ssh, candidate).unwrap_or(false) {
-            return Ok(PreparedRemoteHerdr {
-                remote_herdr: candidate.clone(),
+            return Ok(PreparedRemoteKitsune {
+                remote_kitsune: candidate.clone(),
             });
         }
     }
-    if remote_binary_matches(ssh, &remote_herdr)? {
-        return Ok(PreparedRemoteHerdr { remote_herdr });
+    if remote_binary_matches(ssh, &remote_kitsune)? {
+        return Ok(PreparedRemoteKitsune { remote_kitsune });
     }
 
     let discovered = remote_binary_candidates
@@ -466,29 +466,32 @@ fn detect_remote_platform(ssh: &RemoteSsh) -> io::Result<RemotePlatform> {
 
 fn remote_binary_candidates(
     ssh: &RemoteSsh,
-    remote_herdr: &RemoteHerdr,
-) -> io::Result<Vec<RemoteHerdr>> {
+    remote_kitsune: &RemoteKitsune,
+) -> io::Result<Vec<RemoteKitsune>> {
     let mut candidates = Vec::new();
 
-    if let Some(path_candidate) = remote_binary_on_path_any(ssh, remote_herdr)? {
+    if let Some(path_candidate) = remote_binary_on_path_any(ssh, remote_kitsune)? {
         push_if_new_remote_binary_candidate(&mut candidates, path_candidate);
     }
 
     let output = ssh.sh_output(&known_remote_binary_candidate_script(
-        &remote_herdr.platform,
+        &remote_kitsune.platform,
     ))?;
     if !output.status.success() {
         return Err(command_failed("remote binary discovery failed", &output));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    for candidate in remote_herdrs_from_path_discovery(remote_herdr, &stdout) {
+    for candidate in remote_kitsunes_from_path_discovery(remote_kitsune, &stdout) {
         push_if_new_remote_binary_candidate(&mut candidates, candidate);
     }
 
     Ok(candidates)
 }
 
-fn push_if_new_remote_binary_candidate(candidates: &mut Vec<RemoteHerdr>, candidate: RemoteHerdr) {
+fn push_if_new_remote_binary_candidate(
+    candidates: &mut Vec<RemoteKitsune>,
+    candidate: RemoteKitsune,
+) {
     if !candidates
         .iter()
         .any(|existing| existing.shell_path == candidate.shell_path)
@@ -549,12 +552,12 @@ emit "/run/current-system/sw/bin/kitsune"
 
 fn remote_binary_on_path_any(
     ssh: &RemoteSsh,
-    remote_herdr: &RemoteHerdr,
-) -> io::Result<Option<RemoteHerdr>> {
+    remote_kitsune: &RemoteKitsune,
+) -> io::Result<Option<RemoteKitsune>> {
     let output = ssh.user_shell_output("command -v kitsune")?;
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
-        if let Some(candidate) = remote_herdr_from_path_discovery(remote_herdr, &stdout) {
+        if let Some(candidate) = remote_kitsune_from_path_discovery(remote_kitsune, &stdout) {
             return Ok(Some(candidate));
         }
     }
@@ -567,26 +570,29 @@ fn remote_binary_on_path_any(
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    Ok(remote_herdr_from_path_discovery(remote_herdr, &stdout))
+    Ok(remote_kitsune_from_path_discovery(remote_kitsune, &stdout))
 }
 
-fn remote_herdrs_from_path_discovery(remote_herdr: &RemoteHerdr, stdout: &str) -> Vec<RemoteHerdr> {
+fn remote_kitsunes_from_path_discovery(
+    remote_kitsune: &RemoteKitsune,
+    stdout: &str,
+) -> Vec<RemoteKitsune> {
     stdout
         .lines()
-        .filter_map(|path| remote_herdr_from_path(remote_herdr, path))
+        .filter_map(|path| remote_kitsune_from_path(remote_kitsune, path))
         .collect()
 }
 
-fn remote_herdr_from_path_discovery(
-    remote_herdr: &RemoteHerdr,
+fn remote_kitsune_from_path_discovery(
+    remote_kitsune: &RemoteKitsune,
     stdout: &str,
-) -> Option<RemoteHerdr> {
+) -> Option<RemoteKitsune> {
     stdout
         .lines()
-        .find_map(|path| remote_herdr_from_path(remote_herdr, path))
+        .find_map(|path| remote_kitsune_from_path(remote_kitsune, path))
 }
 
-fn remote_herdr_from_path(remote_herdr: &RemoteHerdr, path: &str) -> Option<RemoteHerdr> {
+fn remote_kitsune_from_path(remote_kitsune: &RemoteKitsune, path: &str) -> Option<RemoteKitsune> {
     let path = path.trim();
     if !path.starts_with('/') {
         return None;
@@ -594,17 +600,17 @@ fn remote_herdr_from_path(remote_herdr: &RemoteHerdr, path: &str) -> Option<Remo
     if is_mise_shim_path(path) {
         return None;
     }
-    Some(remote_herdr.clone().with_shell_path(shell_quote(path)))
+    Some(remote_kitsune.clone().with_shell_path(shell_quote(path)))
 }
 
 fn is_mise_shim_path(path: &str) -> bool {
     path.ends_with("/mise/shims/kitsune")
 }
 
-fn remote_binary_matches(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result<bool> {
+fn remote_binary_matches(ssh: &RemoteSsh, remote_kitsune: &RemoteKitsune) -> io::Result<bool> {
     let command = format!(
         "test -x {0} && {0} --version && {0} status client --json",
-        remote_herdr.shell_path
+        remote_kitsune.shell_path
     );
     let output = ssh.sh_output(&command)?;
     if !output.status.success() {
@@ -641,10 +647,10 @@ enum RemoteServerRestartReason {
 
 fn ensure_remote_server_ready(
     ssh: &RemoteSsh,
-    remote_herdr: &RemoteHerdr,
+    remote_kitsune: &RemoteKitsune,
     live_handoff_enabled: bool,
 ) -> io::Result<()> {
-    let status = remote_server_status(ssh, remote_herdr)?;
+    let status = remote_server_status(ssh, remote_kitsune)?;
     let RemoteServerStatus::Running {
         version,
         protocol,
@@ -662,7 +668,7 @@ fn ensure_remote_server_ready(
     };
 
     if live_handoff_enabled && live_handoff {
-        match live_handoff_remote_server(ssh, remote_herdr) {
+        match live_handoff_remote_server(ssh, remote_kitsune) {
             Ok(()) => return Ok(()),
             Err(err) => {
                 eprintln!("remote live handoff failed: {err}");
@@ -672,7 +678,7 @@ fn ensure_remote_server_ready(
     }
 
     if confirm_remote_server_stop(ssh.target(), version.as_deref(), protocol, reason)? {
-        stop_remote_server(ssh, remote_herdr)?;
+        stop_remote_server(ssh, remote_kitsune)?;
     }
     Ok(())
 }
@@ -696,9 +702,9 @@ fn remote_server_restart_reason(
 
 fn remote_server_status(
     ssh: &RemoteSsh,
-    remote_herdr: &RemoteHerdr,
+    remote_kitsune: &RemoteKitsune,
 ) -> io::Result<RemoteServerStatus> {
-    let command = format!("{} status server --json", remote_herdr.shell_path);
+    let command = format!("{} status server --json", remote_kitsune.shell_path);
     let output = ssh.sh_output(&command)?;
     if !output.status.success() {
         return Err(command_failed("remote server status failed", &output));
@@ -825,11 +831,11 @@ fn confirm_remote_server_stop(
     Ok(false)
 }
 
-fn live_handoff_remote_server(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result<()> {
+fn live_handoff_remote_server(ssh: &RemoteSsh, remote_kitsune: &RemoteKitsune) -> io::Result<()> {
     let command = format!(
         "{} server live-handoff --import-exe {} --expected-protocol {} --expected-version {}",
-        remote_herdr.shell_path,
-        remote_herdr.shell_path,
+        remote_kitsune.shell_path,
+        remote_kitsune.shell_path,
         CURRENT_PROTOCOL,
         current_version()
     );
@@ -845,14 +851,14 @@ fn live_handoff_remote_server(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io
     Ok(())
 }
 
-fn stop_remote_server(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result<()> {
-    let command = format!("{} server stop", remote_herdr.shell_path);
+fn stop_remote_server(ssh: &RemoteSsh, remote_kitsune: &RemoteKitsune) -> io::Result<()> {
+    let command = format!("{} server stop", remote_kitsune.shell_path);
     let output = ssh.sh_output(&command)?;
     if !output.status.success() {
         return Err(command_failed("remote server stop failed", &output));
     }
 
-    wait_for_remote_server_shutdown(ssh, remote_herdr)?;
+    wait_for_remote_server_shutdown(ssh, remote_kitsune)?;
     eprintln!(
         "stopped the remote kitsune server on {}; it will restart when the remote client bridge attaches.",
         ssh.target()
@@ -860,10 +866,13 @@ fn stop_remote_server(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result
     Ok(())
 }
 
-fn wait_for_remote_server_shutdown(ssh: &RemoteSsh, remote_herdr: &RemoteHerdr) -> io::Result<()> {
+fn wait_for_remote_server_shutdown(
+    ssh: &RemoteSsh,
+    remote_kitsune: &RemoteKitsune,
+) -> io::Result<()> {
     let deadline = Instant::now() + REMOTE_SERVER_SHUTDOWN_CONFIRM_TIMEOUT;
     loop {
-        if remote_server_status(ssh, remote_herdr)? == RemoteServerStatus::NotRunning {
+        if remote_server_status(ssh, remote_kitsune)? == RemoteServerStatus::NotRunning {
             return Ok(());
         }
         if Instant::now() >= deadline {
@@ -884,8 +893,8 @@ fn version_label(version: Option<&str>) -> &str {
     version.unwrap_or("unknown")
 }
 
-fn remote_bridge_command(remote_herdr: &RemoteHerdr, session_name: &str) -> String {
-    let mut command = format!("exec {}", remote_herdr.shell_path);
+fn remote_bridge_command(remote_kitsune: &RemoteKitsune, session_name: &str) -> String {
+    let mut command = format!("exec {}", remote_kitsune.shell_path);
     if session_name != crate::session::DEFAULT_SESSION_NAME {
         command.push_str(" --session ");
         command.push_str(&shell_quote(session_name));
@@ -956,7 +965,7 @@ struct SshStdioBridge {
 impl SshStdioBridge {
     fn start(
         target: String,
-        remote_herdr: RemoteHerdr,
+        remote_kitsune: RemoteKitsune,
         local_socket: PathBuf,
         session_name: String,
         ssh_options: Option<&ManagedSshOptions>,
@@ -982,7 +991,7 @@ impl SshStdioBridge {
                         if let Err(err) = bridge_connection(
                             stream,
                             &target,
-                            &remote_herdr,
+                            &remote_kitsune,
                             &session_name,
                             thread_ssh_options.as_ref(),
                         ) {
@@ -1116,7 +1125,7 @@ fn write_managed_ssh_config() -> io::Result<ManagedSshConfig> {
 fn bridge_connection(
     stream: UnixStream,
     target: &str,
-    remote_herdr: &RemoteHerdr,
+    remote_kitsune: &RemoteKitsune,
     session_name: &str,
     ssh_options: Option<&ManagedSshOptions>,
 ) -> io::Result<()> {
@@ -1125,7 +1134,7 @@ fn bridge_connection(
     command
         .arg("-T")
         .arg(target)
-        .arg(remote_bridge_command(remote_herdr, session_name));
+        .arg(remote_bridge_command(remote_kitsune, session_name));
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1290,13 +1299,13 @@ mod tests {
             "kitsune-bridge-permissions-test-{}.sock",
             std::process::id()
         ));
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
         let bridge = SshStdioBridge::start(
             "example".to_string(),
-            remote_herdr,
+            remote_kitsune,
             socket.clone(),
             "default".to_string(),
             None,
@@ -1654,73 +1663,74 @@ mod tests {
 
     #[test]
     fn remote_bridge_command_uses_installed_binary() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(&remote_kitsune, crate::session::DEFAULT_SESSION_NAME),
             "exec \"$HOME/.local/bin/kitsune\" remote-client-bridge"
         );
     }
 
     #[test]
     fn remote_path_discovery_uses_path_binary() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_herdr = remote_herdr_from_path_discovery(&remote_herdr, "/usr/bin/kitsune\n")
-            .expect("path binary");
+        let remote_kitsune =
+            remote_kitsune_from_path_discovery(&remote_kitsune, "/usr/bin/kitsune\n")
+                .expect("path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(&remote_kitsune, crate::session::DEFAULT_SESSION_NAME),
             "exec /usr/bin/kitsune remote-client-bridge"
         );
     }
 
     #[test]
     fn remote_path_discovery_quotes_discovered_binary() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_herdr =
-            remote_herdr_from_path_discovery(&remote_herdr, "/opt/kitsune bin/kitsune\n")
+        let remote_kitsune =
+            remote_kitsune_from_path_discovery(&remote_kitsune, "/opt/kitsune bin/kitsune\n")
                 .expect("path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(&remote_kitsune, crate::session::DEFAULT_SESSION_NAME),
             "exec '/opt/kitsune bin/kitsune' remote-client-bridge"
         );
     }
 
     #[test]
     fn remote_path_discovery_uses_macos_path_binary() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "macos",
             arch: "aarch64",
         });
-        let remote_herdr =
-            remote_herdr_from_path_discovery(&remote_herdr, "/opt/homebrew/bin/kitsune\n")
+        let remote_kitsune =
+            remote_kitsune_from_path_discovery(&remote_kitsune, "/opt/homebrew/bin/kitsune\n")
                 .expect("path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(&remote_kitsune, crate::session::DEFAULT_SESSION_NAME),
             "exec /opt/homebrew/bin/kitsune remote-client-bridge"
         );
-        assert_eq!(remote_herdr.platform.os, "macos");
-        assert_eq!(remote_herdr.platform.arch, "aarch64");
+        assert_eq!(remote_kitsune.platform.os, "macos");
+        assert_eq!(remote_kitsune.platform.arch, "aarch64");
     }
 
     #[test]
     fn remote_path_discovery_reads_multiple_absolute_paths() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let candidates = remote_herdrs_from_path_discovery(
-            &remote_herdr,
+        let candidates = remote_kitsunes_from_path_discovery(
+            &remote_kitsune,
             "/usr/bin/kitsune\nbin/kitsune\n /opt/kitsune bin/kitsune\n",
         );
 
@@ -1731,12 +1741,12 @@ mod tests {
 
     #[test]
     fn remote_path_discovery_ignores_mise_shims() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let candidates = remote_herdrs_from_path_discovery(
-            &remote_herdr,
+        let candidates = remote_kitsunes_from_path_discovery(
+            &remote_kitsune,
             "/home/can/.local/share/mise/shims/kitsune\n/home/can/.local/share/mise/installs/kitsune/0.7.1/bin/kitsune\n",
         );
 
@@ -1786,40 +1796,40 @@ mod tests {
 
     #[test]
     fn remote_path_discovery_quotes_single_quotes_in_discovered_binary() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_herdr =
-            remote_herdr_from_path_discovery(&remote_herdr, "/opt/kitsune's/bin/kitsune\n")
+        let remote_kitsune =
+            remote_kitsune_from_path_discovery(&remote_kitsune, "/opt/kitsune's/bin/kitsune\n")
                 .expect("path binary");
 
         assert_eq!(
-            remote_bridge_command(&remote_herdr, crate::session::DEFAULT_SESSION_NAME),
+            remote_bridge_command(&remote_kitsune, crate::session::DEFAULT_SESSION_NAME),
             "exec '/opt/kitsune'\\''s/bin/kitsune' remote-client-bridge"
         );
     }
 
     #[test]
     fn remote_path_discovery_ignores_relative_paths() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_herdr = remote_herdr_from_path_discovery(&remote_herdr, "bin/kitsune\n");
+        let remote_kitsune = remote_kitsune_from_path_discovery(&remote_kitsune, "bin/kitsune\n");
 
-        assert!(remote_herdr.is_none());
+        assert!(remote_kitsune.is_none());
     }
 
     #[test]
     fn remote_path_discovery_ignores_empty_output() {
-        let remote_herdr = RemoteHerdr::for_platform(RemotePlatform {
+        let remote_kitsune = RemoteKitsune::for_platform(RemotePlatform {
             os: "linux",
             arch: "x86_64",
         });
-        let remote_herdr = remote_herdr_from_path_discovery(&remote_herdr, "\n");
+        let remote_kitsune = remote_kitsune_from_path_discovery(&remote_kitsune, "\n");
 
-        assert!(remote_herdr.is_none());
+        assert!(remote_kitsune.is_none());
     }
 
     #[test]

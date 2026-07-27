@@ -9145,7 +9145,7 @@ next_tab = ""
     }
 
     #[test]
-    fn notification_show_api_herdr_toast_expires_headless() {
+    fn notification_show_api_kitsune_toast_expires_headless() {
         let mut server = test_headless_server();
         server.app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
 
@@ -9186,7 +9186,7 @@ next_tab = ""
     }
 
     #[test]
-    fn notification_show_api_forwards_sound_for_herdr_delivery() {
+    fn notification_show_api_forwards_sound_for_kitsune_delivery() {
         let mut server = test_headless_server();
         let (client_tx, client_control_rx, _client_rx) = test_client_writer();
 

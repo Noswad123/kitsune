@@ -2215,7 +2215,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mouse_dispatcher_does_not_forward_motion_behind_herdr_modes() {
+    async fn mouse_dispatcher_does_not_forward_motion_behind_kitsune_modes() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
         let pane_id = ws.tabs[0].root_pane;
@@ -2246,7 +2246,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unset_right_click_passthrough_keeps_modified_right_click_as_herdr_menu() {
+    async fn unset_right_click_passthrough_keeps_modified_right_click_as_kitsune_menu() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
         let pane_id = ws.tabs[0].root_pane;

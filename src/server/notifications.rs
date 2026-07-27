@@ -101,8 +101,8 @@ mod tests {
                 .unwrap()
                 .as_nanos()
         ));
-        let stale_cwd = temp_root.join("__herdr_original__");
-        let live_cwd = temp_root.join("__herdr_projects__");
+        let stale_cwd = temp_root.join("__kitsune_original__");
+        let live_cwd = temp_root.join("__kitsune_projects__");
         std::fs::create_dir_all(&stale_cwd).unwrap();
         std::fs::create_dir_all(&live_cwd).unwrap();
         init_repo(&stale_cwd);
@@ -146,7 +146,7 @@ mod tests {
 
         assert_eq!(
             message.as_deref(),
-            Some("codex finished: __herdr_projects__ · 1")
+            Some("codex finished: __kitsune_projects__ · 1")
         );
 
         for (_, runtime) in terminal_runtimes.drain() {

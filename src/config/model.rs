@@ -1580,7 +1580,7 @@ delivery = "system"
     }
 
     #[test]
-    fn toast_config_legacy_enabled_true_maps_to_herdr() {
+    fn toast_config_legacy_enabled_true_maps_to_kitsune() {
         let toml = r#"
 [ui.toast]
 enabled = true

@@ -3463,8 +3463,8 @@ mod tests {
         let root = state.workspaces[0].tabs[0].root_pane;
 
         assert_eq!(
-            notification_context(&state.workspaces[0], "__herdr_projects__", 0, root),
-            "__herdr_projects__ · 1"
+            notification_context(&state.workspaces[0], "__kitsune_projects__", 0, root),
+            "__kitsune_projects__ · 1"
         );
     }
 
@@ -5469,7 +5469,8 @@ mod tests {
     }
 
     #[test]
-    fn active_workspace_active_tab_keeps_herdr_toast_suppressed_when_outer_terminal_is_unfocused() {
+    fn active_workspace_active_tab_keeps_kitsune_toast_suppressed_when_outer_terminal_is_unfocused()
+    {
         let mut state = app_with_workspaces(&["active"]);
         state.active = Some(0);
         state.outer_terminal_focus = Some(false);

@@ -808,7 +808,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn nested_herdr_blocks_when_env_is_set() {
+    fn nested_kitsune_blocks_when_env_is_set() {
         let config = config::Config::default();
         assert!(should_block_nested_for_env(
             &config,
@@ -817,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_herdr_does_not_block_when_allowed() {
+    fn nested_kitsune_does_not_block_when_allowed() {
         let config: config::Config =
             toml::from_str("[experimental]\nallow_nested = true\n").unwrap();
         assert!(!should_block_nested_for_env(
@@ -827,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_herdr_does_not_block_without_env() {
+    fn nested_kitsune_does_not_block_without_env() {
         let config = config::Config::default();
         assert!(!should_block_nested_for_env(&config, None));
     }
@@ -839,7 +839,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_message_strings_no_longer_repeat_herdr_prefix() {
+    fn nested_message_strings_no_longer_repeat_kitsune_prefix() {
         assert!(NESTED_KITSUNE_MESSAGES
             .iter()
             .all(|message| !message.starts_with("kitsune:")));
