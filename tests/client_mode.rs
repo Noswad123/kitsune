@@ -337,14 +337,9 @@ fn client_sees_headless_startup_config_diagnostic() {
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
 
-    let app_dir = if cfg!(debug_assertions) {
-        "kitsune-dev"
-    } else {
-        "kitsune"
-    };
-    fs::create_dir_all(config_home.join(app_dir)).unwrap();
+    fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::write(
-        config_home.join(app_dir).join("config.toml"),
+        config_home.join("kitsune/config.toml"),
         "[keys\nprefix = \"ctrl+a\"\n",
     )
     .unwrap();
@@ -457,7 +452,7 @@ fn server_unreachable_shows_clear_error() {
         "stderr should mention connection failure: {stderr}"
     );
     assert!(
-        stderr.contains("Is Kitsune server running?"),
+        stderr.contains("Is kitsune server running?"),
         "stderr should include actionable guidance: {stderr}"
     );
     assert!(

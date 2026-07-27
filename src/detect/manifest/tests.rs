@@ -39,39 +39,55 @@ id = "codex"
     )
 }
 
+struct ManifestDirsGuard {
+    _reload_guard: std::sync::MutexGuard<'static, ()>,
+    manifest_dirs: Option<crate::detect::manifest_update::TestManifestDirsGuard>,
+    base: std::path::PathBuf,
+}
+
+impl ManifestDirsGuard {
+    fn new(name: &str) -> Self {
+        let reload_guard = MANIFEST_RELOAD_LOCK
+            .get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let base = std::env::temp_dir().join(format!(
+            "kitsune-manifest-loader-{name}-{}",
+            std::process::id()
+        ));
+        let config_dir = base.join("config");
+        let state_dir = base.join("state");
+        let _ = std::fs::remove_dir_all(&base);
+        let manifest_dirs =
+            crate::detect::manifest_update::set_test_manifest_dirs(config_dir, state_dir);
+        reload_manifests_unlocked();
+
+        Self {
+            _reload_guard: reload_guard,
+            manifest_dirs: Some(manifest_dirs),
+            base,
+        }
+    }
+}
+
+impl Drop for ManifestDirsGuard {
+    fn drop(&mut self) {
+        drop(self.manifest_dirs.take());
+        reload_manifests_unlocked();
+        let _ = std::fs::remove_dir_all(&self.base);
+    }
+}
+
 fn with_manifest_dirs<T>(name: &str, f: impl FnOnce() -> T) -> T {
-    let _guard = crate::config::test_config_env_lock().lock().unwrap();
-    let old_config = std::env::var_os("XDG_CONFIG_HOME");
-    let old_state = std::env::var_os("XDG_STATE_HOME");
-    let base = std::env::temp_dir().join(format!(
-        "kitsune-manifest-loader-{name}-{}",
-        std::process::id()
-    ));
-    let config_dir = base.join("config");
-    let state_dir = base.join("state");
-    let _ = std::fs::remove_dir_all(&base);
-    std::env::set_var("XDG_CONFIG_HOME", &config_dir);
-    std::env::set_var("XDG_STATE_HOME", &state_dir);
-    reload_manifests();
-    let result = f();
-    match old_config {
-        Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
-        None => std::env::remove_var("XDG_CONFIG_HOME"),
-    }
-    match old_state {
-        Some(value) => std::env::set_var("XDG_STATE_HOME", value),
-        None => std::env::remove_var("XDG_STATE_HOME"),
-    }
-    reload_manifests();
-    let _ = std::fs::remove_dir_all(&base);
-    result
+    let _guard = ManifestDirsGuard::new(name);
+    f()
 }
 
 fn write_remote_codex(content: &str) {
     let path = crate::detect::manifest_update::remote_manifest_path(Agent::Codex);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, content).unwrap();
-    reload_manifests();
+    reload_manifests_unlocked();
 }
 
 fn write_remote_codex_without_reload(content: &str) {
@@ -84,7 +100,7 @@ fn write_local_codex(content: &str) {
     let path = override_path(Agent::Codex).unwrap();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(path, content).unwrap();
-    reload_manifests();
+    reload_manifests_unlocked();
 }
 
 #[test]
@@ -274,7 +290,7 @@ fn detection_uses_cached_manifest_until_explicit_reload() {
             Some("9999.01.01.1")
         );
 
-        reload_manifests();
+        reload_manifests_unlocked();
 
         let reloaded = explain(Agent::Codex, "new-ready");
         assert_eq!(reloaded.state, AgentState::Working);

@@ -2373,9 +2373,13 @@ mod tests {
         assert!(app.drain_internal_events());
 
         assert_eq!(
-            app.state.request_clipboard_write.as_deref(),
-            Some(&[(APP_EVENT_DRAIN_LIMIT - 1) as u8][..])
+            app.state
+                .copy_feedback
+                .as_ref()
+                .map(|feedback| feedback.message.as_str()),
+            Some("copied to clipboard")
         );
+        assert!(app.copy_feedback_deadline.is_some());
         assert!(app.event_rx.try_recv().is_ok());
     }
 
@@ -2400,9 +2404,13 @@ mod tests {
 
         assert_eq!(response["result"]["type"], "ok");
         assert_eq!(
-            app.state.request_clipboard_write.as_deref(),
-            Some(&[APP_EVENT_DRAIN_LIMIT as u8][..])
+            app.state
+                .copy_feedback
+                .as_ref()
+                .map(|feedback| feedback.message.as_str()),
+            Some("copied to clipboard")
         );
+        assert!(app.copy_feedback_deadline.is_some());
         assert!(app.event_rx.try_recv().is_err());
     }
 

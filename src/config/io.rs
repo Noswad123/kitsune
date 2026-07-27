@@ -946,7 +946,7 @@ manifest_check = "yes"
         .unwrap();
 
         assert_eq!(loaded.invalid_sections, vec!["agent_detection"]);
-        assert_eq!(loaded.config.agent_detection.manifest_check, false);
+        assert!(!loaded.config.agent_detection.manifest_check);
         assert_eq!(loaded.diagnostics.len(), 1);
         assert!(loaded.diagnostics[0].contains("invalid agent detection config"));
     }

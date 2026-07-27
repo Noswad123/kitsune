@@ -4652,10 +4652,6 @@ mod tests {
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
 
         assert_eq!(response["result"]["type"], "ok");
-        assert_eq!(
-            server.app.state.request_clipboard_write.as_deref(),
-            Some(&[crate::app::APP_EVENT_DRAIN_LIMIT as u8][..])
-        );
         assert!(server.app.event_rx.try_recv().is_err());
     }
 

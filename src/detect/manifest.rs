@@ -273,6 +273,10 @@ pub(crate) fn reload_manifests() -> Vec<AgentManifestSummary> {
         .get_or_init(|| Mutex::new(()))
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    reload_manifests_unlocked()
+}
+
+fn reload_manifests_unlocked() -> Vec<AgentManifestSummary> {
     let cache = build_manifest_cache();
     let summaries = manifest_summaries_from_cache(&cache);
     let lock = MANIFEST_CACHE.get_or_init(|| RwLock::new(cache.clone()));
@@ -1095,6 +1099,14 @@ fn validate_region_name(spec: &str) -> Result<(), String> {
 }
 
 fn override_path(agent: Agent) -> Option<PathBuf> {
+    #[cfg(test)]
+    if let Some(dir) = super::manifest_update::test_manifest_config_dir() {
+        return Some(
+            dir.join("agent-detection")
+                .join(format!("{}.toml", agent_label(agent))),
+        );
+    }
+
     Some(
         crate::config::config_dir()
             .join("agent-detection")

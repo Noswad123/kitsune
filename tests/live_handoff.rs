@@ -279,6 +279,23 @@ fn assert_ok(response: serde_json::Value) {
     );
 }
 
+fn workspace_pane_count(socket_path: &Path) -> usize {
+    let response = request(
+        socket_path,
+        serde_json::json!({"id":"test:workspace-list","method":"workspace.list","params":{}}),
+    );
+    assert_ok(response.clone());
+    response["result"]["workspaces"]
+        .as_array()
+        .map(|workspaces| {
+            workspaces
+                .iter()
+                .map(|workspace| workspace["pane_count"].as_u64().unwrap_or(0) as usize)
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
 fn wait_for_api(socket_path: &Path, timeout: Duration) {
     let deadline = Instant::now() + timeout;
     let mut last_error = String::new();
@@ -390,6 +407,21 @@ fn wait_for_server_ptmx_fd_count(pid: u32, expected: usize, timeout: Duration) {
             return;
         }
         thread::sleep(Duration::from_millis(25));
+    }
+    #[cfg(target_os = "macos")]
+    if let Ok(output) = std::process::Command::new("lsof")
+        .args(["-nP", "-p", &pid.to_string()])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let ptmx_lines = stdout
+            .lines()
+            .filter(|line| line.contains("/dev/ptmx"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        panic!(
+            "server pid {pid} had {last_count} /dev/ptmx fds; expected {expected}; lsof ptmx lines:\n{ptmx_lines}"
+        );
     }
     panic!("server pid {pid} had {last_count} /dev/ptmx fds; expected {expected}");
 }
@@ -503,7 +535,11 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
         .as_str()
         .unwrap()
         .to_string();
-    wait_for_server_ptmx_fd_count(server_pid, 1, Duration::from_secs(5));
+    wait_for_server_ptmx_fd_count(
+        server_pid,
+        workspace_pane_count(&api_socket),
+        Duration::from_secs(5),
+    );
 
     let second = request(
         &api_socket,
@@ -522,7 +558,11 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
         .as_str()
         .unwrap()
         .to_string();
-    wait_for_server_ptmx_fd_count(server_pid, 2, Duration::from_secs(5));
+    wait_for_server_ptmx_fd_count(
+        server_pid,
+        workspace_pane_count(&api_socket),
+        Duration::from_secs(5),
+    );
 
     assert_ok(request(
         &api_socket,
@@ -536,7 +576,11 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
             }
         }),
     ));
-    wait_for_server_ptmx_fd_count(server_pid, 3, Duration::from_secs(5));
+    wait_for_server_ptmx_fd_count(
+        server_pid,
+        workspace_pane_count(&api_socket),
+        Duration::from_secs(5),
+    );
 
     assert_ok(request(
         &api_socket,
@@ -545,7 +589,11 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
     let replacement_pid =
         wait_for_replacement_server_pid(&runtime_dir, server_pid, Duration::from_secs(10));
     wait_for_api(&api_socket, Duration::from_secs(10));
-    wait_for_server_ptmx_fd_count(replacement_pid, 3, Duration::from_secs(5));
+    wait_for_server_ptmx_fd_count(
+        replacement_pid,
+        workspace_pane_count(&api_socket),
+        Duration::from_secs(5),
+    );
 
     let _ = request(
         &api_socket,
@@ -1129,7 +1177,7 @@ fn live_handoff_keeps_unmanaged_agent_name_bound_to_saved_session() {
     fs::write(
         &fake_pi,
         format!(
-            "#!/bin/sh\nexport KITSUNE_AGENT=pi\necho started > {}\nexec /bin/sleep 30\n",
+            "#!/bin/sh\nexport KITSUNE_AGENT=pi\necho started > {}\n/bin/sleep 30\n",
             started_marker.display()
         ),
     )

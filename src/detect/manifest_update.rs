@@ -16,6 +16,56 @@ pub(crate) const MANIFEST_ENGINE_VERSION: u32 = 3;
 const CATALOG_URL_ENV: &str = "KITSUNE_AGENT_DETECTION_MANIFEST_CATALOG_URL";
 const MAX_FETCH_BYTES: usize = 256 * 1024;
 
+#[cfg(test)]
+thread_local! {
+    static TEST_MANIFEST_DIRS: std::cell::RefCell<Option<TestManifestDirs>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+#[derive(Clone)]
+struct TestManifestDirs {
+    config_dir: PathBuf,
+    state_dir: PathBuf,
+}
+
+#[cfg(test)]
+pub(crate) struct TestManifestDirsGuard {
+    old: Option<TestManifestDirs>,
+}
+
+#[cfg(test)]
+impl Drop for TestManifestDirsGuard {
+    fn drop(&mut self) {
+        TEST_MANIFEST_DIRS.with(|dirs| {
+            *dirs.borrow_mut() = self.old.clone();
+        });
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn set_test_manifest_dirs(
+    config_dir: PathBuf,
+    state_dir: PathBuf,
+) -> TestManifestDirsGuard {
+    TEST_MANIFEST_DIRS.with(|dirs| {
+        let old = dirs.replace(Some(TestManifestDirs {
+            config_dir,
+            state_dir,
+        }));
+        TestManifestDirsGuard { old }
+    })
+}
+
+#[cfg(test)]
+pub(crate) fn test_manifest_config_dir() -> Option<PathBuf> {
+    TEST_MANIFEST_DIRS.with(|dirs| dirs.borrow().as_ref().map(|dirs| dirs.config_dir.clone()))
+}
+
+#[cfg(test)]
+fn test_manifest_state_dir() -> Option<PathBuf> {
+    TEST_MANIFEST_DIRS.with(|dirs| dirs.borrow().as_ref().map(|dirs| dirs.state_dir.clone()))
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ManifestVersion(String);
 
@@ -468,6 +518,11 @@ fn directory_sync_unsupported(err: &std::io::Error) -> bool {
 }
 
 fn state_root() -> PathBuf {
+    #[cfg(test)]
+    if let Some(dir) = test_manifest_state_dir() {
+        return dir.join("agent-detection");
+    }
+
     crate::config::state_dir().join("agent-detection")
 }
 
@@ -576,9 +631,9 @@ contains = ["{contains}"]
     }
 
     fn with_state_dir<T>(name: &str, f: impl FnOnce() -> T) -> T {
-        let _guard = crate::config::test_config_env_lock().lock().unwrap();
-        let old_config = std::env::var_os("XDG_CONFIG_HOME");
-        let old_state = std::env::var_os("XDG_STATE_HOME");
+        let _guard = crate::config::test_config_env_lock()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let dir = std::env::temp_dir().join(format!(
             "kitsune-manifest-update-{name}-{}",
             std::process::id()
@@ -586,18 +641,10 @@ contains = ["{contains}"]
         let config_dir = dir.join("config");
         let state_dir = dir.join("state");
         let _ = fs::remove_dir_all(&dir);
-        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
-        std::env::set_var("XDG_STATE_HOME", &state_dir);
+        let manifest_dirs = set_test_manifest_dirs(config_dir, state_dir);
         crate::detect::manifest::reload_manifests();
         let result = f();
-        match old_config {
-            Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
-        }
-        match old_state {
-            Some(value) => std::env::set_var("XDG_STATE_HOME", value),
-            None => std::env::remove_var("XDG_STATE_HOME"),
-        }
+        drop(manifest_dirs);
         crate::detect::manifest::reload_manifests();
         let _ = fs::remove_dir_all(&dir);
         result

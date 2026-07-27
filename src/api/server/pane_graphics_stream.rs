@@ -982,6 +982,18 @@ mod tests {
         let ack: SuccessResponse = serde_json::from_str(&read_response_line(&mut client)).unwrap();
         assert_eq!(ack.id, "stream-cancel");
 
+        let registered_deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < registered_deadline {
+            if stream_registry().lock().unwrap().contains_key(&owner) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(
+            stream_registry().lock().unwrap().contains_key(&owner),
+            "stream owner should be registered before cancellation"
+        );
+
         cancel_inactive_streams(|registered| registered != owner);
 
         let (close_tx, close_rx) = std::sync::mpsc::channel();

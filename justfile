@@ -1,5 +1,54 @@
 # kitsune task runner
 
+app_name := "kitsune"
+
+# Format code in place
+fmt:
+    cargo fmt
+
+# Run cargo's test-target type checks, matching the old makefile `check`
+check-tests:
+    cargo check --tests
+
+# Build a signed debug binary for local development, matching the old makefile `build`
+dev-build:
+    @echo "🔨 Building {{app_name}}..."
+    cargo build --bin {{app_name}}
+    scripts/sign_dev_binary.sh target/debug/{{app_name}}
+
+# Run the debug binary with inherited Kitsune socket/runtime env cleared
+run: dev-build
+    env -u KITSUNE_SOCKET_PATH -u KITSUNE_CLIENT_SOCKET_PATH -u KITSUNE_ENV \
+        ./target/debug/{{app_name}}
+
+# Install the signed debug binary to INSTALL_DIR, defaulting to ~/.local/bin
+install: dev-build
+    @install_dir="${INSTALL_DIR:-$HOME/.local/bin}"; \
+    echo "📦 Installing to $install_dir"; \
+    mkdir -p "$install_dir"; \
+    cp target/debug/{{app_name}} "$install_dir/{{app_name}}"; \
+    scripts/sign_dev_binary.sh "$install_dir/{{app_name}}"; \
+    echo "✅ Installed. Run with: {{app_name}}"
+
+# Run the focused bin test loop from the old makefile `test`
+test-bin:
+    cargo fmt --check
+    cargo check --tests
+    cargo test --bin {{app_name}} -- --test-threads=1
+
+# Start a dev live handoff. Optional env: BIN=/path/to/kitsune HANDOFF_ARGS='--dry-run'
+handoff:
+    @set -eu; \
+    if [ -n "${BIN:-}" ]; then \
+        set -- --bin "$BIN"; \
+    else \
+        set --; \
+    fi; \
+    if [ -n "${HANDOFF_ARGS:-}" ]; then \
+        set -- "$@" $HANDOFF_ARGS; \
+    fi; \
+    scripts/live_handoff_dev.sh "$@"
+
 # Run tests
 test:
     cargo nextest run --locked --status-level fail --final-status-level fail --failure-output final --success-output never

@@ -24,7 +24,7 @@ Examples:
   scripts/live_handoff_dev.sh
   scripts/live_handoff_dev.sh kitsune
   scripts/live_handoff_dev.sh --release --bin kitsune
-  make handoff
+  just handoff
 
 Notes:
   - The script invokes target/<profile>/kitsune directly, not an installed CLI.

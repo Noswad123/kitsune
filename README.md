@@ -22,10 +22,10 @@ cargo build --bin kitsune
 ./target/debug/kitsune
 ```
 
-The local helper makefile can install the debug binary as `~/.local/bin/kitsune`:
+The local helper justfile can install the debug binary as `~/.local/bin/kitsune`:
 
 ```bash
-make install
+just install
 ```
 
 ## Session recall
