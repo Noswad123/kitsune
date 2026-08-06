@@ -1289,6 +1289,7 @@ impl TerminalState {
                     Some("startup" | "new" | "resume")
                 )
                 | ("kitsune:opencode", "opencode", Some("new"))
+                | ("kitsune:buddy", "buddy", Some("new"))
                 | ("kitsune:pi", "pi", Some("new" | "resume" | "fork"))
                 | (
                     "kitsune:omp",
@@ -1632,11 +1633,27 @@ impl TerminalState {
         source: &str,
         agent_label: &str,
         seq: Option<u64>,
+        session_ref: Option<&crate::agent_resume::AgentSessionRef>,
     ) -> Option<TerminalStateMutation> {
         if self.hook_authority.as_ref().is_some_and(|authority| {
             authority.agent_label != agent_label || authority.source != source
         }) {
             return None;
+        }
+
+        if let Some(session_ref) = session_ref {
+            let matches_current_session =
+                self.current_session_identity_for_persistence().is_some_and(
+                    |(current_source, current_agent, current_kind, current_value)| {
+                        current_source == source
+                            && current_agent == agent_label
+                            && current_kind == session_ref.kind
+                            && current_value == session_ref.value
+                    },
+                );
+            if !matches_current_session {
+                return None;
+            }
         }
 
         let matches_current_agent = self.effective_agent_label() == Some(agent_label);
@@ -1688,7 +1705,7 @@ impl TerminalState {
                 now,
             ),
             session_ref_changed: previous_session != current_session,
-            agent_released: !process_owns_agent,
+            agent_released: !process_owns_agent && matches_current_agent,
         })
     }
 
@@ -4051,7 +4068,7 @@ mod tests {
         );
 
         assert!(terminal
-            .release_agent_with_mutation("custom:pi", "pi", Some(200))
+            .release_agent_with_mutation("custom:pi", "pi", Some(200), None)
             .is_none());
         assert!(terminal
             .clear_hook_authority_with_mutation(Some("custom:pi"), Some(201))
@@ -5000,7 +5017,7 @@ mod tests {
 
         terminal.set_agent_name("replacement".into());
         let mutation = terminal
-            .release_agent_with_mutation("kitsune:codex", "codex", None)
+            .release_agent_with_mutation("kitsune:codex", "codex", None, None)
             .expect("detected agent release should be accepted");
         assert!(!mutation.agent_released);
         assert_eq!(terminal.agent_name.as_deref(), Some("replacement"));
@@ -5022,7 +5039,7 @@ mod tests {
             .expect("custom state should be accepted");
 
         let mutation = terminal
-            .release_agent_with_mutation("custom:pi", "pi", Some(11))
+            .release_agent_with_mutation("custom:pi", "pi", Some(11), None)
             .expect("custom release should be accepted");
 
         assert!(!mutation.agent_released);
@@ -5143,12 +5160,73 @@ mod tests {
         });
 
         let mutation = terminal
-            .release_agent_with_mutation("kitsune:hermes", "hermes", Some(21))
+            .release_agent_with_mutation("kitsune:hermes", "hermes", Some(21), None)
             .expect("accepted release");
 
         assert!(mutation.session_ref_changed);
         assert!(mutation.effective_state_change.is_none());
         assert!(terminal.persisted_agent_session.is_none());
+    }
+
+    #[test]
+    fn session_scoped_release_ignores_stale_session_ref() {
+        let mut terminal = test_terminal();
+        let current_session = crate::agent_resume::AgentSessionRef::id("current-session").unwrap();
+        let stale_session = crate::agent_resume::AgentSessionRef::id("stale-session").unwrap();
+        terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+            source: "kitsune:buddy".into(),
+            agent: "buddy".into(),
+            session_ref: current_session.clone(),
+        });
+
+        let mutation = terminal.release_agent_with_mutation(
+            "kitsune:buddy",
+            "buddy",
+            Some(21),
+            Some(&stale_session),
+        );
+
+        assert!(mutation.is_none());
+        assert_eq!(
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .map(|session| &session.session_ref),
+            Some(&current_session)
+        );
+    }
+
+    #[test]
+    fn session_scoped_release_clears_matching_full_lifecycle_hook_session() {
+        let mut terminal = test_terminal();
+        let session_ref = crate::agent_resume::AgentSessionRef::id("buddy-session").unwrap();
+        terminal.set_detected_state(Some(Agent::Buddy), AgentState::Working);
+        terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+            source: "kitsune:buddy".into(),
+            agent: "buddy".into(),
+            session_ref: session_ref.clone(),
+        });
+        terminal
+            .set_hook_authority_with_session_ref(
+                "kitsune:buddy".into(),
+                "buddy".into(),
+                AgentState::Working,
+                None,
+                Some(session_ref.clone()),
+                Some(20),
+            )
+            .expect("matching foreground buddy hook should be accepted");
+
+        let mutation = terminal
+            .release_agent_with_mutation("kitsune:buddy", "buddy", Some(21), Some(&session_ref))
+            .expect("matching session release should be accepted");
+
+        assert!(mutation.session_ref_changed);
+        assert!(!mutation.agent_released);
+        assert!(terminal.hook_authority.is_none());
+        assert!(terminal.persisted_agent_session.is_none());
+        assert_eq!(terminal.detected_agent, Some(Agent::Buddy));
+        assert_eq!(terminal.effective_agent_label(), Some("buddy"));
     }
 
     #[test]
@@ -5162,7 +5240,7 @@ mod tests {
         terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
 
         let mutation = terminal
-            .release_agent_with_mutation("kitsune:pi", "pi", Some(21))
+            .release_agent_with_mutation("kitsune:pi", "pi", Some(21), None)
             .expect("visible agent release should be accepted");
 
         assert!(!mutation.session_ref_changed);

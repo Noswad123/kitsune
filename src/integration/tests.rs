@@ -107,7 +107,7 @@ fn command_available_requires_executable_file_on_path() {
 fn integration_target_labels_match_supported_targets() {
     use crate::api::schema::IntegrationTarget;
 
-    assert_eq!(IntegrationTarget::ALL.len(), 6);
+    assert_eq!(IntegrationTarget::ALL.len(), 7);
     assert_eq!(integration_target_label(IntegrationTarget::Pi), "pi");
     assert_eq!(
         integration_target_label(IntegrationTarget::Claude),
@@ -122,6 +122,7 @@ fn integration_target_labels_match_supported_targets() {
         integration_target_label(IntegrationTarget::Opencode),
         "opencode"
     );
+    assert_eq!(integration_target_label(IntegrationTarget::Buddy), "buddy");
     assert_eq!(integration_target_label(IntegrationTarget::Djinn), "djinn");
 }
 
@@ -291,6 +292,39 @@ fn uninstall_opencode_removes_plugin() {
     fs::write(&plugin_path, OPENCODE_PLUGIN_ASSET).unwrap();
 
     let result = uninstall_opencode().unwrap();
+
+    assert!(result.removed_plugin);
+    assert_eq!(result.plugin_path, plugin_path);
+    assert!(!result.plugin_path.exists());
+}
+
+#[test]
+fn install_buddy_writes_distinct_plugin_to_opencode_config() {
+    let (_lock, home) = setup_home();
+    let opencode_dir = home.join(".config/opencode");
+    fs::create_dir_all(&opencode_dir).unwrap();
+
+    let installed = install_buddy().unwrap();
+
+    assert_eq!(
+        installed.plugin_path,
+        opencode_dir.join("plugins").join(BUDDY_PLUGIN_INSTALL_NAME)
+    );
+    assert_eq!(
+        fs::read_to_string(&installed.plugin_path).unwrap(),
+        BUDDY_PLUGIN_ASSET
+    );
+}
+
+#[test]
+fn uninstall_buddy_removes_distinct_plugin() {
+    let (_lock, home) = setup_home();
+    let opencode_dir = home.join(".config/opencode/plugins");
+    fs::create_dir_all(&opencode_dir).unwrap();
+    let plugin_path = opencode_dir.join(BUDDY_PLUGIN_INSTALL_NAME);
+    fs::write(&plugin_path, BUDDY_PLUGIN_ASSET).unwrap();
+
+    let result = uninstall_buddy().unwrap();
 
     assert!(result.removed_plugin);
     assert_eq!(result.plugin_path, plugin_path);

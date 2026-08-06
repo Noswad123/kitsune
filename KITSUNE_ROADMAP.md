@@ -49,6 +49,13 @@ No concrete pruning candidates are currently identified. Remove or reshape
 inherited Herdr behavior only when a specific surface no longer fits Kitsune's
 product direction.
 
+### Worktree UX nice-to-haves
+
+The TUI worktree create flow derives a checkout path from the branch/name input.
+The CLI and API already allow an explicit checkout path. A future TUI polish could
+make that derived path visible and editable before creation, but this is not
+urgent while the sibling default remains predictable.
+
 ### As-needed internal naming cleanup
 
 Keep internal Herdr module/type names where they help upstream comparison.

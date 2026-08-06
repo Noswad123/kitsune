@@ -10,18 +10,18 @@ use super::config_edit::{
     ensure_hooks_object, hooks_object_if_present, remove_direct_hook_commands,
     remove_hook_commands,
 };
-use super::env::{claude_dir, codex_dir, copilot_dir, opencode_dir, pi_extension_dir};
+use super::env::{buddy_dir, claude_dir, codex_dir, copilot_dir, opencode_dir, pi_extension_dir};
 use super::file_ops::{make_executable, remove_file_if_exists, remove_legacy_bash_hook_file};
 use super::types::{
-    ClaudeInstallPaths, ClaudeUninstallResult, CodexInstallPaths, CodexUninstallResult,
-    CopilotInstallPaths, CopilotUninstallResult, OpenCodeInstallPaths, OpenCodeUninstallResult,
-    PiUninstallResult,
+    BuddyInstallPaths, BuddyUninstallResult, ClaudeInstallPaths, ClaudeUninstallResult,
+    CodexInstallPaths, CodexUninstallResult, CopilotInstallPaths, CopilotUninstallResult,
+    OpenCodeInstallPaths, OpenCodeUninstallResult, PiUninstallResult,
 };
 use super::{
-    CLAUDE_HOOK_ASSET, CLAUDE_HOOK_INSTALL_NAME, CODEX_HOOK_ASSET, CODEX_HOOK_INSTALL_NAME,
-    COPILOT_HOOK_ASSET, COPILOT_HOOK_EVENTS, COPILOT_HOOK_INSTALL_NAME,
-    COPILOT_REMOVED_LIFECYCLE_HOOK_EVENTS, OPENCODE_PLUGIN_ASSET, OPENCODE_PLUGIN_INSTALL_NAME,
-    PI_EXTENSION_ASSET, PI_EXTENSION_INSTALL_NAME,
+    BUDDY_PLUGIN_ASSET, BUDDY_PLUGIN_INSTALL_NAME, CLAUDE_HOOK_ASSET, CLAUDE_HOOK_INSTALL_NAME,
+    CODEX_HOOK_ASSET, CODEX_HOOK_INSTALL_NAME, COPILOT_HOOK_ASSET, COPILOT_HOOK_EVENTS,
+    COPILOT_HOOK_INSTALL_NAME, COPILOT_REMOVED_LIFECYCLE_HOOK_EVENTS, OPENCODE_PLUGIN_ASSET,
+    OPENCODE_PLUGIN_INSTALL_NAME, PI_EXTENSION_ASSET, PI_EXTENSION_INSTALL_NAME,
 };
 
 fn ensure_extension_dir(dir: &Path, agent: &str) -> io::Result<()> {
@@ -242,6 +242,24 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
     Ok(OpenCodeInstallPaths { plugin_path })
 }
 
+pub(crate) fn install_buddy() -> io::Result<BuddyInstallPaths> {
+    let dir = buddy_dir()?;
+    if !dir.is_dir() {
+        return Err(io::Error::other(format!(
+            "buddy config directory not found at {}. install buddy first",
+            dir.display()
+        )));
+    }
+
+    let plugins_dir = dir.join("plugins");
+    fs::create_dir_all(&plugins_dir)?;
+
+    let plugin_path = plugins_dir.join(BUDDY_PLUGIN_INSTALL_NAME);
+    fs::write(&plugin_path, BUDDY_PLUGIN_ASSET)?;
+
+    Ok(BuddyInstallPaths { plugin_path })
+}
+
 pub(crate) fn uninstall_pi() -> io::Result<PiUninstallResult> {
     let extension_path = pi_extension_dir()?.join(PI_EXTENSION_INSTALL_NAME);
     let removed_extension = remove_file_if_exists(&extension_path)?;
@@ -409,6 +427,16 @@ pub(crate) fn uninstall_opencode() -> io::Result<OpenCodeUninstallResult> {
     let removed_plugin = remove_file_if_exists(&plugin_path)?;
 
     Ok(OpenCodeUninstallResult {
+        plugin_path,
+        removed_plugin,
+    })
+}
+
+pub(crate) fn uninstall_buddy() -> io::Result<BuddyUninstallResult> {
+    let plugin_path = buddy_dir()?.join("plugins").join(BUDDY_PLUGIN_INSTALL_NAME);
+    let removed_plugin = remove_file_if_exists(&plugin_path)?;
+
+    Ok(BuddyUninstallResult {
         plugin_path,
         removed_plugin,
     })

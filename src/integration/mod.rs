@@ -72,6 +72,9 @@ const COPILOT_REMOVED_LIFECYCLE_HOOK_EVENTS: [&str; 9] = [
 const OPENCODE_PLUGIN_INSTALL_NAME: &str = "kitsune-agent-state.js";
 const OPENCODE_PLUGIN_ASSET: &str = include_str!("assets/opencode/kitsune-agent-state.js");
 const OPENCODE_INTEGRATION_VERSION: u32 = 9;
+const BUDDY_PLUGIN_INSTALL_NAME: &str = "kitsune-agent-state-buddy.js";
+const BUDDY_PLUGIN_ASSET: &str = include_str!("assets/buddy/kitsune-agent-state.js");
+const BUDDY_INTEGRATION_VERSION: u32 = 1;
 const INTEGRATION_VERSION_MARKER: &str = "KITSUNE_INTEGRATION_VERSION=";
 
 pub(crate) const INSTALL_WARNING_PREFIX: &str = "warning:";

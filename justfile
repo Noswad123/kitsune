@@ -93,6 +93,7 @@ build:
 integration-assets-test:
     bun test src/integration/assets/kitsune-agent-state.test.ts
     bun test src/integration/assets/opencode/kitsune-agent-state.test.ts
+    bun test src/integration/assets/buddy/kitsune-agent-state.test.ts
 
 # Build the vendored libghostty-vt source dist
 build-libghostty-vt:

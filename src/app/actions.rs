@@ -2927,18 +2927,19 @@ impl AppState {
                 source,
                 agent_label,
                 seq,
+                session_ref,
                 ..
-            } => {
-                if crate::agent_resume::is_official_agent_source(&source, &agent_label) {
-                    Vec::new()
-                } else {
-                    self.update_terminal_state(pane_id, |terminal| {
-                        terminal.release_agent_with_mutation(&source, &agent_label, seq)
-                    })
-                    .into_iter()
-                    .collect()
-                }
-            }
+            } => self
+                .update_terminal_state(pane_id, |terminal| {
+                    terminal.release_agent_with_mutation(
+                        &source,
+                        &agent_label,
+                        seq,
+                        session_ref.as_ref(),
+                    )
+                })
+                .into_iter()
+                .collect(),
             // Both intercepted before this dispatch — in App::handle_internal_event (monolithic)
             // or via HeadlessServer forwarding to the foreground client (server); never touch
             // AppState. Kept for AppEvent exhaustiveness.
@@ -5223,6 +5224,7 @@ mod tests {
             agent_label: "pi".into(),
             known_agent: Some(Agent::Pi),
             seq: Some(2),
+            session_ref: None,
         });
 
         assert!(updates.is_empty());
@@ -5230,8 +5232,89 @@ mod tests {
         assert_eq!(terminal.state, AgentState::Working);
         assert_eq!(terminal.detected_agent, Some(Agent::Pi));
         assert_eq!(terminal.agent_name.as_deref(), Some("reviewer"));
-        assert!(terminal.full_lifecycle_hook_authority_active());
+        assert!(terminal.hook_authority.is_none());
         assert!(!state.session_dirty);
+    }
+
+    #[test]
+    fn official_session_scoped_release_ignores_stale_restored_session() {
+        let mut state = app_with_workspaces(&["active"]);
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+        let terminal_id = state.workspaces[0]
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        let current_session = crate::agent_resume::AgentSessionRef::id("current-session").unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+                source: "kitsune:buddy".into(),
+                agent: "buddy".into(),
+                session_ref: current_session.clone(),
+            });
+        state.session_dirty = false;
+
+        let updates = state.handle_app_event(AppEvent::HookAgentReleased {
+            pane_id,
+            source: "kitsune:buddy".into(),
+            agent_label: "buddy".into(),
+            known_agent: Some(Agent::Buddy),
+            seq: Some(30),
+            session_ref: crate::agent_resume::AgentSessionRef::id("stale-session"),
+        });
+
+        assert!(updates.is_empty());
+        let terminal = &state.terminals[&terminal_id];
+        assert_eq!(
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .map(|session| &session.session_ref),
+            Some(&current_session)
+        );
+        assert!(!state.session_dirty);
+    }
+
+    #[test]
+    fn official_session_scoped_release_clears_matching_restored_session() {
+        let mut state = app_with_workspaces(&["active"]);
+        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
+        let terminal_id = state.workspaces[0]
+            .panes
+            .get(&pane_id)
+            .unwrap()
+            .attached_terminal_id
+            .clone();
+        let session_ref = crate::agent_resume::AgentSessionRef::id("buddy-session").unwrap();
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+                source: "kitsune:buddy".into(),
+                agent: "buddy".into(),
+                session_ref: session_ref.clone(),
+            });
+        state.session_dirty = false;
+
+        let updates = state.handle_app_event(AppEvent::HookAgentReleased {
+            pane_id,
+            source: "kitsune:buddy".into(),
+            agent_label: "buddy".into(),
+            known_agent: Some(Agent::Buddy),
+            seq: Some(30),
+            session_ref: Some(session_ref),
+        });
+
+        assert!(updates.is_empty());
+        assert!(state.terminals[&terminal_id]
+            .persisted_agent_session
+            .is_none());
+        assert!(state.session_dirty);
     }
 
     #[test]
@@ -5331,6 +5414,7 @@ mod tests {
             agent_label: "custom-agent".into(),
             known_agent: None,
             seq: Some(2),
+            session_ref: None,
         });
 
         let terminal = &state.terminals[&terminal_id];

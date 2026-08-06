@@ -1315,6 +1315,8 @@ fn pane_release_agent(args: &[String]) -> std::io::Result<i32> {
         source,
         agent,
         seq,
+        agent_session_id: None,
+        agent_session_path: None,
     }))
 }
 

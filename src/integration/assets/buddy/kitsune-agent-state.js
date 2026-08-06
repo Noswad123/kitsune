@@ -1,19 +1,17 @@
 // installed by kitsune
 // managed by kitsune; reinstalling or updating the integration overwrites this file.
 // add custom hooks/plugins beside this file instead of editing it.
-// KITSUNE_INTEGRATION_ID=opencode
-// KITSUNE_INTEGRATION_VERSION=9
+// KITSUNE_INTEGRATION_ID=buddy
+// KITSUNE_INTEGRATION_VERSION=1
 
 import net from "node:net";
 
-const SOURCE = "kitsune:opencode";
-const AGENT = "opencode";
+const SOURCE = "kitsune:buddy";
+const AGENT = "buddy";
 let reportSeq = Date.now() * 1000;
 let requestChain = Promise.resolve();
 let reportedRootSessionID;
 
-// Track child sessions so their events cannot replace the pane's root session.
-// Their user prompts still project state without attaching the child session id.
 const childSessions = new Set();
 const CHILD_EVENT_STATES = new Map([
   ["permission.asked", "blocked"],
@@ -67,7 +65,7 @@ function requestOnce(method, params) {
   }
 
   const socketEndpoint =
-    process.platform === "win32" ? `\\\\.\\pipe\\${socketPath}` : socketPath;
+    process.platform === "win32" ? `\\.\pipe\${socketPath}` : socketPath;
 
   const requestId = `${SOURCE}:${Date.now()}:${Math.floor(Math.random() * 1_000_000)
     .toString()
@@ -172,9 +170,6 @@ export const KitsuneAgentStatePlugin = async () => {
 
       switch (type) {
         case "session.created":
-          // A root session.created is a genuine new-session start (subagent
-          // creates are dropped above). Signal it so kitsune replaces the pane's
-          // prior session id instead of treating the change as cross-talk.
           await reportSession(sessionID, "new");
           break;
         case "session.updated":

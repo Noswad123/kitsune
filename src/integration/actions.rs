@@ -2,8 +2,9 @@ use std::io;
 
 use super::registry::{integration_target_label, integration_target_supported};
 use super::targets::{
-    install_claude, install_codex, install_copilot, install_opencode, install_pi, uninstall_claude,
-    uninstall_codex, uninstall_copilot, uninstall_opencode, uninstall_pi,
+    install_buddy, install_claude, install_codex, install_copilot, install_opencode, install_pi,
+    uninstall_buddy, uninstall_claude, uninstall_codex, uninstall_copilot, uninstall_opencode,
+    uninstall_pi,
 };
 use super::version::{agent_version_requirement, enforce_agent_version};
 
@@ -78,6 +79,13 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
             let installed = install_opencode()?;
             vec![format!(
                 "installed opencode integration plugin to {}",
+                installed.plugin_path.display()
+            )]
+        }
+        crate::api::schema::IntegrationTarget::Buddy => {
+            let installed = install_buddy()?;
+            vec![format!(
+                "installed buddy integration plugin to {}",
                 installed.plugin_path.display()
             )]
         }
@@ -206,6 +214,20 @@ pub(crate) fn uninstall_target(
             } else {
                 vec![format!(
                     "no opencode integration plugin found at {}",
+                    result.plugin_path.display()
+                )]
+            }
+        }
+        crate::api::schema::IntegrationTarget::Buddy => {
+            let result = uninstall_buddy()?;
+            if result.removed_plugin {
+                vec![format!(
+                    "removed buddy integration plugin at {}",
+                    result.plugin_path.display()
+                )]
+            } else {
+                vec![format!(
+                    "no buddy integration plugin found at {}",
                     result.plugin_path.display()
                 )]
             }

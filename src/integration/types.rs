@@ -24,6 +24,11 @@ pub(crate) struct OpenCodeInstallPaths {
     pub plugin_path: PathBuf,
 }
 
+#[derive(Debug)]
+pub(crate) struct BuddyInstallPaths {
+    pub plugin_path: PathBuf,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IntegrationStatus {
     pub target: crate::api::schema::IntegrationTarget,
@@ -74,6 +79,12 @@ pub(crate) struct PiUninstallResult {
 
 #[derive(Debug)]
 pub(crate) struct OpenCodeUninstallResult {
+    pub plugin_path: PathBuf,
+    pub removed_plugin: bool,
+}
+
+#[derive(Debug)]
+pub(crate) struct BuddyUninstallResult {
     pub plugin_path: PathBuf,
     pub removed_plugin: bool,
 }

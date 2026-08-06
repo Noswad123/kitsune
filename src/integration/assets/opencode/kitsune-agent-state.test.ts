@@ -165,6 +165,45 @@ test("reports child prompts without replacing the root session", async () => {
   ]);
 });
 
+test("releases the root session when opencode deletes it", async () => {
+  const plugin = await loadPlugin();
+
+  await plugin.event({
+    event: {
+      type: "session.status",
+      properties: { sessionID: "root-session", status: { type: "busy" } },
+    },
+  });
+  await plugin.event({
+    event: { type: "session.deleted", properties: { sessionID: "root-session" } },
+  });
+
+  expect(requests.map(requestMethod)).toEqual([
+    "pane.report_agent",
+    "pane.release_agent",
+  ]);
+  expect(requests.map(requestSessionID)).toEqual(["root-session", "root-session"]);
+});
+
+test("does not release root authority for child session deletes", async () => {
+  const plugin = await loadPlugin();
+
+  await plugin.event({
+    event: {
+      type: "session.created",
+      properties: {
+        sessionID: "child-session",
+        info: { id: "child-session", parentID: "root-session" },
+      },
+    },
+  });
+  await plugin.event({
+    event: { type: "session.deleted", properties: { sessionID: "child-session" } },
+  });
+
+  expect(requests).toEqual([]);
+});
+
 function requestMethod(request: unknown): unknown {
   return isRecord(request) ? request.method : undefined;
 }

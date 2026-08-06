@@ -18,16 +18,18 @@ pub enum IntegrationTarget {
     Codex,
     Copilot,
     Opencode,
+    Buddy,
     Djinn,
 }
 
 impl IntegrationTarget {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::Pi,
         Self::Claude,
         Self::Codex,
         Self::Copilot,
         Self::Opencode,
+        Self::Buddy,
         Self::Djinn,
     ];
 }
