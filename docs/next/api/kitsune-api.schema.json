@@ -2077,7 +2077,6 @@
             "codex",
             "copilot",
             "opencode",
-            "buddy",
             "djinn"
           ],
           "type": "string"
@@ -6284,7 +6283,6 @@
             "codex",
             "copilot",
             "opencode",
-            "buddy",
             "djinn"
           ],
           "type": "string"

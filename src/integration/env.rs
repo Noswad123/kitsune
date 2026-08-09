@@ -82,12 +82,6 @@ pub(crate) fn opencode_dir() -> io::Result<PathBuf> {
     Ok(home_dir()?.join(".config/opencode"))
 }
 
-pub(crate) fn buddy_dir() -> io::Result<PathBuf> {
-    // Buddy currently reuses opencode's config/plugin directory while keeping
-    // its Kitsune integration identity distinct.
-    opencode_dir()
-}
-
 pub(crate) fn home_dir() -> io::Result<PathBuf> {
     if let Some(home) = std::env::var_os("HOME").filter(|value| !value.is_empty()) {
         return Ok(PathBuf::from(home));

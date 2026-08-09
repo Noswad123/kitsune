@@ -1289,7 +1289,6 @@ impl TerminalState {
                     Some("startup" | "new" | "resume")
                 )
                 | ("kitsune:opencode", "opencode", Some("new"))
-                | ("kitsune:buddy", "buddy", Some("new"))
                 | ("kitsune:pi", "pi", Some("new" | "resume" | "fork"))
                 | (
                     "kitsune:omp",
@@ -5174,14 +5173,14 @@ mod tests {
         let current_session = crate::agent_resume::AgentSessionRef::id("current-session").unwrap();
         let stale_session = crate::agent_resume::AgentSessionRef::id("stale-session").unwrap();
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "kitsune:buddy".into(),
-            agent: "buddy".into(),
+            source: "kitsune:djinn".into(),
+            agent: "djinn".into(),
             session_ref: current_session.clone(),
         });
 
         let mutation = terminal.release_agent_with_mutation(
-            "kitsune:buddy",
-            "buddy",
+            "kitsune:djinn",
+            "djinn",
             Some(21),
             Some(&stale_session),
         );
@@ -5199,34 +5198,34 @@ mod tests {
     #[test]
     fn session_scoped_release_clears_matching_full_lifecycle_hook_session() {
         let mut terminal = test_terminal();
-        let session_ref = crate::agent_resume::AgentSessionRef::id("buddy-session").unwrap();
-        terminal.set_detected_state(Some(Agent::Buddy), AgentState::Working);
+        let session_ref = crate::agent_resume::AgentSessionRef::id("djinn-session").unwrap();
+        terminal.set_detected_state(Some(Agent::Djinn), AgentState::Working);
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "kitsune:buddy".into(),
-            agent: "buddy".into(),
+            source: "kitsune:djinn".into(),
+            agent: "djinn".into(),
             session_ref: session_ref.clone(),
         });
         terminal
             .set_hook_authority_with_session_ref(
-                "kitsune:buddy".into(),
-                "buddy".into(),
+                "kitsune:djinn".into(),
+                "djinn".into(),
                 AgentState::Working,
                 None,
                 Some(session_ref.clone()),
                 Some(20),
             )
-            .expect("matching foreground buddy hook should be accepted");
+            .expect("matching foreground djinn hook should be accepted");
 
         let mutation = terminal
-            .release_agent_with_mutation("kitsune:buddy", "buddy", Some(21), Some(&session_ref))
+            .release_agent_with_mutation("kitsune:djinn", "djinn", Some(21), Some(&session_ref))
             .expect("matching session release should be accepted");
 
         assert!(mutation.session_ref_changed);
         assert!(!mutation.agent_released);
         assert!(terminal.hook_authority.is_none());
         assert!(terminal.persisted_agent_session.is_none());
-        assert_eq!(terminal.detected_agent, Some(Agent::Buddy));
-        assert_eq!(terminal.effective_agent_label(), Some("buddy"));
+        assert_eq!(terminal.detected_agent, Some(Agent::Djinn));
+        assert_eq!(terminal.effective_agent_label(), Some("djinn"));
     }
 
     #[test]

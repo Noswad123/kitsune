@@ -130,7 +130,6 @@ impl AgentSoundOverrides {
             Some(Agent::Omp) => AgentSoundSetting::Default,
             Some(Agent::Mastracode) => AgentSoundSetting::Default,
             Some(Agent::OpenCode) => self.open_code,
-            Some(Agent::Buddy) => self.open_code,
             Some(Agent::GithubCopilot) => self.github_copilot,
             Some(Agent::Kimi) => self.kimi,
             Some(Agent::Kiro) => self.kiro,

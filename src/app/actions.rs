@@ -5252,17 +5252,17 @@ mod tests {
             .get_mut(&terminal_id)
             .unwrap()
             .set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-                source: "kitsune:buddy".into(),
-                agent: "buddy".into(),
+                source: "kitsune:djinn".into(),
+                agent: "djinn".into(),
                 session_ref: current_session.clone(),
             });
         state.session_dirty = false;
 
         let updates = state.handle_app_event(AppEvent::HookAgentReleased {
             pane_id,
-            source: "kitsune:buddy".into(),
-            agent_label: "buddy".into(),
-            known_agent: Some(Agent::Buddy),
+            source: "kitsune:djinn".into(),
+            agent_label: "djinn".into(),
+            known_agent: Some(Agent::Djinn),
             seq: Some(30),
             session_ref: crate::agent_resume::AgentSessionRef::id("stale-session"),
         });
@@ -5289,23 +5289,23 @@ mod tests {
             .unwrap()
             .attached_terminal_id
             .clone();
-        let session_ref = crate::agent_resume::AgentSessionRef::id("buddy-session").unwrap();
+        let session_ref = crate::agent_resume::AgentSessionRef::id("djinn-session").unwrap();
         state
             .terminals
             .get_mut(&terminal_id)
             .unwrap()
             .set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-                source: "kitsune:buddy".into(),
-                agent: "buddy".into(),
+                source: "kitsune:djinn".into(),
+                agent: "djinn".into(),
                 session_ref: session_ref.clone(),
             });
         state.session_dirty = false;
 
         let updates = state.handle_app_event(AppEvent::HookAgentReleased {
             pane_id,
-            source: "kitsune:buddy".into(),
-            agent_label: "buddy".into(),
-            known_agent: Some(Agent::Buddy),
+            source: "kitsune:djinn".into(),
+            agent_label: "djinn".into(),
+            known_agent: Some(Agent::Djinn),
             seq: Some(30),
             session_ref: Some(session_ref),
         });

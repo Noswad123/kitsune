@@ -604,7 +604,6 @@ rows = [[{ token = "git_status", fg = "#ff00aa" }], [{ token = "$jj", bold = tru
             Agent::Omp,
             Agent::Mastracode,
             Agent::OpenCode,
-            Agent::Buddy,
             Agent::GithubCopilot,
             Agent::Kimi,
             Agent::Kiro,

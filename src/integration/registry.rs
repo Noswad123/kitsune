@@ -13,7 +13,6 @@ pub(crate) fn integration_target_label(
         crate::api::schema::IntegrationTarget::Codex => "codex",
         crate::api::schema::IntegrationTarget::Copilot => "copilot",
         crate::api::schema::IntegrationTarget::Opencode => "opencode",
-        crate::api::schema::IntegrationTarget::Buddy => "buddy",
         crate::api::schema::IntegrationTarget::Djinn => "djinn",
     }
 }
@@ -33,7 +32,6 @@ pub(crate) fn integration_target_command_names(
         crate::api::schema::IntegrationTarget::Codex => &["codex"],
         crate::api::schema::IntegrationTarget::Copilot => &["copilot"],
         crate::api::schema::IntegrationTarget::Opencode => &["opencode"],
-        crate::api::schema::IntegrationTarget::Buddy => &["buddy"],
         crate::api::schema::IntegrationTarget::Djinn => &["djinn"],
     }
 }
@@ -48,7 +46,6 @@ pub(crate) fn integration_target_supported(target: crate::api::schema::Integrati
                 | crate::api::schema::IntegrationTarget::Codex
                 | crate::api::schema::IntegrationTarget::Copilot
                 | crate::api::schema::IntegrationTarget::Opencode
-                | crate::api::schema::IntegrationTarget::Buddy
                 | crate::api::schema::IntegrationTarget::Djinn
         )
     }
@@ -201,7 +198,7 @@ fn integration_specs() -> [(
     crate::api::schema::IntegrationTarget,
     io::Result<PathBuf>,
     u32,
-); 6] {
+); 5] {
     [
         (
             crate::api::schema::IntegrationTarget::Pi,
@@ -230,11 +227,6 @@ fn integration_specs() -> [(
                     .join(super::OPENCODE_PLUGIN_INSTALL_NAME)
             }),
             super::OPENCODE_INTEGRATION_VERSION,
-        ),
-        (
-            crate::api::schema::IntegrationTarget::Buddy,
-            buddy_dir().map(|dir| dir.join("plugins").join(super::BUDDY_PLUGIN_INSTALL_NAME)),
-            super::BUDDY_INTEGRATION_VERSION,
         ),
     ]
 }

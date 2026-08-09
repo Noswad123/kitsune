@@ -179,13 +179,6 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
                 session_ref.value.clone(),
             ]
         }
-        ("kitsune:buddy", "buddy", AgentSessionRefKind::Id) => {
-            vec![
-                "buddy".into(),
-                "--session".into(),
-                session_ref.value.clone(),
-            ]
-        }
         ("kitsune:qodercli", "qodercli", AgentSessionRefKind::Id) => {
             vec![
                 "qodercli".into(),
@@ -238,7 +231,6 @@ pub(crate) fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("kitsune:pi", "pi")
             | ("kitsune:hermes", "hermes")
             | ("kitsune:opencode", "opencode")
-            | ("kitsune:buddy", "buddy")
             | ("kitsune:qodercli", "qodercli")
             | ("kitsune:kilo", "kilo")
             | ("kitsune:cursor", "cursor")
@@ -408,16 +400,6 @@ mod tests {
         );
         assert_eq!(
             plan(
-                "kitsune:buddy",
-                "buddy",
-                &AgentSessionRef::id("buddy-session").unwrap()
-            )
-            .unwrap()
-            .argv,
-            vec!["buddy", "--session", "buddy-session"]
-        );
-        assert_eq!(
-            plan(
                 "kitsune:qodercli",
                 "qodercli",
                 &AgentSessionRef::id("qoder-session").unwrap()
@@ -475,12 +457,12 @@ mod tests {
         .is_none());
         assert!(plan(
             "kitsune:opencode",
-            "buddy",
+            "djinn",
             &AgentSessionRef::id("session").unwrap()
         )
         .is_none());
         assert!(plan(
-            "kitsune:buddy",
+            "kitsune:djinn",
             "opencode",
             &AgentSessionRef::id("session").unwrap()
         )

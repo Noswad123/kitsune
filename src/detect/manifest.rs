@@ -253,7 +253,6 @@ const BUNDLED_MANIFESTS: &[(&str, &str)] = &[
     ("kiro", include_str!("manifests/kiro.toml")),
     ("maki", include_str!("manifests/maki.toml")),
     ("opencode", include_str!("manifests/opencode.toml")),
-    ("buddy", include_str!("manifests/buddy.toml")),
     ("pi", include_str!("manifests/pi.toml")),
     ("qodercli", include_str!("manifests/qodercli.toml")),
     ("copilot", include_str!("manifests/github-copilot.toml")),

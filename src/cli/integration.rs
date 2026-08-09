@@ -108,7 +108,7 @@ fn parse_integration_target(
         eprintln!(
             "{}",
             crate::product::usage(&format!(
-                "integration {action} <pi|claude|codex|copilot|opencode|buddy|djinn>"
+                "integration {action} <pi|claude|codex|copilot|opencode|djinn>"
             ))
         );
         return Ok(None);
@@ -117,7 +117,7 @@ fn parse_integration_target(
         eprintln!(
             "{}",
             crate::product::usage(&format!(
-                "integration {action} <pi|claude|codex|copilot|opencode|buddy|djinn>"
+                "integration {action} <pi|claude|codex|copilot|opencode|djinn>"
             ))
         );
         return Ok(None);
@@ -129,11 +129,10 @@ fn parse_integration_target(
         "codex" => IntegrationTarget::Codex,
         "copilot" => IntegrationTarget::Copilot,
         "opencode" => IntegrationTarget::Opencode,
-        "buddy" => IntegrationTarget::Buddy,
         "djinn" => IntegrationTarget::Djinn,
         _ => {
             eprintln!("unknown integration target: {target}");
-            eprintln!("currently supported: pi, claude, codex, copilot, opencode, buddy, djinn");
+            eprintln!("currently supported: pi, claude, codex, copilot, opencode, djinn");
             return Ok(None);
         }
     };
@@ -143,17 +142,13 @@ fn parse_integration_target(
 
 fn print_integration_help() {
     eprintln!("{} integration commands:", crate::product::cli_name());
-    for target in [
-        "pi", "claude", "codex", "copilot", "opencode", "buddy", "djinn",
-    ] {
+    for target in ["pi", "claude", "codex", "copilot", "opencode", "djinn"] {
         eprintln!(
             "  {}",
             crate::product::command(&format!("integration install {target}"))
         );
     }
-    for target in [
-        "pi", "claude", "codex", "copilot", "opencode", "buddy", "djinn",
-    ] {
+    for target in ["pi", "claude", "codex", "copilot", "opencode", "djinn"] {
         eprintln!(
             "  {}",
             crate::product::command(&format!("integration uninstall {target}"))

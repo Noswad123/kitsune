@@ -52,7 +52,6 @@ pub enum Agent {
     Omp,
     Mastracode,
     OpenCode,
-    Buddy,
     GithubCopilot,
     Kimi,
     Kiro,
@@ -67,7 +66,7 @@ pub enum Agent {
 }
 
 impl Agent {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 22] = [
         Self::Pi,
         Self::Claude,
         Self::Codex,
@@ -79,7 +78,6 @@ impl Agent {
         Self::Omp,
         Self::Mastracode,
         Self::OpenCode,
-        Self::Buddy,
         Self::GithubCopilot,
         Self::Kimi,
         Self::Kiro,
@@ -93,7 +91,7 @@ impl Agent {
         Self::Djinn,
     ];
 
-    pub const SCREEN_MANIFEST_AGENTS: [Self; 20] = [
+    pub const SCREEN_MANIFEST_AGENTS: [Self; 19] = [
         Self::Pi,
         Self::Claude,
         Self::Codex,
@@ -103,7 +101,6 @@ impl Agent {
         Self::Antigravity,
         Self::Cline,
         Self::OpenCode,
-        Self::Buddy,
         Self::GithubCopilot,
         Self::Kimi,
         Self::Kiro,
@@ -130,7 +127,6 @@ pub fn agent_label(agent: Agent) -> &'static str {
         Agent::Omp => "omp",
         Agent::Mastracode => "mastracode",
         Agent::OpenCode => "opencode",
-        Agent::Buddy => "buddy",
         Agent::GithubCopilot => "copilot",
         Agent::Kimi => "kimi",
         Agent::Kiro => "kiro",
@@ -158,7 +154,6 @@ pub fn interactive_agent_executable(agent: Agent) -> &'static str {
         Agent::Omp => "omp",
         Agent::Mastracode => "mastracode",
         Agent::OpenCode => "opencode",
-        Agent::Buddy => "buddy",
         Agent::GithubCopilot => "copilot",
         Agent::Kimi => "kimi",
         Agent::Kiro => "kiro-cli",
@@ -196,7 +191,6 @@ fn lookup_agent(name: &str) -> Option<Agent> {
         "omp" => Some(Agent::Omp),
         "mastracode" | "mastra-code" | "mastra code" => Some(Agent::Mastracode),
         "opencode" | "open-code" => Some(Agent::OpenCode),
-        "buddy" => Some(Agent::Buddy),
         "copilot" | "github-copilot" | "ghcs" => Some(Agent::GithubCopilot),
         "kimi" | "kimi-code" | "kimi code" => Some(Agent::Kimi),
         "kiro" | "kiro-cli" => Some(Agent::Kiro),
@@ -298,7 +292,6 @@ pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> 
             | ("kitsune:omp", "omp")
             | ("kitsune:mastracode", "mastracode")
             | ("kitsune:opencode", "opencode")
-            | ("kitsune:buddy", "buddy")
             | ("kitsune:kilo", "kilo")
             | ("kitsune:kimi", "kimi")
             | ("kitsune:djinn", "djinn")
@@ -685,8 +678,6 @@ mod tests {
         assert_eq!(identify_agent("mastra-code"), Some(Agent::Mastracode));
         assert_eq!(identify_agent("opencode"), Some(Agent::OpenCode));
         assert_eq!(identify_agent("opencode.exe"), Some(Agent::OpenCode));
-        assert_eq!(identify_agent("buddy"), Some(Agent::Buddy));
-        assert_eq!(identify_agent("buddy.exe"), Some(Agent::Buddy));
         assert_eq!(identify_agent("kimi"), Some(Agent::Kimi));
         assert_eq!(identify_agent("Kimi Code"), Some(Agent::Kimi));
         assert_eq!(identify_agent("kiro"), Some(Agent::Kiro));
@@ -715,7 +706,6 @@ mod tests {
         assert_eq!(parse_agent_label("mastracode"), Some(Agent::Mastracode));
         assert_eq!(parse_agent_label("mastra code"), Some(Agent::Mastracode));
         assert_eq!(parse_agent_label("opencode.exe"), Some(Agent::OpenCode));
-        assert_eq!(parse_agent_label("buddy.exe"), Some(Agent::Buddy));
         assert_eq!(parse_agent_label("copilot"), Some(Agent::GithubCopilot));
         assert_eq!(parse_agent_label("kimi-code"), Some(Agent::Kimi));
         assert_eq!(
@@ -754,7 +744,6 @@ mod tests {
             (Agent::Omp, "omp"),
             (Agent::Mastracode, "mastracode"),
             (Agent::OpenCode, "opencode"),
-            (Agent::Buddy, "buddy"),
             (Agent::GithubCopilot, "copilot"),
             (Agent::Kimi, "kimi"),
             (Agent::Kiro, "kiro-cli"),
@@ -779,7 +768,7 @@ mod tests {
         assert_eq!(parse_canonical_agent_label("Pi"), None);
         assert_eq!(parse_canonical_agent_label(" pi "), None);
         assert_eq!(parse_canonical_agent_label("opencode.exe"), None);
-        assert_eq!(parse_canonical_agent_label("buddy.exe"), None);
+        assert_eq!(parse_canonical_agent_label("djinn.exe"), None);
     }
 
     #[test]
