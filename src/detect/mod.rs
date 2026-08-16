@@ -201,7 +201,7 @@ fn lookup_agent(name: &str) -> Option<Agent> {
         "kilo" | "kilo-code" | "kilo code" => Some(Agent::Kilo),
         "qodercli" | "qoderclicn" | "qoder" | "qodercn" => Some(Agent::Qodercli),
         "maki" => Some(Agent::Maki),
-        "djinn" => Some(Agent::Djinn),
+        "djinn" | "djinn-ui" => Some(Agent::Djinn),
         _ => None,
     }
 }
@@ -810,6 +810,7 @@ mod tests {
         assert_eq!(identify_agent("CLAUDE"), Some(Agent::Claude));
         assert_eq!(identify_agent("Codex"), Some(Agent::Codex));
         assert_eq!(identify_agent("Devin"), Some(Agent::Devin));
+        assert_eq!(identify_agent("djinn-ui"), Some(Agent::Djinn));
     }
 
     #[test]

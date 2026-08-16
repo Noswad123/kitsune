@@ -1295,6 +1295,7 @@ impl TerminalState {
                     "omp",
                     Some("startup" | "new" | "resume" | "fork")
                 )
+                | ("kitsune:djinn", "djinn", Some("new"))
         )
     }
 
@@ -4489,6 +4490,40 @@ mod tests {
                 .as_ref()
                 .map(|session| session.session_ref.value.as_str()),
             Some("opencode-new")
+        );
+    }
+
+    #[test]
+    fn djinn_new_session_ref_replaces_existing_session_ref() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Djinn), AgentState::Idle);
+        terminal
+            .set_agent_session_ref_for_session_start(
+                "kitsune:djinn".into(),
+                "djinn".into(),
+                crate::agent_resume::AgentSessionRef::id("djinn-old"),
+                Some(20),
+                Some("new".into()),
+            )
+            .expect("initial session should be accepted");
+
+        let mutation = terminal
+            .set_agent_session_ref_for_session_start(
+                "kitsune:djinn".into(),
+                "djinn".into(),
+                crate::agent_resume::AgentSessionRef::id("djinn-new"),
+                Some(21),
+                Some("new".into()),
+            )
+            .expect("new should replace the session");
+
+        assert!(mutation.session_ref_changed);
+        assert_eq!(
+            terminal
+                .persisted_agent_session
+                .as_ref()
+                .map(|session| session.session_ref.value.as_str()),
+            Some("djinn-new")
         );
     }
 
