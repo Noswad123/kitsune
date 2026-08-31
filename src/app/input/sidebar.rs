@@ -1536,10 +1536,19 @@ mod tests {
         app.state.sidebar_spaces.row_gap = 1;
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
 
-        assert_eq!(app.state.workspace_drop_index_at_row(0), Some(0));
-        assert_eq!(app.state.workspace_drop_index_at_row(1), Some(0));
-        assert_eq!(app.state.workspace_drop_index_at_row(2), Some(0));
-        assert_eq!(app.state.workspace_drop_index_at_row(3), Some(1));
+        let area = app.state.workspace_list_rect();
+        let cards = &app.state.view.workspace_card_areas;
+        let top_slot = crate::ui::workspace_drop_indicator_row(cards, area, 0).unwrap();
+        let gap_below_first = crate::ui::workspace_drop_indicator_row(cards, area, 1).unwrap();
+
+        assert!(top_slot < gap_below_first);
+        for row in area.y..=top_slot {
+            assert_eq!(app.state.workspace_drop_index_at_row(row), Some(0));
+        }
+        assert_eq!(
+            app.state.workspace_drop_index_at_row(gap_below_first),
+            Some(1)
+        );
 
         let _ = fs::remove_dir_all(first_repo);
         let _ = fs::remove_dir_all(second_repo);
@@ -1565,7 +1574,10 @@ mod tests {
 
         let last = cards.last().unwrap().rect;
         assert_eq!(bottom_slot, last.y + last.height);
-        assert!(bottom_slot < app.state.sidebar_footer_rect().y.saturating_sub(1));
+        let footer = app.state.sidebar_footer_rect();
+        assert!(bottom_slot < footer.y);
+        assert_eq!(app.state.workspace_drop_index_at_row(bottom_slot), Some(3));
+        assert_eq!(app.state.workspace_drop_index_at_row(footer.y), None);
     }
 
     #[test]

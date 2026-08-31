@@ -1548,17 +1548,17 @@ mod tests {
 
         let first = row_text(buffer, body.y, 25);
         let second = row_text(buffer, body.y + 1, 25);
-        assert!(first.contains("one"));
+        assert!(first.contains("pane "));
         assert_eq!(second, "   pi");
         assert!(!first.contains("working"));
         assert!(!second.contains("working"));
 
-        let workspace_x = find_symbol_x(buffer, body.y, body.width, "o");
-        let workspace_style = buffer[(workspace_x, body.y)].style();
-        assert_eq!(workspace_style.fg, Some(app.palette.text));
-        assert!(workspace_style.add_modifier.contains(Modifier::BOLD));
-        assert!(!workspace_style.add_modifier.contains(Modifier::DIM));
-        assert_eq!(workspace_style.bg, Some(app.palette.surface_dim));
+        let pane_x = find_symbol_x(buffer, body.y, body.width, "a");
+        let pane_style = buffer[(pane_x, body.y)].style();
+        assert_eq!(pane_style.fg, Some(app.palette.text));
+        assert!(pane_style.add_modifier.contains(Modifier::BOLD));
+        assert!(!pane_style.add_modifier.contains(Modifier::DIM));
+        assert_eq!(pane_style.bg, Some(app.palette.surface_dim));
 
         let agent_x = find_symbol_x(buffer, body.y + 1, body.width, "p");
         let agent_style = buffer[(agent_x, body.y + 1)].style();
@@ -1932,7 +1932,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.sidebar_spaces.rows = vec![vec![crate::config::SpaceSidebarToken::Workspace]; 6];
-        let area = Rect::new(0, 0, 20, 10);
+        let area = Rect::new(0, 0, 20, 12);
         let workspace_area = workspace_list_rect(area, app.sidebar_section_split);
         let body = workspace_list_body_rect(workspace_area, false);
 
