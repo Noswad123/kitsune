@@ -1807,12 +1807,16 @@ impl AppState {
             return;
         };
 
+        let workspace_slot_label = self
+            .sidebar_collapsed
+            .then(|| ws.display_name_from_terminals(&self.terminals));
         let layout = crate::ui::compute_tab_bar_view(
             ws,
             area,
             self.tab_scroll,
             self.tab_scroll_follow_active,
             self.mouse_capture,
+            workspace_slot_label.as_deref(),
         );
         self.tab_scroll = layout.scroll;
         self.view.tab_hit_areas = layout.tab_hit_areas;

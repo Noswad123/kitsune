@@ -11,13 +11,29 @@ use ratatui::{
 use super::release_notes::release_notes_close_button_rect;
 use super::scrollbar::{release_notes_scrollbar_rect, render_scrollbar};
 use super::widgets::{
-    modal_stack_areas, panel_contrast_fg, render_action_button, render_modal_header,
-    render_modal_shell,
+    centered_popup_rect, modal_stack_areas, panel_contrast_fg, render_action_button,
+    render_modal_header, render_panel_shell,
 };
 use crate::app::AppState;
 
+const KEYBIND_HELP_MODAL_WIDTH: u16 = 76;
+const KEYBIND_HELP_MIN_MODAL_HEIGHT: u16 = 22;
+
 pub(super) type HelpEntry = (String, Cow<'static, str>);
 pub(super) type HelpGroup = (&'static str, Vec<HelpEntry>);
+
+pub(crate) fn keybind_help_popup_height(area: Rect) -> u16 {
+    let seventy_percent = (u32::from(area.height) * 70).div_ceil(100) as u16;
+    seventy_percent.max(KEYBIND_HELP_MIN_MODAL_HEIGHT)
+}
+
+pub(crate) fn keybind_help_popup_rect(area: Rect) -> Option<Rect> {
+    centered_popup_rect(
+        area,
+        KEYBIND_HELP_MODAL_WIDTH,
+        keybind_help_popup_height(area),
+    )
+}
 
 fn help_entry(key: impl Into<String>, label: &'static str) -> HelpEntry {
     (key.into(), Cow::Borrowed(label))
@@ -57,6 +73,16 @@ fn indexed_range_prefix(bindings: &[crate::config::IndexedKeybind]) -> Option<&s
         }
     }
     Some(prefix)
+}
+
+fn custom_command_label(binding: &crate::config::CustomCommandKeybind) -> Cow<'static, str> {
+    binding
+        .description
+        .as_ref()
+        .map(|description| description.trim())
+        .filter(|description| !description.is_empty())
+        .map(|description| Cow::Owned(description.to_string()))
+        .unwrap_or_else(|| Cow::Owned(binding.command.clone()))
 }
 
 pub(super) fn keybind_help_groups(app: &AppState) -> Vec<HelpGroup> {
@@ -166,16 +192,7 @@ pub(super) fn keybind_help_groups(app: &AppState) -> Vec<HelpGroup> {
             "custom",
             kb.custom_commands
                 .iter()
-                .map(|binding| {
-                    (
-                        binding.label.clone(),
-                        binding
-                            .description
-                            .clone()
-                            .map(Cow::Owned)
-                            .unwrap_or(Cow::Borrowed("custom command")),
-                    )
-                })
+                .map(|binding| (binding.label.clone(), custom_command_label(binding)))
                 .collect(),
         ));
     }
@@ -184,23 +201,53 @@ pub(super) fn keybind_help_groups(app: &AppState) -> Vec<HelpGroup> {
 }
 
 fn filter_keybind_help_groups(groups: Vec<HelpGroup>, query: &str) -> Vec<HelpGroup> {
-    if query.is_empty() {
+    if normalized_fuzzy_query(query).is_empty() {
         return groups;
     }
 
-    let query = query.to_lowercase();
     groups
         .into_iter()
         .filter_map(|(group, entries)| {
             let entries = entries
                 .into_iter()
-                .filter(|(key, label)| {
-                    key.to_lowercase().contains(&query) || label.to_lowercase().contains(&query)
-                })
+                .filter(|(key, label)| keybind_help_entry_matches_query(key, label.as_ref(), query))
                 .collect::<Vec<_>>();
             (!entries.is_empty()).then_some((group, entries))
         })
         .collect()
+}
+
+fn keybind_help_entry_matches_query(key: &str, label: &str, query: &str) -> bool {
+    fuzzy_subsequence_match(key, query)
+        || fuzzy_subsequence_match(label, query)
+        || fuzzy_subsequence_match(&format!("{key} {label}"), query)
+}
+
+fn normalized_fuzzy_query(query: &str) -> Vec<char> {
+    query
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn fuzzy_subsequence_match(candidate: &str, query: &str) -> bool {
+    let query = normalized_fuzzy_query(query);
+    if query.is_empty() {
+        return true;
+    }
+
+    let mut query_index = 0;
+    for candidate_char in candidate.chars().flat_map(char::to_lowercase) {
+        if query[query_index] != candidate_char {
+            continue;
+        }
+        query_index += 1;
+        if query_index == query.len() {
+            return true;
+        }
+    }
+    false
 }
 
 pub(crate) fn keybind_help_lines(app: &AppState) -> Vec<(usize, Line<'static>)> {
@@ -257,7 +304,11 @@ pub(crate) fn keybind_help_lines(app: &AppState) -> Vec<(usize, Line<'static>)> 
 pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
     super::dim_background(frame, frame.area());
 
-    let Some(inner) = render_modal_shell(frame, frame.area(), 76, 22, &app.palette) else {
+    let Some(popup) = keybind_help_popup_rect(frame.area()) else {
+        return;
+    };
+    let Some(inner) = render_panel_shell(frame, popup, app.palette.accent, app.palette.panel_bg)
+    else {
         return;
     };
     if inner.height < 6 || inner.width < 20 {
@@ -300,7 +351,7 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
         ])
     } else {
         Line::from(Span::styled(
-            " press / to filter by command or shortcut",
+            " press / for fuzzy search by command or shortcut",
             Style::default().fg(app.palette.overlay0),
         ))
     };
@@ -362,7 +413,7 @@ pub(super) fn render_keybind_help_overlay(app: &AppState, frame: &mut Frame) {
         ])
     } else {
         Line::from(vec![
-            Span::styled(" search ", Style::default().fg(app.palette.overlay0)),
+            Span::styled(" fuzzy search ", Style::default().fg(app.palette.overlay0)),
             Span::styled("/", Style::default().fg(app.palette.text)),
             Span::styled(" · ", Style::default().fg(app.palette.overlay0)),
             Span::styled("scroll ", Style::default().fg(app.palette.overlay0)),
@@ -418,5 +469,27 @@ mod tests {
         assert_eq!(filtered[0].1[0].1, "close pane");
 
         assert!(filter_keybind_help_groups(groups(), "panes").is_empty());
+    }
+
+    #[test]
+    fn keybind_help_filter_fuzzy_matches_non_contiguous_label_text() {
+        let filtered = filter_keybind_help_groups(
+            vec![(
+                "workspaces / tabs",
+                vec![help_entry("n", "new worktree"), help_entry("c", "new tab")],
+            )],
+            "nwk",
+        );
+
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].1.len(), 1);
+        assert_eq!(filtered[0].1[0].1, "new worktree");
+    }
+
+    #[test]
+    fn keybind_help_popup_uses_at_least_seventy_percent_height() {
+        let popup = keybind_help_popup_rect(Rect::new(0, 0, 120, 50)).expect("popup rect");
+
+        assert_eq!(popup.height, 35);
     }
 }

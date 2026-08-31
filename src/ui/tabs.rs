@@ -5,11 +5,12 @@ use ratatui::{
     Frame,
 };
 
-use super::text::display_width_u16;
+use super::text::{display_width, display_width_u16, truncate_end};
 use super::widgets::panel_contrast_fg;
 use crate::app::AppState;
 
 const MIN_TAB_WIDTH: u16 = 8;
+const MAX_WORKSPACE_SLOT_WIDTH: u16 = 24;
 const NEW_TAB_WIDTH: u16 = 3;
 const TAB_SCROLL_BUTTON_WIDTH: u16 = 3;
 
@@ -37,6 +38,66 @@ fn tab_chrome_label(ws: &crate::workspace::Workspace, tab_idx: usize) -> String 
     } else {
         name
     }
+}
+
+fn workspace_slot_label(label: &str) -> &str {
+    if label.trim().is_empty() {
+        "workspace"
+    } else {
+        label
+    }
+}
+
+fn workspace_slot_width(label: &str, area: Rect) -> u16 {
+    if area.width == 0 {
+        return 0;
+    }
+
+    let desired = display_width_u16(workspace_slot_label(label))
+        .saturating_add(4)
+        .max(MIN_TAB_WIDTH);
+    desired.min(MAX_WORKSPACE_SLOT_WIDTH).min(area.width)
+}
+
+fn workspace_slot_rect(area: Rect, label: Option<&str>) -> Rect {
+    let Some(label) = label else {
+        return Rect::default();
+    };
+    let width = workspace_slot_width(label, area);
+    if width == 0 {
+        Rect::default()
+    } else {
+        Rect::new(area.x, area.y, width, 1)
+    }
+}
+
+fn tab_list_area_after_workspace_slot(area: Rect, label: Option<&str>) -> Rect {
+    let slot = workspace_slot_rect(area, label);
+    if slot.width == 0 {
+        return area;
+    }
+
+    let right = area.x + area.width;
+    let mut x = slot.x + slot.width;
+    if x < right {
+        x = x.saturating_add(1);
+    }
+    Rect::new(x, area.y, right.saturating_sub(x), area.height)
+}
+
+fn padded_slot_text(label: &str, width: u16) -> String {
+    let width = width as usize;
+    if width == 0 {
+        return String::new();
+    }
+    if width == 1 {
+        return " ".into();
+    }
+
+    let label = truncate_end(workspace_slot_label(label), width.saturating_sub(2));
+    let used = 1usize.saturating_add(display_width(&label));
+    let trailing = width.saturating_sub(used);
+    format!(" {label}{}", " ".repeat(trailing))
 }
 
 fn layout_tab_hit_areas(ws: &crate::workspace::Workspace, area: Rect, scroll: usize) -> Vec<Rect> {
@@ -113,7 +174,13 @@ pub(crate) fn compute_tab_bar_view(
     current_scroll: usize,
     follow_active: bool,
     mouse_chrome: bool,
+    workspace_slot_label: Option<&str>,
 ) -> TabBarView {
+    if area.width == 0 || area.height == 0 {
+        return TabBarView::default();
+    }
+
+    let area = tab_list_area_after_workspace_slot(area, workspace_slot_label);
     if area.width == 0 || area.height == 0 {
         return TabBarView::default();
     }
@@ -258,11 +325,31 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         return;
     };
     let p = &app.palette;
+    let workspace_slot_label = app
+        .sidebar_collapsed
+        .then(|| ws.display_name_from_terminals(&app.terminals));
+    let workspace_slot_label = workspace_slot_label.as_deref();
+    let tab_list_area = tab_list_area_after_workspace_slot(area, workspace_slot_label);
 
     frame.render_widget(
         Paragraph::new(" ".repeat(area.width as usize)).style(Style::default().bg(p.panel_bg)),
         area,
     );
+
+    if let Some(label) = workspace_slot_label {
+        let rect = workspace_slot_rect(area, Some(label));
+        if rect.width > 0 {
+            frame.render_widget(
+                Paragraph::new(padded_slot_text(label, rect.width)).style(
+                    Style::default()
+                        .fg(panel_contrast_fg(p))
+                        .bg(p.mauve)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                rect,
+            );
+        }
+    }
 
     let first_visible_idx = app
         .view
@@ -371,9 +458,9 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         let x = if app.mouse_capture && app.view.tab_scroll_left_hit_area.width > 0 {
             app.view.tab_scroll_left_hit_area.x + app.view.tab_scroll_left_hit_area.width
         } else {
-            area.x
+            tab_list_area.x
         };
-        if x < area.x + area.width {
+        if x >= tab_list_area.x && x < tab_list_area.x + tab_list_area.width {
             frame.buffer_mut()[(x, area.y)]
                 .set_symbol("…")
                 .set_style(Style::default().fg(p.overlay0));
@@ -383,9 +470,9 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
         let x = if app.mouse_capture && app.view.tab_scroll_right_hit_area.width > 0 {
             app.view.tab_scroll_right_hit_area.x.saturating_sub(1)
         } else {
-            area.x + area.width.saturating_sub(1)
+            tab_list_area.x + tab_list_area.width.saturating_sub(1)
         };
-        if x >= area.x && x < area.x + area.width {
+        if x >= tab_list_area.x && x < tab_list_area.x + tab_list_area.width {
             frame.buffer_mut()[(x, area.y)]
                 .set_symbol("…")
                 .set_style(Style::default().fg(p.overlay0));
@@ -419,7 +506,14 @@ mod tests {
         app.workspaces = vec![ws];
         app.active = Some(0);
         app.view.tab_bar_rect = Rect::new(0, 0, 30, 1);
-        let view = compute_tab_bar_view(&app.workspaces[0], app.view.tab_bar_rect, 0, true, false);
+        let view = compute_tab_bar_view(
+            &app.workspaces[0],
+            app.view.tab_bar_rect,
+            0,
+            true,
+            false,
+            None,
+        );
         app.view.tab_hit_areas = view.tab_hit_areas;
 
         let backend = TestBackend::new(30, 1);
@@ -446,7 +540,14 @@ mod tests {
         app.workspaces = vec![ws];
         app.active = Some(0);
         app.view.tab_bar_rect = Rect::new(0, 0, 30, 1);
-        let view = compute_tab_bar_view(&app.workspaces[0], app.view.tab_bar_rect, 0, true, false);
+        let view = compute_tab_bar_view(
+            &app.workspaces[0],
+            app.view.tab_bar_rect,
+            0,
+            true,
+            false,
+            None,
+        );
         app.view.tab_hit_areas = view.tab_hit_areas;
 
         let backend = TestBackend::new(30, 1);
@@ -461,6 +562,47 @@ mod tests {
         assert_eq!(style.bg, Some(app.palette.accent));
         assert!(!style.add_modifier.contains(Modifier::DIM));
         assert!(!style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn collapsed_sidebar_tab_bar_reserves_workspace_slot_before_tabs() {
+        let mut app = AppState::test_new();
+        let mut ws = Workspace::test_new("kitsune");
+        ws.test_add_tab(Some("logs"));
+
+        app.workspaces = vec![ws];
+        app.active = Some(0);
+        app.sidebar_collapsed = true;
+        app.view.tab_bar_rect = Rect::new(0, 0, 40, 1);
+        let view = compute_tab_bar_view(
+            &app.workspaces[0],
+            app.view.tab_bar_rect,
+            0,
+            true,
+            false,
+            Some("kitsune"),
+        );
+        app.view.tab_hit_areas = view.tab_hit_areas;
+
+        let backend = TestBackend::new(40, 1);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_tab_bar(&app, frame, app.view.tab_bar_rect))
+            .unwrap();
+
+        let buffer = terminal.backend().buffer();
+        let row = buffer_row_text(buffer, app.view.tab_bar_rect, 0);
+        assert!(row.starts_with(" kitsune"), "tab row: {row:?}");
+        assert!(row.contains(" 1"), "tab row: {row:?}");
+        assert_eq!(
+            app.view.tab_hit_areas[0].x,
+            workspace_slot_width("kitsune", app.view.tab_bar_rect) + 1
+        );
+        assert_eq!(buffer[(1, 0)].style().bg, Some(app.palette.mauve));
+        assert_eq!(
+            buffer[(app.view.tab_hit_areas[0].x + 1, 0)].style().bg,
+            Some(app.palette.accent)
+        );
     }
 
     #[test]
@@ -492,7 +634,14 @@ mod tests {
         app.active = Some(0);
         app.workspaces = vec![ws];
         app.view.tab_bar_rect = Rect::new(0, 0, 30, 1);
-        let view = compute_tab_bar_view(&app.workspaces[0], app.view.tab_bar_rect, 0, true, false);
+        let view = compute_tab_bar_view(
+            &app.workspaces[0],
+            app.view.tab_bar_rect,
+            0,
+            true,
+            false,
+            None,
+        );
         app.view.tab_hit_areas = view.tab_hit_areas;
 
         let backend = TestBackend::new(30, 1);

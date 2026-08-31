@@ -85,7 +85,7 @@ pub(crate) use self::{
     },
 };
 pub(crate) use self::{
-    keybind_help::keybind_help_lines,
+    keybind_help::{keybind_help_lines, keybind_help_popup_rect},
     mobile::{
         mobile_switcher_areas, mobile_switcher_max_scroll, mobile_switcher_target_at,
         mobile_switcher_workspace_doc_range, MobileSwitcherTarget,
@@ -198,7 +198,8 @@ fn desktop_tab_bar_and_terminal_area(
     ws: &crate::workspace::Workspace,
     main_area: Rect,
 ) -> (Rect, Rect) {
-    let hide_single_tab_bar = app.hide_tab_bar_when_single_tab && ws.tabs.len() == 1;
+    let hide_single_tab_bar =
+        app.hide_tab_bar_when_single_tab && ws.tabs.len() == 1 && !app.sidebar_collapsed;
     if !hide_single_tab_bar && main_area.height > 1 {
         let [tab_bar_rect, terminal_area] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main_area);
@@ -261,12 +262,16 @@ fn compute_view_internal(
         .active
         .and_then(|ws_idx| app.workspaces.get(ws_idx))
         .map(|ws| {
+            let workspace_slot_label = app
+                .sidebar_collapsed
+                .then(|| ws.display_name_from_terminals(&app.terminals));
             compute_tab_bar_view(
                 ws,
                 tab_bar_rect,
                 app.tab_scroll,
                 app.tab_scroll_follow_active,
                 app.mouse_capture,
+                workspace_slot_label.as_deref(),
             )
         })
         .unwrap_or_default();
@@ -823,6 +828,24 @@ mod tests {
         assert_eq!(app.view.tab_bar_rect, Rect::default());
         assert!(app.view.tab_hit_areas.is_empty());
         assert_eq!(app.view.new_tab_hit_area, Rect::default());
+    }
+
+    #[test]
+    fn collapsed_sidebar_keeps_tab_bar_visible_for_workspace_label() {
+        let mut app = crate::app::state::AppState::test_new();
+        app.hide_tab_bar_when_single_tab = true;
+        app.sidebar_collapsed = true;
+        app.workspaces = vec![Workspace::test_new("one")];
+        app.active = Some(0);
+        app.selected = 0;
+        app.mode = Mode::Terminal;
+
+        compute_view(&mut app, Rect::new(0, 0, 80, 20));
+
+        assert_eq!(app.view.tab_bar_rect, Rect::new(4, 0, 76, 1));
+        assert_eq!(app.view.terminal_area, Rect::new(4, 1, 76, 19));
+        assert_eq!(app.view.tab_hit_areas.len(), 1);
+        assert!(app.view.tab_hit_areas[0].x > app.view.tab_bar_rect.x);
     }
 
     #[tokio::test]
@@ -1439,7 +1462,7 @@ mod tests {
             .any(|(key, label)| key == "prefix+alt+g" && label.as_ref() == "open lazygit"));
         assert!(custom
             .iter()
-            .any(|(key, label)| key == "prefix+alt+h" && label.as_ref() == "custom command"));
+            .any(|(key, label)| key == "prefix+alt+h" && label.as_ref() == "echo hello"));
 
         let rendered_help = keybind_help_lines(&app)
             .into_iter()
@@ -1448,7 +1471,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("");
         assert!(rendered_help.contains("open lazygit"));
-        assert!(rendered_help.contains("custom command"));
+        assert!(rendered_help.contains("echo hello"));
     }
 
     #[test]

@@ -606,11 +606,12 @@ impl AppState {
     }
 
     pub(super) fn keybind_help_popup_rect(&self) -> Rect {
-        crate::ui::centered_popup_rect(self.screen_rect(), 76, 22).unwrap_or_default()
+        crate::ui::keybind_help_popup_rect(self.screen_rect()).unwrap_or_default()
     }
 
     fn keybind_help_modal_inner(&self) -> Option<Rect> {
-        self.onboarding_modal_inner(76, 22)
+        crate::ui::keybind_help_popup_rect(self.screen_rect())
+            .map(|popup| Block::default().borders(Borders::ALL).inner(popup))
     }
 
     fn keybind_help_close_button_at(&self, col: u16, row: u16) -> bool {
