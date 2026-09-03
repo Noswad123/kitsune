@@ -293,7 +293,7 @@ pub struct KeysConfig {
     pub rename_workspace: BindingConfig,
     /// Close the selected workspace. Default: "prefix+shift+d"
     pub close_workspace: BindingConfig,
-    /// Open the workspace navigation surface. Default: "prefix+w"
+    /// Open the workspace and pane maintenance navigation surface. Default: "prefix+i"
     pub workspace_picker: BindingConfig,
     /// Open Kitsune session recall. Default: "prefix+shift+s"
     pub session_recall: BindingConfig,
@@ -743,7 +743,7 @@ pub struct IndexedKeysConfig {
     pub agents: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 #[serde(default)]
 pub struct WorktreesConfig {
     /// Optional root directory under which Kitsune creates <repo>/<branch-slug>
@@ -912,7 +912,7 @@ impl Default for KeysConfig {
             remove_worktree: BindingConfig::empty(),
             rename_workspace: BindingConfig::one("prefix+shift+w"),
             close_workspace: BindingConfig::one("prefix+shift+d"),
-            workspace_picker: BindingConfig::one("prefix+w"),
+            workspace_picker: BindingConfig::one("prefix+i"),
             session_recall: BindingConfig::one("prefix+shift+s"),
             goto: BindingConfig::one("prefix+g"),
             agent_selector: BindingConfig::one("prefix+a"),
@@ -961,14 +961,6 @@ impl Default for KeysConfig {
             indexed: IndexedKeysConfig::default(),
             command: Vec::new(),
             user_fields: BTreeSet::new(),
-        }
-    }
-}
-
-impl Default for WorktreesConfig {
-    fn default() -> Self {
-        Self {
-            directory: String::new(),
         }
     }
 }

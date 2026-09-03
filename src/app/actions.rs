@@ -1809,7 +1809,8 @@ impl AppState {
 
         let workspace_slot_label = self
             .sidebar_collapsed
-            .then(|| ws.display_name_from_terminals(&self.terminals));
+            .then(|| crate::ui::chrome_workspace_label(self))
+            .flatten();
         let layout = crate::ui::compute_tab_bar_view(
             ws,
             area,

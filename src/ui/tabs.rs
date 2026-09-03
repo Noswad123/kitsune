@@ -327,7 +327,8 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
     let p = &app.palette;
     let workspace_slot_label = app
         .sidebar_collapsed
-        .then(|| ws.display_name_from_terminals(&app.terminals));
+        .then(|| crate::ui::chrome_workspace_label(app))
+        .flatten();
     let workspace_slot_label = workspace_slot_label.as_deref();
     let tab_list_area = tab_list_area_after_workspace_slot(area, workspace_slot_label);
 
@@ -483,7 +484,7 @@ pub(super) fn render_tab_bar(app: &AppState, frame: &mut Frame, area: Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::state::AppState;
+    use crate::app::state::{AppState, Mode};
     use crate::workspace::Workspace;
     use ratatui::{backend::TestBackend, Terminal};
 
@@ -603,6 +604,63 @@ mod tests {
             buffer[(app.view.tab_hit_areas[0].x + 1, 0)].style().bg,
             Some(app.palette.accent)
         );
+    }
+
+    #[test]
+    fn collapsed_sidebar_tab_bar_uses_selected_workspace_label_in_navigate_mode() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![
+            Workspace::test_new("active-one"),
+            Workspace::test_new("middle-two"),
+            Workspace::test_new("selected-three"),
+        ];
+        app.active = Some(0);
+        app.selected = 2;
+        app.mode = Mode::Navigate;
+        app.sidebar_collapsed = true;
+
+        crate::ui::compute_view(&mut app, Rect::new(0, 0, 80, 12));
+
+        let backend = TestBackend::new(80, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_tab_bar(&app, frame, app.view.tab_bar_rect))
+            .unwrap();
+
+        let row = buffer_row_text(terminal.backend().buffer(), app.view.tab_bar_rect, 0);
+        assert!(row.starts_with(" selected-three"), "tab row: {row:?}");
+        assert!(!row.starts_with(" active-one"), "tab row: {row:?}");
+        assert_eq!(
+            app.view.tab_hit_areas[0].x,
+            app.view.tab_bar_rect.x
+                + workspace_slot_width("selected-three", app.view.tab_bar_rect)
+                + 1
+        );
+    }
+
+    #[test]
+    fn collapsed_sidebar_tab_bar_uses_active_workspace_label_outside_navigate_mode() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![
+            Workspace::test_new("active-one"),
+            Workspace::test_new("selected-two"),
+        ];
+        app.active = Some(0);
+        app.selected = 1;
+        app.mode = Mode::Terminal;
+        app.sidebar_collapsed = true;
+
+        crate::ui::compute_view(&mut app, Rect::new(0, 0, 80, 12));
+
+        let backend = TestBackend::new(80, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| render_tab_bar(&app, frame, app.view.tab_bar_rect))
+            .unwrap();
+
+        let row = buffer_row_text(terminal.backend().buffer(), app.view.tab_bar_rect, 0);
+        assert!(row.starts_with(" active-one"), "tab row: {row:?}");
+        assert!(!row.starts_with(" selected-two"), "tab row: {row:?}");
     }
 
     #[test]

@@ -6,6 +6,8 @@ use ratatui::{
     Frame,
 };
 
+use super::status::state_label;
+use super::text::truncate_end;
 use super::widgets::{panel_contrast_fg, render_panel_shell};
 use crate::app::AppState;
 
@@ -15,10 +17,6 @@ fn prefix_rhs_label(bindings: &crate::config::ActionKeybinds) -> String {
         .unwrap_or_else(|| "unset".to_string())
 }
 
-fn keybind_label(bindings: &crate::config::ActionKeybinds) -> String {
-    bindings.label().unwrap_or_else(|| "unset".to_string())
-}
-
 fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui::style::Color) {
     frame.render_widget(Clear, area);
     let buf = frame.buffer_mut();
@@ -26,6 +24,35 @@ fn render_bottom_bar(frame: &mut Frame, area: Rect, line: Line<'_>, bg: ratatui:
         buf[(x, area.y)].set_style(Style::default().bg(bg));
     }
     frame.render_widget(Paragraph::new(line), area);
+}
+
+fn render_bottom_lines(
+    frame: &mut Frame,
+    area: Rect,
+    lines: Vec<Line<'_>>,
+    bg: ratatui::style::Color,
+) {
+    if area.width == 0 || area.height == 0 || lines.is_empty() {
+        return;
+    }
+    let height = (lines.len() as u16).min(area.height);
+    let y = area.y + area.height.saturating_sub(height);
+    for (offset, line) in lines
+        .into_iter()
+        .rev()
+        .take(height as usize)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .enumerate()
+    {
+        render_bottom_bar(
+            frame,
+            Rect::new(area.x, y + offset as u16, area.width, 1),
+            line,
+            bg,
+        );
+    }
 }
 
 pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -50,7 +77,7 @@ pub(super) fn render_prefix_overlay(app: &AppState, frame: &mut Frame, area: Rec
         Span::styled(prefix, key),
         Span::styled(" send prefix  ", dim),
         Span::styled(workspace_picker, key),
-        Span::styled(" workspace nav  ", dim),
+        Span::styled(" pane maint  ", dim),
         Span::styled(help, key),
         Span::styled(" keybinds", dim),
     ]);
@@ -138,59 +165,118 @@ pub(super) fn render_navigate_overlay(app: &AppState, frame: &mut Frame, area: R
         .bg(app.palette.accent)
         .add_modifier(Modifier::BOLD);
 
-    let kb = &app.keybinds;
-    let new_tab = prefix_rhs_label(&kb.new_tab);
-    let split_vertical = prefix_rhs_label(&kb.split_vertical);
-    let split_horizontal = prefix_rhs_label(&kb.split_horizontal);
-    let close_pane = prefix_rhs_label(&kb.close_pane);
-    let zoom = prefix_rhs_label(&kb.zoom);
-    let resize = prefix_rhs_label(&kb.resize_mode);
-    let help = prefix_rhs_label(&kb.help);
-    let settings = prefix_rhs_label(&kb.settings);
-    let goto = prefix_rhs_label(&kb.goto);
-    let agent_selector = prefix_rhs_label(&kb.agent_selector);
-    let detach = prefix_rhs_label(&kb.detach);
-    let workspace_nav = format!(
-        "{} / {}",
-        keybind_label(&kb.navigate.workspace_up),
-        keybind_label(&kb.navigate.workspace_down)
-    );
-    let line = Line::from(vec![
+    let info = navigate_hpm_info(app, area.width as usize);
+    let status = app.navigate_status.as_deref().unwrap_or("ready");
+    let summary = Line::from(vec![
         Span::styled(" NAVIGATE ", mode_style),
         Span::raw(" "),
-        Span::styled("esc", key),
-        Span::styled(" back  ", dim),
-        Span::styled(workspace_nav, key),
-        Span::styled(" ws  ", dim),
-        Span::styled("⇥", key),
-        Span::styled(" pane  ", dim),
-        Span::styled(goto, key),
-        Span::styled(" navigator  ", dim),
-        Span::styled(agent_selector, key),
-        Span::styled(" agents  ", dim),
-        Span::styled(new_tab, key),
-        Span::styled(" new tab  ", dim),
-        Span::styled(split_vertical, key),
-        Span::styled(" split│  ", dim),
-        Span::styled(split_horizontal, key),
-        Span::styled(" split─  ", dim),
-        Span::styled(close_pane, key),
+        Span::styled(info, Style::default().fg(app.palette.text)),
+        Span::styled("  status ", dim),
+        Span::styled(truncate_end(status, 32), key),
+    ]);
+    let compact_keys = Line::from(vec![
+        Span::styled(" h/j/k/l", key),
+        Span::styled(" select  ", dim),
+        Span::styled("H/J/K/L", key),
+        Span::styled(" move  ", dim),
+        Span::styled("y/o", key),
+        Span::styled(" width  ", dim),
+        Span::styled("u/i", key),
+        Span::styled(" height  ", dim),
+        Span::styled("v/-", key),
+        Span::styled(" split  ", dim),
+        Span::styled("tab/shift+tab", key),
+        Span::styled(" move tab  ", dim),
+        Span::styled("d", key),
         Span::styled(" close  ", dim),
-        Span::styled(zoom, key),
-        Span::styled(" zoom  ", dim),
-        Span::styled(resize, key),
-        Span::styled(" resize  ", dim),
-        Span::styled(help, key),
-        Span::styled(" keybinds  ", dim),
-        Span::styled(settings, key),
-        Span::styled(" settings  ", dim),
-        Span::styled(detach, key),
-        Span::styled(" detach", dim),
+        Span::styled("q/esc", key),
+        Span::styled(" exit  ", dim),
+        Span::styled("?", key),
+        Span::styled(" help", dim),
     ]);
 
-    let overlay_y = area.y + area.height.saturating_sub(1);
-    let overlay_area = Rect::new(area.x, overlay_y, area.width, 1);
-    render_bottom_bar(frame, overlay_area, line, app.palette.panel_bg);
+    let lines = if app.navigate_help_visible {
+        vec![
+            summary,
+            compact_keys,
+            Line::from(vec![
+                Span::styled(" enter/1-9", key),
+                Span::styled(" workspace  ", dim),
+                Span::styled("arrows", key),
+                Span::styled(" pane/workspace nav  ", dim),
+                Span::styled("f", key),
+                Span::styled(" navigator  ", dim),
+                Span::styled("a", key),
+                Span::styled(" agents  ", dim),
+                Span::styled("r", key),
+                Span::styled(" resize mode  ", dim),
+                Span::styled("s", key),
+                Span::styled(" settings", dim),
+            ]),
+        ]
+    } else {
+        vec![summary, compact_keys]
+    };
+
+    render_bottom_lines(frame, area, lines, app.palette.panel_bg);
+}
+
+fn navigate_hpm_info(app: &AppState, max_width: usize) -> String {
+    let Some(ws_idx) = app.active else {
+        return "selected: none".into();
+    };
+    let Some(ws) = app.workspaces.get(ws_idx) else {
+        return "selected: none".into();
+    };
+    let Some(pane_id) = ws.focused_pane_id() else {
+        return "selected: none".into();
+    };
+    let Some(tab_idx) = ws.find_tab_index_for_pane(pane_id) else {
+        return "selected: none".into();
+    };
+    let pane_label = ws
+        .public_pane_number(pane_id)
+        .map(|number| format!("p{number}"))
+        .unwrap_or_else(|| format!("pane {}", pane_id.raw()));
+    let tab_label = ws
+        .tab_display_name(tab_idx)
+        .unwrap_or_else(|| (tab_idx + 1).to_string());
+    let workspace = ws.display_name_from_terminals(&app.terminals);
+    let selected_workspace = crate::ui::chrome_workspace_index(app)
+        .filter(|idx| *idx != ws_idx)
+        .and_then(|idx| app.workspaces.get(idx))
+        .map(|ws| ws.display_name_from_terminals(&app.terminals));
+    let terminal = ws.tabs[tab_idx]
+        .terminal_id(pane_id)
+        .and_then(|terminal_id| app.terminals.get(terminal_id));
+    let agent = terminal
+        .and_then(|terminal| terminal.effective_display_agent())
+        .or_else(|| {
+            terminal.and_then(|terminal| terminal.effective_agent_label().map(str::to_string))
+        })
+        .unwrap_or_else(|| "shell".into());
+    let seen = ws
+        .tabs
+        .get(tab_idx)
+        .and_then(|tab| tab.panes.get(&pane_id))
+        .is_none_or(|pane| pane.seen);
+    let state = terminal
+        .map(|terminal| state_label(terminal.state, seen))
+        .unwrap_or("unknown");
+    let cwd = terminal
+        .map(|terminal| terminal.cwd.display().to_string())
+        .unwrap_or_default();
+    let active_context = if cwd.is_empty() {
+        format!("selected: {pane_label}  tab: {tab_label}  workspace: {workspace}  agent: {agent}/{state}")
+    } else {
+        format!("selected: {pane_label}  tab: {tab_label}  workspace: {workspace}  agent: {agent}/{state}  cwd: {cwd}")
+    };
+    let raw = if let Some(selected_workspace) = selected_workspace {
+        format!("selected workspace: {selected_workspace}  {active_context}")
+    } else {
+        active_context
+    };
+    truncate_end(&raw, max_width.saturating_sub(32))
 }
 
 pub(super) fn render_global_launcher_menu(app: &AppState, frame: &mut Frame) {

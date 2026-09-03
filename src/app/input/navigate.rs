@@ -6,9 +6,9 @@ use std::{
 };
 
 use bytes::Bytes;
-use crossterm::event::KeyCode;
 #[cfg(test)]
 use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyModifiers};
 use ratatui::layout::Direction;
 
 use crate::{
@@ -127,6 +127,10 @@ impl App {
             return;
         }
 
+        if self.handle_hpm_navigate_key(raw_key) {
+            return;
+        }
+
         if self
             .state
             .keybinds
@@ -172,6 +176,331 @@ impl App {
             self.execute_tui_navigate_action(action, ActionContext::Navigate);
             self.selection_autoscroll_deadline = None;
         }
+    }
+
+    fn handle_hpm_navigate_key(&mut self, raw_key: TerminalKey) -> bool {
+        if hpm_plain_char(raw_key, '?') {
+            self.state.navigate_help_visible = !self.state.navigate_help_visible;
+            return true;
+        }
+        if hpm_plain_char(raw_key, 'q') {
+            leave_navigate_mode(&mut self.state);
+            return true;
+        }
+        if hpm_is_shift_tab(raw_key) {
+            self.hpm_move_selected_to_relative_tab(-1);
+            return true;
+        }
+        if hpm_is_plain_tab(raw_key) {
+            self.hpm_move_selected_to_relative_tab(1);
+            return true;
+        }
+        if hpm_plain_char(raw_key, 'd') {
+            self.hpm_close_selected_pane();
+            return true;
+        }
+        if hpm_plain_char(raw_key, 'v') {
+            self.hpm_split_selected_pane(crate::api::schema::SplitDirection::Right);
+            return true;
+        }
+        if hpm_plain_char(raw_key, '-') {
+            self.hpm_split_selected_pane(crate::api::schema::SplitDirection::Down);
+            return true;
+        }
+        if let Some(direction) = hpm_resize_direction(raw_key) {
+            self.hpm_resize_selected_pane(direction);
+            return true;
+        }
+        if let Some(direction) = hpm_move_direction(raw_key) {
+            self.hpm_move_selected_pane(direction);
+            return true;
+        }
+        if let Some(direction) = hpm_select_direction(raw_key) {
+            self.hpm_select_pane(direction);
+            return true;
+        }
+
+        false
+    }
+
+    fn hpm_set_status(&mut self, message: impl Into<String>) {
+        self.state.navigate_status = Some(message.into());
+    }
+
+    fn hpm_selected_pane_target(&self) -> Option<(usize, usize, crate::layout::PaneId)> {
+        let ws_idx = self.state.active?;
+        let ws = self.state.workspaces.get(ws_idx)?;
+        let pane_id = ws.focused_pane_id()?;
+        let tab_idx = ws.find_tab_index_for_pane(pane_id)?;
+        Some((ws_idx, tab_idx, pane_id))
+    }
+
+    fn hpm_select_pane(&mut self, direction: NavDirection) {
+        if let Some((ws_idx, target)) = self.directional_pane_target_from_view(direction) {
+            self.focus_pane_internal_via_api(ws_idx, target);
+            self.state.mode = Mode::Navigate;
+            self.hpm_set_status(format!("selected pane {}", direction_label(direction)));
+        } else {
+            self.hpm_set_status(format!("no selectable pane {}", direction_label(direction)));
+        }
+    }
+
+    fn hpm_split_selected_pane(&mut self, direction: crate::api::schema::SplitDirection) {
+        let Some((ws_idx, tab_idx, pane_id)) = self.hpm_selected_pane_target() else {
+            self.hpm_set_status("no selected pane");
+            return;
+        };
+        let Some(target_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            self.hpm_set_status("selected pane has no public id");
+            return;
+        };
+        let cwd = self.state.workspaces[ws_idx].tabs[tab_idx]
+            .cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
+            .map(|cwd| cwd.display().to_string());
+
+        self.runtime_pane_split(
+            "tui.navigate.hpm.split",
+            crate::api::schema::PaneSplitParams {
+                workspace_id: None,
+                target_pane_id: Some(target_pane_id),
+                direction: direction.clone(),
+                ratio: Some(0.5),
+                cwd,
+                focus: true,
+                env: Default::default(),
+            },
+        );
+        self.state.mode = Mode::Navigate;
+        self.hpm_set_status(format!(
+            "created split {}",
+            split_direction_label(direction)
+        ));
+    }
+
+    fn hpm_close_selected_pane(&mut self) {
+        let Some((ws_idx, tab_idx, pane_id)) = self.hpm_selected_pane_target() else {
+            self.hpm_set_status("no selected pane");
+            return;
+        };
+        if self.state.workspaces[ws_idx].tabs[tab_idx]
+            .layout
+            .pane_count()
+            <= 1
+        {
+            self.hpm_set_status("refusing to close the last pane in this tab");
+            return;
+        }
+        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            self.hpm_set_status("selected pane has no public id");
+            return;
+        };
+        self.runtime_pane_close("tui.navigate.hpm.close", public_pane_id);
+        self.state.mode = Mode::Navigate;
+        self.hpm_set_status(format!("closed pane {}", pane_id.raw()));
+    }
+
+    fn hpm_resize_selected_pane(&mut self, direction: NavDirection) {
+        let Some((ws_idx, _, pane_id)) = self.hpm_selected_pane_target() else {
+            self.hpm_set_status("no selected pane");
+            return;
+        };
+        let Some(public_pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            self.hpm_set_status("selected pane has no public id");
+            return;
+        };
+
+        self.runtime_pane_resize(
+            "tui.navigate.hpm.resize",
+            crate::api::schema::PaneResizeParams {
+                pane_id: Some(public_pane_id),
+                direction: api_pane_direction(direction),
+                amount: None,
+            },
+        );
+        self.state.mode = Mode::Navigate;
+        self.hpm_set_status(format!("resized pane {}", resize_label(direction)));
+    }
+
+    fn hpm_move_selected_to_relative_tab(&mut self, delta: isize) {
+        let Some((ws_idx, tab_idx, pane_id)) = self.hpm_selected_pane_target() else {
+            self.hpm_set_status("no selected pane");
+            return;
+        };
+        let tab_count = self.state.workspaces[ws_idx].tabs.len();
+        if tab_count <= 1 {
+            self.hpm_set_status(if delta.is_positive() {
+                "no next tab"
+            } else {
+                "no previous tab"
+            });
+            return;
+        }
+        let target_tab_idx = (tab_idx as isize + delta).rem_euclid(tab_count as isize) as usize;
+        let Some(target_tab_id) = self.public_tab_id(ws_idx, target_tab_idx) else {
+            self.hpm_set_status("target tab has no public id");
+            return;
+        };
+        let anchor = self.state.workspaces[ws_idx].tabs[target_tab_idx]
+            .layout
+            .pane_ids()
+            .first()
+            .and_then(|pane_id| self.public_pane_id(ws_idx, *pane_id));
+        if self.hpm_move_pane_to_tab(
+            ws_idx,
+            pane_id,
+            target_tab_id,
+            anchor,
+            crate::api::schema::SplitDirection::Right,
+            true,
+        ) {
+            self.state.mode = Mode::Navigate;
+            self.hpm_set_status(if delta.is_positive() {
+                "moved pane to next tab"
+            } else {
+                "moved pane to previous tab"
+            });
+        }
+    }
+
+    fn hpm_move_selected_pane(&mut self, direction: NavDirection) {
+        let Some((ws_idx, tab_idx, pane_id)) = self.hpm_selected_pane_target() else {
+            self.hpm_set_status("no selected pane");
+            return;
+        };
+        let Some(tab_id) = self.public_tab_id(ws_idx, tab_idx) else {
+            self.hpm_set_status("selected tab has no public id");
+            return;
+        };
+
+        if let Some((_, neighbor)) = self.directional_pane_target_from_view(direction) {
+            let Some(target_pane_id) = self.public_pane_id(ws_idx, neighbor) else {
+                self.hpm_set_status("target pane has no public id");
+                return;
+            };
+            let split = stack_split_for_direction(direction);
+            if self.hpm_move_pane_to_tab(
+                ws_idx,
+                pane_id,
+                tab_id,
+                Some(target_pane_id),
+                split.clone(),
+                true,
+            ) {
+                self.state.mode = Mode::Navigate;
+                self.hpm_set_status(format!(
+                    "stacked pane {} with split {}",
+                    direction_label(direction),
+                    split_direction_label(split)
+                ));
+            }
+            return;
+        }
+
+        let panes = self.state.view.pane_infos.clone();
+        let Some(current) = panes.iter().find(|pane| pane.id == pane_id) else {
+            self.hpm_set_status("selected pane is not in the visible layout");
+            return;
+        };
+        let Some(edge_target) = hpm_edge_target(direction, &panes, current) else {
+            self.hpm_set_status("only one selectable pane");
+            return;
+        };
+
+        match direction {
+            NavDirection::Right | NavDirection::Down => {
+                let Some(target_pane_id) = self.public_pane_id(ws_idx, edge_target) else {
+                    self.hpm_set_status("target pane has no public id");
+                    return;
+                };
+                let split = edge_split_for_direction(direction);
+                if self.hpm_move_pane_to_tab(
+                    ws_idx,
+                    pane_id,
+                    tab_id,
+                    Some(target_pane_id),
+                    split,
+                    true,
+                ) {
+                    self.state.mode = Mode::Navigate;
+                    self.hpm_set_status(format!(
+                        "moved pane to {} edge",
+                        direction_label(direction)
+                    ));
+                }
+            }
+            NavDirection::Left | NavDirection::Up => {
+                let Some(selected_public_id) = self.public_pane_id(ws_idx, pane_id) else {
+                    self.hpm_set_status("selected pane has no public id");
+                    return;
+                };
+                let split = reverse_edge_split_for_direction(direction);
+                if self.hpm_move_pane_to_tab(
+                    ws_idx,
+                    edge_target,
+                    tab_id,
+                    Some(selected_public_id),
+                    split,
+                    false,
+                ) {
+                    self.state.mode = Mode::Navigate;
+                    self.hpm_set_status(format!(
+                        "moved pane to {} edge",
+                        direction_label(direction)
+                    ));
+                }
+            }
+        }
+    }
+
+    fn hpm_move_pane_to_tab(
+        &mut self,
+        moving_ws_idx: usize,
+        moving_pane_id: crate::layout::PaneId,
+        target_tab_id: String,
+        target_pane_id: Option<String>,
+        split: crate::api::schema::SplitDirection,
+        focus: bool,
+    ) -> bool {
+        let Some(moving_public_id) = self.public_pane_id(moving_ws_idx, moving_pane_id) else {
+            self.hpm_set_status("moving pane has no public id");
+            return false;
+        };
+        let same_tab = self
+            .state
+            .workspaces
+            .get(moving_ws_idx)
+            .and_then(|ws| ws.find_tab_index_for_pane(moving_pane_id))
+            .and_then(|tab_idx| self.public_tab_id(moving_ws_idx, tab_idx))
+            .is_some_and(|source_tab_id| source_tab_id == target_tab_id);
+
+        if same_tab {
+            self.runtime_pane_move(
+                "tui.navigate.hpm.move.temp_tab",
+                crate::api::schema::PaneMoveParams {
+                    pane_id: moving_public_id.clone(),
+                    destination: crate::api::schema::PaneMoveDestination::NewTab {
+                        workspace_id: Some(self.public_workspace_id(moving_ws_idx)),
+                        label: Some("hpm-temp".into()),
+                    },
+                    focus: false,
+                },
+            );
+        }
+
+        self.runtime_pane_move(
+            "tui.navigate.hpm.move",
+            crate::api::schema::PaneMoveParams {
+                pane_id: moving_public_id,
+                destination: crate::api::schema::PaneMoveDestination::Tab {
+                    tab_id: target_tab_id,
+                    target_pane_id,
+                    split,
+                    ratio: Some(0.5),
+                },
+                focus,
+            },
+        );
+        true
     }
 
     pub(super) fn execute_tui_navigate_action(
@@ -253,6 +582,8 @@ impl App {
             NavigateAction::WorkspacePicker => {
                 self.state.mobile_switcher_scroll = 0;
                 self.state.mode = Mode::Navigate;
+                self.state.navigate_status = Some("ready".into());
+                self.state.navigate_help_visible = false;
             }
             NavigateAction::SessionRecall => {
                 self.launch_session_recall_popup();
@@ -1193,6 +1524,140 @@ pub(crate) enum BindingDispatch {
     Prefix,
 }
 
+fn hpm_plain_char(key: TerminalKey, expected: char) -> bool {
+    matches!(key.code, KeyCode::Char(ch) if ch == expected) && key.modifiers.is_empty()
+}
+
+fn hpm_is_plain_tab(key: TerminalKey) -> bool {
+    matches!(key.code, KeyCode::Tab) && key.modifiers.is_empty()
+}
+
+fn hpm_is_shift_tab(key: TerminalKey) -> bool {
+    matches!(key.code, KeyCode::BackTab)
+        || (matches!(key.code, KeyCode::Tab) && key.modifiers == KeyModifiers::SHIFT)
+}
+
+fn hpm_select_direction(key: TerminalKey) -> Option<NavDirection> {
+    if !key.modifiers.is_empty() {
+        return None;
+    }
+    match key.code {
+        KeyCode::Char('h') => Some(NavDirection::Left),
+        KeyCode::Char('j') => Some(NavDirection::Down),
+        KeyCode::Char('k') => Some(NavDirection::Up),
+        KeyCode::Char('l') => Some(NavDirection::Right),
+        _ => None,
+    }
+}
+
+fn hpm_move_direction(key: TerminalKey) -> Option<NavDirection> {
+    let shifted = key.modifiers == KeyModifiers::SHIFT;
+    match key.code {
+        KeyCode::Char('H') if key.modifiers.is_empty() || shifted => Some(NavDirection::Left),
+        KeyCode::Char('J') if key.modifiers.is_empty() || shifted => Some(NavDirection::Down),
+        KeyCode::Char('K') if key.modifiers.is_empty() || shifted => Some(NavDirection::Up),
+        KeyCode::Char('L') if key.modifiers.is_empty() || shifted => Some(NavDirection::Right),
+        KeyCode::Char('h') if shifted => Some(NavDirection::Left),
+        KeyCode::Char('j') if shifted => Some(NavDirection::Down),
+        KeyCode::Char('k') if shifted => Some(NavDirection::Up),
+        KeyCode::Char('l') if shifted => Some(NavDirection::Right),
+        _ => None,
+    }
+}
+
+fn hpm_resize_direction(key: TerminalKey) -> Option<NavDirection> {
+    if !key.modifiers.is_empty() {
+        return None;
+    }
+    match key.code {
+        KeyCode::Char('y') => Some(NavDirection::Left),
+        KeyCode::Char('u') => Some(NavDirection::Down),
+        KeyCode::Char('i') => Some(NavDirection::Up),
+        KeyCode::Char('o') => Some(NavDirection::Right),
+        _ => None,
+    }
+}
+
+fn stack_split_for_direction(direction: NavDirection) -> crate::api::schema::SplitDirection {
+    match direction {
+        NavDirection::Left | NavDirection::Right => crate::api::schema::SplitDirection::Down,
+        NavDirection::Up | NavDirection::Down => crate::api::schema::SplitDirection::Right,
+    }
+}
+
+fn edge_split_for_direction(direction: NavDirection) -> crate::api::schema::SplitDirection {
+    match direction {
+        NavDirection::Right => crate::api::schema::SplitDirection::Right,
+        NavDirection::Down => crate::api::schema::SplitDirection::Down,
+        NavDirection::Left | NavDirection::Up => reverse_edge_split_for_direction(direction),
+    }
+}
+
+fn reverse_edge_split_for_direction(direction: NavDirection) -> crate::api::schema::SplitDirection {
+    match direction {
+        NavDirection::Left | NavDirection::Right => crate::api::schema::SplitDirection::Right,
+        NavDirection::Up | NavDirection::Down => crate::api::schema::SplitDirection::Down,
+    }
+}
+
+fn direction_label(direction: NavDirection) -> &'static str {
+    match direction {
+        NavDirection::Left => "left",
+        NavDirection::Right => "right",
+        NavDirection::Up => "up",
+        NavDirection::Down => "down",
+    }
+}
+
+fn resize_label(direction: NavDirection) -> &'static str {
+    match direction {
+        NavDirection::Left => "narrower",
+        NavDirection::Right => "wider",
+        NavDirection::Up => "shorter",
+        NavDirection::Down => "taller",
+    }
+}
+
+fn split_direction_label(direction: crate::api::schema::SplitDirection) -> &'static str {
+    match direction {
+        crate::api::schema::SplitDirection::Right => "right",
+        crate::api::schema::SplitDirection::Down => "down",
+    }
+}
+
+fn hpm_edge_target(
+    direction: NavDirection,
+    panes: &[crate::layout::PaneInfo],
+    current: &crate::layout::PaneInfo,
+) -> Option<crate::layout::PaneId> {
+    panes
+        .iter()
+        .filter(|pane| pane.id != current.id)
+        .min_by_key(|pane| match direction {
+            NavDirection::Right => (
+                u16::MAX.saturating_sub(pane.rect.x.saturating_add(pane.rect.width)),
+                pane.rect.y.abs_diff(current.rect.y),
+                u16::MAX.saturating_sub(pane.rect.x),
+            ),
+            NavDirection::Down => (
+                u16::MAX.saturating_sub(pane.rect.y.saturating_add(pane.rect.height)),
+                pane.rect.x.abs_diff(current.rect.x),
+                u16::MAX.saturating_sub(pane.rect.y),
+            ),
+            NavDirection::Left => (
+                pane.rect.x,
+                pane.rect.y.abs_diff(current.rect.y),
+                pane.rect.x.saturating_add(pane.rect.width),
+            ),
+            NavDirection::Up => (
+                pane.rect.y,
+                pane.rect.x.abs_diff(current.rect.x),
+                pane.rect.y.saturating_add(pane.rect.height),
+            ),
+        })
+        .map(|pane| pane.id)
+}
+
 pub(crate) fn command_for_key(
     state: &AppState,
     key: TerminalKey,
@@ -1684,6 +2149,8 @@ pub(super) fn execute_navigate_action_in_context(
         NavigateAction::WorkspacePicker => {
             state.mobile_switcher_scroll = 0;
             state.mode = Mode::Navigate;
+            state.navigate_status = Some("ready".into());
+            state.navigate_help_visible = false;
         }
         NavigateAction::SessionRecall => leave_navigate_mode(state),
         NavigateAction::PreviousWorkspace => {
@@ -1994,6 +2461,27 @@ mod tests {
                 "/repo/kitsune".to_string(),
             ),
         ]
+    }
+
+    fn test_pane_info(id: u32, rect: ratatui::layout::Rect) -> crate::layout::PaneInfo {
+        crate::layout::PaneInfo {
+            id: crate::layout::PaneId::from_raw(id),
+            rect,
+            inner_rect: rect,
+            scrollbar_rect: None,
+            borders: ratatui::widgets::Borders::NONE,
+            is_focused: false,
+        }
+    }
+
+    fn pane_rect(app: &App, pane_id: crate::layout::PaneId) -> ratatui::layout::Rect {
+        app.state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == pane_id)
+            .map(|info| info.rect)
+            .unwrap()
     }
 
     #[test]
@@ -2472,7 +2960,7 @@ mod tests {
         let config: Config = toml::from_str(
             r#"
 [keys]
-navigate_workspace_down = "j"
+navigate_workspace_down = "ctrl+down"
 navigate_pane_down = "ctrl+j"
 "#,
         )
@@ -2482,7 +2970,7 @@ navigate_pane_down = "ctrl+j"
 
         handle_navigate_key(
             &mut state,
-            KeyEvent::new(KeyCode::Char('j'), KeyModifiers::empty()),
+            KeyEvent::new(KeyCode::Down, KeyModifiers::CONTROL),
         );
 
         assert_eq!(state.selected, 1);
@@ -2503,7 +2991,7 @@ navigate_pane_down = "ctrl+j"
         let config: Config = toml::from_str(
             r#"
 [keys]
-navigate_workspace_down = "j"
+navigate_workspace_down = "ctrl+n"
 navigate_pane_down = "ctrl+j"
 "#,
         )
@@ -2974,7 +3462,7 @@ command = "printf literal > '{}'"
         let config: Config = toml::from_str(
             r#"
 [keys]
-navigate_workspace_down = "j"
+navigate_workspace_down = "ctrl+down"
 navigate_pane_down = "ctrl+j"
 "#,
         )
@@ -2982,10 +3470,187 @@ navigate_pane_down = "ctrl+j"
         app.state.keybinds = config.keybinds();
         app.state.mode = Mode::Navigate;
 
-        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('j'), KeyModifiers::empty()));
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Down, KeyModifiers::CONTROL));
 
         assert_eq!(app.state.selected, 1);
         assert_eq!(app.state.mode, Mode::Navigate);
+    }
+
+    #[test]
+    fn app_navigate_mode_q_exits_instead_of_detaching() {
+        let mut app = app_with_test_workspaces(&["one"]);
+        app.state.mode = Mode::Navigate;
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('q'), KeyModifiers::empty()));
+
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert!(!app.state.detach_requested);
+    }
+
+    #[test]
+    fn app_navigate_mode_question_toggles_hpm_help() {
+        let mut app = app_with_test_workspaces(&["one"]);
+        app.state.mode = Mode::Navigate;
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('?'), KeyModifiers::empty()));
+        assert!(app.state.navigate_help_visible);
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('?'), KeyModifiers::empty()));
+        assert!(!app.state.navigate_help_visible);
+    }
+
+    #[test]
+    fn app_navigate_mode_d_refuses_to_close_last_pane_in_tab() {
+        let mut app = app_with_test_workspaces(&["one"]);
+        app.state.mode = Mode::Navigate;
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('d'), KeyModifiers::empty()));
+
+        assert_eq!(app.state.workspaces.len(), 1);
+        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert_eq!(
+            app.state.navigate_status.as_deref(),
+            Some("refusing to close the last pane in this tab")
+        );
+    }
+
+    #[test]
+    fn app_navigate_mode_tab_moves_selected_pane_to_next_tab() {
+        let mut app = app_with_test_workspaces(&["one"]);
+        let moved_pane = app.state.workspaces[0].test_split(Direction::Horizontal);
+        app.state.workspaces[0].test_add_tab(Some("logs"));
+        app.state.ensure_test_terminals();
+        app.state.mode = Mode::Navigate;
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Tab, KeyModifiers::empty()));
+
+        assert_eq!(
+            app.state.workspaces[0].find_tab_index_for_pane(moved_pane),
+            Some(1)
+        );
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert_eq!(
+            app.state.navigate_status.as_deref(),
+            Some("moved pane to next tab")
+        );
+    }
+
+    #[test]
+    fn app_navigate_mode_shift_tab_moves_selected_pane_to_previous_tab() {
+        let mut app = app_with_test_workspaces(&["one"]);
+        app.state.workspaces[0].test_split(Direction::Horizontal);
+        let target_pane = app.state.workspaces[0].test_add_tab(Some("logs"));
+        app.state.workspaces[0].switch_tab(target_pane);
+        let moved_pane = app.state.workspaces[0].tabs[target_pane].root_pane;
+        app.state.ensure_test_terminals();
+        app.state.mode = Mode::Navigate;
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::BackTab, KeyModifiers::empty()));
+
+        assert_eq!(
+            app.state.workspaces[0].find_tab_index_for_pane(moved_pane),
+            Some(0)
+        );
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert_eq!(
+            app.state.navigate_status.as_deref(),
+            Some("moved pane to previous tab")
+        );
+    }
+
+    #[test]
+    fn app_navigate_mode_shift_direction_moves_selected_pane_without_temp_tab_leftover() {
+        let mut app = app_with_test_workspaces(&["one"]);
+        app.state.workspaces[0].test_split(Direction::Horizontal);
+        app.state.ensure_test_terminals();
+        app.state.mode = Mode::Navigate;
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 100, 20));
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('H'), KeyModifiers::SHIFT));
+
+        assert_eq!(app.state.workspaces[0].tabs.len(), 1);
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert!(app
+            .state
+            .navigate_status
+            .as_deref()
+            .is_some_and(|status| status.starts_with("stacked pane left")));
+    }
+
+    #[test]
+    fn app_navigate_mode_y_and_o_resize_selected_pane_width() {
+        let mut app = app_with_test_workspaces(&["one"]);
+        let root = app.state.workspaces[0].tabs[0].root_pane;
+        app.state.workspaces[0].test_split(Direction::Horizontal);
+        app.state.workspaces[0].layout.focus_pane(root);
+        app.state.ensure_test_terminals();
+        app.state.mode = Mode::Navigate;
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 40));
+        let initial_width = pane_rect(&app, root).width;
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('o'), KeyModifiers::empty()));
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 40));
+        let wider = pane_rect(&app, root).width;
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('y'), KeyModifiers::empty()));
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 40));
+        let restored = pane_rect(&app, root).width;
+
+        assert!(wider > initial_width);
+        assert!(restored < wider);
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert_eq!(
+            app.state.navigate_status.as_deref(),
+            Some("resized pane narrower")
+        );
+    }
+
+    #[test]
+    fn app_navigate_mode_u_and_i_resize_selected_pane_height() {
+        let mut app = app_with_test_workspaces(&["one"]);
+        let root = app.state.workspaces[0].tabs[0].root_pane;
+        app.state.workspaces[0].test_split(Direction::Vertical);
+        app.state.workspaces[0].layout.focus_pane(root);
+        app.state.ensure_test_terminals();
+        app.state.mode = Mode::Navigate;
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 80));
+        let initial_height = pane_rect(&app, root).height;
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('u'), KeyModifiers::empty()));
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 80));
+        let taller = pane_rect(&app, root).height;
+
+        app.handle_navigate_key(TerminalKey::new(KeyCode::Char('i'), KeyModifiers::empty()));
+        crate::ui::compute_view(&mut app.state, ratatui::layout::Rect::new(0, 0, 120, 80));
+        let restored = pane_rect(&app, root).height;
+
+        assert!(taller > initial_height);
+        assert!(restored < taller);
+        assert_eq!(app.state.mode, Mode::Navigate);
+        assert_eq!(
+            app.state.navigate_status.as_deref(),
+            Some("resized pane shorter")
+        );
+    }
+
+    #[test]
+    fn hpm_edge_target_uses_outer_edge_tie_breakers() {
+        let current = test_pane_info(1, ratatui::layout::Rect::new(20, 20, 10, 10));
+        let left_wide = test_pane_info(2, ratatui::layout::Rect::new(0, 20, 15, 10));
+        let left_narrow = test_pane_info(3, ratatui::layout::Rect::new(0, 20, 10, 10));
+        let top_tall = test_pane_info(4, ratatui::layout::Rect::new(20, 0, 10, 15));
+        let top_short = test_pane_info(5, ratatui::layout::Rect::new(20, 0, 10, 10));
+        let panes = vec![current.clone(), left_wide, left_narrow, top_tall, top_short];
+
+        assert_eq!(
+            hpm_edge_target(NavDirection::Left, &panes, &current),
+            Some(crate::layout::PaneId::from_raw(3))
+        );
+        assert_eq!(
+            hpm_edge_target(NavDirection::Up, &panes, &current),
+            Some(crate::layout::PaneId::from_raw(5))
+        );
     }
 
     #[tokio::test]

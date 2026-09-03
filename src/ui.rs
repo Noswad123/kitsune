@@ -101,6 +101,20 @@ use crate::terminal::TerminalRuntimeRegistry;
 
 const COLLAPSED_WIDTH: u16 = 4; // num + space + dot + separator
 
+pub(crate) fn chrome_workspace_index(app: &AppState) -> Option<usize> {
+    if app.mode == Mode::Navigate && app.workspaces.get(app.selected).is_some() {
+        Some(app.selected)
+    } else {
+        app.active
+    }
+}
+
+pub(crate) fn chrome_workspace_label(app: &AppState) -> Option<String> {
+    chrome_workspace_index(app)
+        .and_then(|idx| app.workspaces.get(idx))
+        .map(|ws| ws.display_name_from_terminals(&app.terminals))
+}
+
 // Braille spinner frames — smooth rotation
 const SPINNERS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -264,7 +278,8 @@ fn compute_view_internal(
         .map(|ws| {
             let workspace_slot_label = app
                 .sidebar_collapsed
-                .then(|| ws.display_name_from_terminals(&app.terminals));
+                .then(|| chrome_workspace_label(app))
+                .flatten();
             compute_tab_bar_view(
                 ws,
                 tab_bar_rect,

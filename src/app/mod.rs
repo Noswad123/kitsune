@@ -557,6 +557,8 @@ impl App {
             }),
             keybind_help: state::KeybindHelpState::default(),
             navigator: state::NavigatorState::default(),
+            navigate_status: None,
+            navigate_help_visible: false,
             copy_mode: None,
             workspace_scroll: 0,
             agent_panel_scroll: 0,
@@ -4843,7 +4845,7 @@ mod tests {
     }
 
     #[test]
-    fn route_client_input_q_detaches_in_persistence_mode() {
+    fn route_client_input_q_exits_hpm_navigate_without_detaching() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("test")];
         app.state.active = Some(0);
@@ -4858,13 +4860,13 @@ mod tests {
         app.route_client_input(q_bytes);
 
         assert!(
-            app.state.detach_requested,
-            "q should detach in persistence mode"
+            !app.state.detach_requested,
+            "q should not detach in hpm navigate mode"
         );
         assert_eq!(
             app.state.mode,
             Mode::Terminal,
-            "q should leave navigate mode"
+            "q should leave hpm navigate mode"
         );
     }
 

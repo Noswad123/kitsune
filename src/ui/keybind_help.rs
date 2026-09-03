@@ -136,7 +136,10 @@ pub(super) fn keybind_help_groups(app: &AppState) -> Vec<HelpGroup> {
     ));
 
     let workspace_tab = vec![
-        help_entry(keybind_label(&kb.workspace_picker), "workspace navigation"),
+        help_entry(
+            keybind_label(&kb.workspace_picker),
+            "workspace / pane maintenance",
+        ),
         help_entry(keybind_label(&kb.session_recall), "session recall"),
         help_entry(keybind_label(&kb.goto), "session navigator"),
         help_entry(keybind_label(&kb.agent_selector), "agent selector"),
@@ -435,7 +438,7 @@ mod tests {
             (
                 "workspaces / tabs",
                 vec![
-                    help_entry("w", "workspace navigation"),
+                    help_entry("i", "workspace / pane maintenance"),
                     help_entry("c", "new tab"),
                 ],
             ),
@@ -456,7 +459,7 @@ mod tests {
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].0, "workspaces / tabs");
         assert_eq!(filtered[0].1.len(), 1);
-        assert_eq!(filtered[0].1[0].1, "workspace navigation");
+        assert_eq!(filtered[0].1[0].1, "workspace / pane maintenance");
     }
 
     #[test]
