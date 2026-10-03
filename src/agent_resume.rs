@@ -139,13 +139,7 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
             vec!["droid".into(), "--resume".into(), session_ref.value.clone()]
         }
         ("kitsune:djinn", "djinn", AgentSessionRefKind::Id) => {
-            vec![
-                "djinn".into(),
-                "agent".into(),
-                "chat".into(),
-                "--resume".into(),
-                session_ref.value.clone(),
-            ]
+            vec!["djinn".into(), "-s".into(), session_ref.value.clone()]
         }
         ("kitsune:kimi", "kimi", AgentSessionRefKind::Id) => {
             vec!["kimi".into(), "--session".into(), session_ref.value.clone()]
@@ -336,7 +330,7 @@ mod tests {
             )
             .unwrap()
             .argv,
-            vec!["djinn", "agent", "chat", "--resume", "djinn-session"]
+            vec!["djinn", "-s", "djinn-session"]
         );
         assert_eq!(
             plan(
