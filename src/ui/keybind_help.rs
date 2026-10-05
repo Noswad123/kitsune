@@ -97,6 +97,10 @@ pub(super) fn keybind_help_groups(app: &AppState) -> Vec<HelpGroup> {
                 "prefix mode",
             ),
             help_entry(keybind_label(&kb.help), "keybinds"),
+            help_entry(
+                keybind_label(&kb.workspace_picker),
+                "workspace / pane maintenance",
+            ),
             help_entry(keybind_label(&kb.settings), "settings"),
             help_entry(keybind_label(&kb.detach), "detach"),
             help_entry(keybind_label(&kb.reload_config), "reload config"),
@@ -136,10 +140,6 @@ pub(super) fn keybind_help_groups(app: &AppState) -> Vec<HelpGroup> {
     ));
 
     let workspace_tab = vec![
-        help_entry(
-            keybind_label(&kb.workspace_picker),
-            "workspace / pane maintenance",
-        ),
         help_entry(keybind_label(&kb.session_recall), "session recall"),
         help_entry(keybind_label(&kb.goto), "session navigator"),
         help_entry(keybind_label(&kb.agent_selector), "agent selector"),
@@ -460,6 +460,20 @@ mod tests {
         assert_eq!(filtered[0].0, "workspaces / tabs");
         assert_eq!(filtered[0].1.len(), 1);
         assert_eq!(filtered[0].1[0].1, "workspace / pane maintenance");
+    }
+
+    #[test]
+    fn keybind_help_lists_workspace_picker_in_global_group() {
+        let app = AppState::test_new();
+        let groups = keybind_help_groups(&app);
+
+        let global = groups
+            .iter()
+            .find(|(group, _)| *group == "global")
+            .expect("global keybind help group");
+        assert!(global.1.iter().any(|(_, label)| {
+            label.as_ref() == "workspace / pane maintenance"
+        }));
     }
 
     #[test]
