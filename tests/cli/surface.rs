@@ -1,5 +1,181 @@
 use super::harness::*;
 
+fn annotation_cli_args() -> Vec<&'static str> {
+    vec![
+        "pane",
+        "annotate",
+        "w1:p1",
+        "--expected-terminal",
+        "term_1",
+        "--annotation-epoch",
+        "epoch_1",
+        "--source",
+        "build",
+        "--revision",
+        "1",
+        "--ttl-ms",
+        "5000",
+        "--text",
+        "Build: running",
+    ]
+}
+
+fn check_annotation_transport(clear: bool, fail: bool) {
+    let base = unique_test_dir();
+    fs::create_dir_all(&base).unwrap();
+    let socket_path = base.join("kitsune.sock");
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    let server = thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        let mut operation = None;
+        for expected in ["ping", "pane.annotate"] {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        assert!(Instant::now() < deadline, "missing {expected}");
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(err) => panic!("accept failed: {err}"),
+                }
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["method"], expected);
+            if expected == "ping" {
+                write_fake_pong(&mut stream, &request, "test", CURRENT_PROTOCOL);
+            } else {
+                let response = if fail {
+                    serde_json::json!({"id": request["id"], "error": {
+                        "code": "annotation_stale_revision", "message": "annotation revision rejected"
+                    }})
+                } else {
+                    serde_json::json!({"id": request["id"], "result": {"type": "ok"}})
+                };
+                writeln!(stream, "{response}").unwrap();
+                stream.flush().unwrap();
+                operation = Some(request);
+            }
+        }
+        let deadline = Instant::now() + Duration::from_millis(250);
+        while Instant::now() < deadline {
+            match listener.accept() {
+                Ok(_) => panic!("unexpected extra operation or retry after pane.annotate"),
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(err) => panic!("accept failed: {err}"),
+            }
+        }
+        operation.unwrap()
+    });
+    let mut args = annotation_cli_args();
+    if clear {
+        args.truncate(13);
+        args.push("--clear");
+    }
+    let output = run_cli(&socket_path, &args);
+    assert_eq!(
+        output.status.code(),
+        Some(if fail { 1 } else { 0 }),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+    if fail {
+        let error: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(error["error"]["code"], "annotation_stale_revision");
+        assert_eq!(error["error"]["message"], "annotation revision rejected");
+    } else {
+        assert!(output.stderr.is_empty());
+    }
+    let request = server.join().unwrap();
+    assert_eq!(
+        request["params"],
+        serde_json::json!({
+            "pane_id": "w1:p1", "expected_terminal_id": "term_1", "annotation_epoch": "epoch_1",
+            "source": "build", "revision": 1,
+            "text": if clear { None } else { Some("Build: running") }, "ttl_ms": 5000
+        })
+    );
+    cleanup_test_base(&base);
+}
+
+#[test]
+fn pane_annotate_sends_only_ping_then_one_annotation() {
+    check_annotation_transport(false, false);
+}
+
+#[test]
+fn pane_annotate_clear_sends_explicit_null() {
+    check_annotation_transport(true, false);
+}
+
+#[test]
+fn pane_annotate_propagates_server_error_without_retry() {
+    check_annotation_transport(false, true);
+}
+
+#[test]
+fn pane_annotate_invalid_args_exit_two_without_socket() {
+    let base = unique_test_dir();
+    fs::create_dir_all(&base).unwrap();
+    let socket_path = base.join("kitsune.sock");
+    let listener = UnixListener::bind(&socket_path).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let mut cases = vec![vec!["pane", "annotate"]];
+    for index in (3..15).step_by(2) {
+        let mut missing = annotation_cli_args();
+        missing.drain(index..index + 2);
+        cases.push(missing);
+        let mut duplicate = annotation_cli_args();
+        duplicate.extend_from_within(index..index + 2);
+        cases.push(duplicate);
+    }
+    for (index, value) in [
+        (2, "1-1"),
+        (4, ""),
+        (6, ""),
+        (8, "bad:source"),
+        (10, "-1"),
+        (10, "18446744073709551616"),
+        (12, "0"),
+        (12, "300001"),
+        (14, ""),
+    ] {
+        let mut invalid = annotation_cli_args();
+        invalid[index] = value;
+        cases.push(invalid);
+    }
+    for extra in ["--clear", "--unknown", "--current"] {
+        let mut invalid = annotation_cli_args();
+        invalid.push(extra);
+        cases.push(invalid);
+    }
+    for args in cases {
+        let output = run_cli(&socket_path, &args);
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "{args:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(output.stdout.is_empty());
+        assert!(
+            matches!(listener.accept(), Err(err) if err.kind() == std::io::ErrorKind::WouldBlock),
+            "invalid arguments contacted the socket: {args:?}"
+        );
+    }
+    cleanup_test_base(&base);
+}
+
 #[test]
 fn pane_run_sends_one_send_input_request_with_enter_key() {
     let base = unique_test_dir();
@@ -483,6 +659,20 @@ fn api_schema_json_prints_bundled_schema() {
 
     assert!(output.status.success());
     let schema: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(schema["schemas"]["request"]["oneOf"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|variant| variant["properties"]["method"]["const"] == "pane.annotate"));
+    let annotation = &schema["schemas"]["request"]["$defs"]["PaneAnnotateParams"];
+    assert!(annotation["required"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("text")));
+    assert_eq!(
+        annotation["properties"]["text"]["type"],
+        serde_json::json!(["string", "null"])
+    );
     assert!(schema
         .get("protocol")
         .and_then(serde_json::Value::as_u64)

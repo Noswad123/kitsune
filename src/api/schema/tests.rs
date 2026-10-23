@@ -639,6 +639,118 @@ fn success_response_round_trips() {
 }
 
 #[test]
+fn pane_annotate_requires_explicit_nullable_text_and_fences() {
+    for text in [serde_json::json!("Build: running"), serde_json::Value::Null] {
+        let value = serde_json::json!({
+            "id": "annotation", "method": "pane.annotate",
+            "params": {
+                "pane_id": "w1:p1", "expected_terminal_id": "term_1",
+                "annotation_epoch": "epoch_1", "source": "build",
+                "revision": u64::MAX, "text": text, "ttl_ms": 5000
+            }
+        });
+        let request: Request = serde_json::from_value(value.clone()).unwrap();
+        assert!(matches!(&request.method, Method::PaneAnnotate(_)));
+        assert_eq!(serde_json::to_value(&request).unwrap(), value);
+        assert!(crate::api::request_changes_ui(&request));
+        for field in [
+            "pane_id",
+            "expected_terminal_id",
+            "annotation_epoch",
+            "source",
+            "revision",
+            "text",
+            "ttl_ms",
+        ] {
+            let mut missing = value.clone();
+            missing["params"].as_object_mut().unwrap().remove(field);
+            assert!(
+                serde_json::from_value::<Request>(missing).is_err(),
+                "missing {field}"
+            );
+        }
+        for field in [
+            "pane_id",
+            "expected_terminal_id",
+            "annotation_epoch",
+            "source",
+            "revision",
+            "text",
+            "ttl_ms",
+        ] {
+            let mut wrong_type = value.clone();
+            wrong_type["params"][field] = serde_json::json!(true);
+            assert!(
+                serde_json::from_value::<Request>(wrong_type).is_err(),
+                "boolean {field}"
+            );
+        }
+        for field in ["revision", "ttl_ms"] {
+            for invalid in [
+                serde_json::json!(-1),
+                serde_json::json!(1.5),
+                serde_json::json!("1"),
+                serde_json::Value::Null,
+            ] {
+                let mut wrong_type = value.clone();
+                wrong_type["params"][field] = invalid;
+                assert!(
+                    serde_json::from_value::<Request>(wrong_type).is_err(),
+                    "invalid {field}"
+                );
+            }
+            let overflow = serde_json::to_string(&value).unwrap().replace(
+                &format!("\"{field}\":{}", value["params"][field]),
+                &format!("\"{field}\":18446744073709551616"),
+            );
+            assert!(
+                serde_json::from_str::<Request>(&overflow).is_err(),
+                "overflow {field}"
+            );
+        }
+        let mut unknown = value;
+        unknown["params"]["agent"] = serde_json::json!("not-allowed");
+        assert!(serde_json::from_value::<Request>(unknown).is_err());
+    }
+    let schema = serde_json::to_value(schemars::schema_for!(PaneAnnotateParams)).unwrap();
+    assert!(schema["required"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("text")));
+    assert_eq!(schema["additionalProperties"], false);
+    assert_eq!(
+        schema["properties"]["text"]["type"],
+        serde_json::json!(["string", "null"])
+    );
+}
+
+#[test]
+fn annotation_snapshot_descriptor_is_optional_and_advertised() {
+    let old = serde_json::json!({
+        "version": "old", "protocol": 18, "workspaces": [], "tabs": [],
+        "panes": [], "layouts": [], "agents": []
+    });
+    let mut snapshot: SessionSnapshot = serde_json::from_value(old.clone()).unwrap();
+    assert_eq!(snapshot.annotations, None);
+    assert_eq!(serde_json::to_value(&snapshot).unwrap(), old);
+    for sources in [Vec::new(), vec!["build".to_owned(), "tests".to_owned()]] {
+        snapshot.annotations = Some(AnnotationInfo {
+            epoch: "epoch_1".into(),
+            sources: sources.clone(),
+        });
+        let value = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(
+            value["annotations"],
+            serde_json::json!({"epoch": "epoch_1", "sources": sources})
+        );
+        assert_eq!(
+            serde_json::from_value::<SessionSnapshot>(value).unwrap(),
+            snapshot
+        );
+    }
+}
+
+#[test]
 fn session_snapshot_request_and_response_round_trip() {
     let request = Request {
         id: "req_snapshot".into(),
@@ -655,6 +767,7 @@ fn session_snapshot_request_and_response_round_trip() {
             snapshot: Box::new(SessionSnapshot {
                 version: "0.1.2".into(),
                 protocol: 16,
+                annotations: None,
                 focused_workspace_id: None,
                 focused_tab_id: None,
                 focused_pane_id: None,

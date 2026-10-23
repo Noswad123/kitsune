@@ -8,6 +8,33 @@ pub(crate) const PANE_GRAPHICS_STREAM_MAX_BYTES: usize = 16 * 1024 * 1024;
 use super::agents::AgentSessionInfo;
 use super::common::{AgentStatus, PaneAgentState, ReadFormat, ReadSource, SplitDirection};
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PaneAnnotateParams {
+    pub pane_id: String,
+    pub expected_terminal_id: String,
+    pub annotation_epoch: String,
+    pub source: String,
+    pub revision: u64,
+    // A missing value is invalid; explicit null clears the source's annotation.
+    #[serde(deserialize_with = "required_annotation_text")]
+    #[schemars(required, schema_with = "annotation_text_schema")]
+    pub text: Option<String>,
+    pub ttl_ms: u64,
+}
+
+fn required_annotation_text<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Option::<String>::deserialize(deserializer)
+}
+
+fn annotation_text_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    // `required` on Option alone would also remove null from the generated type.
+    schemars::json_schema!({ "type": ["string", "null"] })
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneSplitParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]

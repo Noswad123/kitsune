@@ -2334,6 +2334,49 @@
           ],
           "type": "string"
         },
+        "PaneAnnotateParams": {
+          "additionalProperties": false,
+          "properties": {
+            "annotation_epoch": {
+              "type": "string"
+            },
+            "expected_terminal_id": {
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "source": {
+              "type": "string"
+            },
+            "text": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "ttl_ms": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "pane_id",
+            "expected_terminal_id",
+            "annotation_epoch",
+            "source",
+            "revision",
+            "text",
+            "ttl_ms"
+          ],
+          "type": "object"
+        },
         "PaneClearAgentAuthorityParams": {
           "properties": {
             "pane_id": {
@@ -4831,6 +4874,22 @@
         {
           "properties": {
             "method": {
+              "const": "pane.annotate",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneAnnotateParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "pane.send_text",
               "type": "string"
             },
@@ -5585,6 +5644,24 @@
             "unknown"
           ],
           "type": "string"
+        },
+        "AnnotationInfo": {
+          "properties": {
+            "epoch": {
+              "type": "string"
+            },
+            "sources": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "epoch",
+            "sources"
+          ],
+          "type": "object"
         },
         "ClientWindowTitleReason": {
           "enum": [
@@ -8083,6 +8160,16 @@
                 "$ref": "#/schemas/success_response/$defs/AgentInfo"
               },
               "type": "array"
+            },
+            "annotations": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/AnnotationInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "focused_pane_id": {
               "type": [

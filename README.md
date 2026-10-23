@@ -4,6 +4,27 @@ Kitsune started as a personal fork of Herdr, a terminal-based runtime for runnin
 
 This fork is branded around the `kitsune` command and local Kitsune runtime state. It intentionally removes Herdr's public website, hosted updater, and plugin marketplace surfaces.
 
+[APP_BOUNDARIES.md](APP_BOUNDARIES.md) records the 2026-10-22 target: a general
+multiplexer, with agent-aware behavior moving to optional Coven integration.
+Built-in agent features described below still exist; extraction is not shipped.
+
+Initial opt-in observation is implemented in Coven only, using one explicitly
+selected existing `session.snapshot` API socket (protocol 18). See the
+[source inspection](AGENT_TRACKING_INSPECTION.md) and optional sibling
+[Coven contract](../coven/KITSUNE_OBSERVATION_CONTRACT.md); neither is a dependency.
+This is not a zero-server-effects promise: existing request housekeeping can
+expire metadata, drain events, sync titles, or ensure a default workspace,
+potentially spawning a shell. No live connections were run for this docs update.
+
+[Generic terminal annotations](ANNOTATIONS.md) are now implemented as a separate,
+opt-in path: enable a source in config, read snapshot identities/epoch, and use
+`kitsune pane annotate` to append bounded, expiring plain text in spare existing
+top-border cells. Single-pane layouts have no border; labels need an existing
+split layout with borders enabled. Manual titles and terminal space are untouched.
+Sources are logical labels, not authentication. No Coven publisher, workspace
+annotations, grouping, widgets, new panels, or agent-feature extraction is included.
+The [prototype notes](ANNOTATION_MODEL_PROTOTYPE.md) remain historical context.
+
 ## Runtime identity
 
 Kitsune has its own runtime identity so it can coexist with an installed Herdr session on the same machine.
@@ -56,6 +77,6 @@ Native Windows builds use the system ConPTY included with Windows 10 October 201
 ## Notes
 
 - Agent integrations remain available unless removed separately.
-- Durable fork documentation lives under `docs/next/`.
+- Durable decisions live in root docs; current feature details also live under `docs/next/`.
 
 Kitsune inherits Herdr's Apache-2.0 license.

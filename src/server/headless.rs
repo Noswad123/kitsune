@@ -3859,6 +3859,8 @@ impl HeadlessServer {
 
         self.app.sync_headless_animation_timer(now);
 
+        changed |= self.app.expire_due_annotations(now);
+
         // No resize polling needed — server has no terminal.
         // Client resize messages drive size changes instead.
 
@@ -5826,6 +5828,45 @@ next_tab = ""
                 Bytes::from_static(b"\x1b[5~")
             );
         });
+    }
+
+    #[test]
+    fn annotations_headless_quiet_expiry_consumes_deadline() {
+        let mut server = test_headless_server();
+        server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("shell")];
+        server.app.state.active = Some(0);
+        server.app.state.ensure_test_terminals();
+        let pane = server.app.state.workspaces[0].tabs[0].root_pane;
+        let id = server.app.state.terminal_id_for_pane(0, pane).unwrap();
+        let now = Instant::now();
+        server
+            .app
+            .state
+            .annotations
+            .reconfigure(vec!["build".into()])
+            .unwrap();
+        let epoch = server.app.state.annotations.epoch().to_owned();
+        server
+            .app
+            .state
+            .annotations
+            .replace(
+                &epoch,
+                "build",
+                id.clone(),
+                1,
+                Some("busy".into()),
+                Duration::from_millis(1),
+                now,
+            )
+            .unwrap();
+        server.app.state.sync_annotation_deadline(now);
+        let deadline = server.app.state.next_annotation_deadline.unwrap();
+        assert!(server.handle_scheduled_tasks_headless(deadline, false));
+        assert_eq!(server.app.state.annotations.project(&id, deadline), None);
+        assert_eq!(server.app.state.next_annotation_deadline, None);
+        assert!(!server.app.expire_due_annotations(deadline));
+        server.app.state.assert_invariants_for_test();
     }
 
     #[test]

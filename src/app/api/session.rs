@@ -1,4 +1,4 @@
-use crate::api::schema::{ResponseResult, SessionSnapshot};
+use crate::api::schema::{AnnotationInfo, ResponseResult, SessionSnapshot};
 use crate::app::App;
 
 use super::responses::encode_success;
@@ -45,6 +45,10 @@ impl App {
         SessionSnapshot {
             version: crate::build_info::version(),
             protocol: crate::protocol::PROTOCOL_VERSION,
+            annotations: Some(AnnotationInfo {
+                epoch: self.state.annotations.epoch().to_owned(),
+                sources: self.state.annotations.sources().to_vec(),
+            }),
             focused_workspace_id,
             focused_tab_id,
             focused_pane_id,
@@ -92,6 +96,13 @@ mod tests {
             panic!("expected session snapshot response");
         };
         assert_eq!(success.id, "req_snapshot");
+        let annotations = snapshot
+            .annotations
+            .as_ref()
+            .expect("annotation feature descriptor");
+        assert_eq!(annotations.epoch, app.state.annotations.epoch());
+        assert_eq!(annotations.sources, app.state.annotations.sources());
+        assert!(annotations.sources.is_empty());
         assert_eq!(snapshot.workspaces.len(), 1);
         assert_eq!(snapshot.tabs.len(), 2);
         assert_eq!(snapshot.panes.len(), 2);

@@ -7,7 +7,6 @@ use ratatui::{
 };
 
 use super::scrollbar::{render_pane_scrollbar, should_show_scrollbar};
-#[cfg(test)]
 use super::text::display_width;
 use super::text::truncate_end;
 use super::widgets::panel_contrast_fg;
@@ -443,6 +442,24 @@ fn render_pane_borders(
     split_borders: &[crate::layout::SplitBorder],
     frame: &mut Frame,
 ) {
+    render_pane_borders_at(
+        app,
+        ws,
+        pane_infos,
+        split_borders,
+        frame,
+        std::time::Instant::now(),
+    );
+}
+
+fn render_pane_borders_at(
+    app: &AppState,
+    ws: &crate::workspace::Workspace,
+    pane_infos: &[PaneInfo],
+    split_borders: &[crate::layout::SplitBorder],
+    frame: &mut Frame,
+    now: std::time::Instant,
+) {
     if !app.pane_borders || pane_infos.iter().all(|info| info.borders.is_empty()) {
         return;
     }
@@ -480,7 +497,7 @@ fn render_pane_borders(
         cell.set_style(Style::default().fg(color));
     }
 
-    render_pane_border_titles(app, ws, pane_infos, frame);
+    render_pane_border_titles_at(app, ws, pane_infos, frame, now);
 }
 
 fn add_split_border_cells(
@@ -605,11 +622,12 @@ fn line_touches_pane(x: u16, y: u16, info: &PaneInfo, pane_gaps: bool) -> bool {
         || (x == shared_right && y == shared_bottom)
 }
 
-fn render_pane_border_titles(
+fn render_pane_border_titles_at(
     app: &AppState,
     ws: &crate::workspace::Workspace,
     pane_infos: &[PaneInfo],
     frame: &mut Frame,
+    now: std::time::Instant,
 ) {
     let buf = frame.buffer_mut();
     let area = buf.area;
@@ -617,14 +635,33 @@ fn render_pane_border_titles(
         if !info.borders.contains(Borders::TOP) || info.rect.width <= 4 {
             continue;
         }
-        let Some(title) = ws
-            .pane_state(info.id)
-            .and_then(|pane| app.terminals.get(&pane.attached_terminal_id))
-            .and_then(|terminal| terminal.border_label(app.show_agent_labels_on_pane_borders))
-            .and_then(|label| pane_border_title(&label, info.rect.width, info.is_focused))
-        else {
+        let Some(pane) = ws.pane_state(info.id) else {
             continue;
         };
+        let label = app
+            .terminals
+            .get(&pane.attached_terminal_id)
+            .and_then(|terminal| terminal.border_label(app.show_agent_labels_on_pane_borders));
+        let title = pane_border_title(
+            label.as_deref().unwrap_or(""),
+            info.rect.width,
+            info.is_focused,
+        );
+        let mut title = title.unwrap_or_default();
+        if let Some(annotation) = app.annotations.project(&pane.attached_terminal_id, now) {
+            let remaining =
+                (info.rect.width.saturating_sub(2) as usize).saturating_sub(display_width(&title));
+            // Existing title and its padding always win; only spare border cells are used.
+            if remaining > 2 {
+                let text = crate::annotations::render_text(annotation, remaining - 2);
+                title.push(' ');
+                title.push_str(&text);
+                title.push(' ');
+            }
+        }
+        if title.is_empty() {
+            continue;
+        }
         let y = info.rect.y;
         if y < area.y || y >= area.y.saturating_add(area.height) {
             continue;
@@ -972,6 +1009,283 @@ mod tests {
             &app.view.split_borders,
             frame,
         );
+    }
+
+    #[test]
+    fn annotations_json_update_reaches_shell_border_and_quiet_expiry() {
+        use crate::api::schema::{Request, ResponseResult, SuccessResponse};
+
+        let mut config = crate::config::Config::default();
+        config.annotations.sources = vec!["build".into()];
+        let mut app = crate::app::App::new(
+            &config,
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let mut ws = Workspace::test_new("shell");
+        let pane = ws.tabs[0].root_pane;
+        ws.test_split(ratatui::layout::Direction::Horizontal);
+        let id = ws.terminal_id(pane).unwrap().clone();
+        let public_pane_id = crate::workspace::public_pane_id_for_number(
+            &ws.id,
+            ws.public_pane_number(pane).unwrap(),
+        );
+        let area = Rect::new(0, 0, 80, 4);
+        let infos = apply_pane_chrome(ws.tabs[0].layout.panes(area), true, false);
+        let splits = ws.tabs[0].layout.splits(area);
+        app.state.workspaces = vec![ws];
+        app.state.active = Some(0);
+        app.state.ensure_test_terminals();
+        app.state
+            .terminals
+            .get_mut(&id)
+            .unwrap()
+            .set_manual_label("my shell".into());
+        let agent_state = app.state.terminals[&id].state;
+        let snapshot = |app: &crate::app::App| {
+            serde_json::to_value(crate::persist::capture(
+                &app.state.workspaces,
+                &app.state.terminals,
+                &app.terminal_runtimes,
+                app.state.active,
+                app.state.selected,
+                app.state.sidebar_width,
+                app.state.sidebar_section_split,
+                app.state.collapsed_space_keys.clone(),
+            ))
+            .unwrap()
+        };
+        let persisted_before = snapshot(&app);
+        let draw = |state: &AppState, at| {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 4)).unwrap();
+            terminal
+                .draw(|frame| {
+                    render_pane_borders_at(state, &state.workspaces[0], &infos, &splits, frame, at)
+                })
+                .unwrap();
+            terminal.backend().buffer().clone()
+        };
+        let baseline = draw(&app.state, std::time::Instant::now());
+        let json = serde_json::json!({
+            "id": "build-update", "method": "pane.annotate", "params": {
+                "pane_id": public_pane_id, "expected_terminal_id": id.to_string(),
+                "annotation_epoch": app.state.annotations.epoch(), "source": "build",
+                "revision": 1, "text": "Build: running", "ttl_ms": 300000
+            }
+        })
+        .to_string();
+        let request: Request = serde_json::from_str(&json).unwrap();
+        assert!(crate::api::request_changes_ui(&request));
+        let response: SuccessResponse =
+            serde_json::from_str(&app.handle_api_request(request)).unwrap();
+        assert_eq!(response.result, ResponseResult::Ok {});
+        let now = std::time::Instant::now();
+        let visible = draw(&app.state, now);
+        let text: String = (0..40).map(|x| visible[(x, 0)].symbol()).collect();
+        assert!(text.contains("my shell  Build: running"), "{text:?}");
+        assert_eq!(snapshot(&app), persisted_before);
+        app.state.assert_invariants_for_test();
+
+        let deadline = app
+            .state
+            .next_annotation_deadline
+            .expect("accepted annotation schedules expiry");
+        assert!(deadline > now);
+        assert!(app.expire_due_annotations(deadline));
+        assert_eq!(app.state.next_annotation_deadline, None);
+        assert_eq!(draw(&app.state, deadline), baseline);
+        assert!(!app.expire_due_annotations(deadline));
+        let replay: Request = serde_json::from_str(&json).unwrap();
+        let response: serde_json::Value =
+            serde_json::from_str(&app.handle_api_request(replay)).unwrap();
+        assert_eq!(response["error"]["code"], "annotation_stale_revision");
+        assert_eq!(draw(&app.state, deadline), baseline);
+        assert_eq!(snapshot(&app), persisted_before);
+        assert_eq!(
+            app.state.terminals[&id].manual_label.as_deref(),
+            Some("my shell")
+        );
+        assert_eq!(app.state.terminals[&id].state, agent_state);
+        assert!(!app.state.terminals[&id].is_agent_terminal());
+        assert_eq!(app.terminal_runtimes.len(), 0);
+        app.state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn annotations_shell_border_preserves_name_and_expires_to_identical_frame() {
+        let now = std::time::Instant::now();
+        let mut app = AppState::test_new();
+        let mut ws = Workspace::test_new("shell");
+        let pane = ws.tabs[0].root_pane;
+        ws.test_split(ratatui::layout::Direction::Horizontal);
+        for pane in ws.tabs[0].panes.values() {
+            let id = pane.attached_terminal_id.clone();
+            app.terminals
+                .insert(id.clone(), TerminalState::new(id, "/tmp".into()));
+        }
+        let id = ws.terminal_id(pane).unwrap().clone();
+        app.terminals
+            .get_mut(&id)
+            .unwrap()
+            .set_manual_label("my shell".into());
+        app.annotations.reconfigure(vec!["build".into()]).unwrap();
+        let epoch = app.annotations.epoch().to_owned();
+        let infos = apply_pane_chrome(ws.tabs[0].layout.panes(Rect::new(0, 0, 80, 4)), true, false);
+        assert!(infos
+            .iter()
+            .find(|info| info.id == pane)
+            .unwrap()
+            .borders
+            .contains(Borders::TOP));
+        let draw = |app: &AppState, at| {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 4)).unwrap();
+            terminal
+                .draw(|frame| render_pane_borders_at(app, &ws, &infos, &[], frame, at))
+                .unwrap();
+            terminal.backend().buffer().clone()
+        };
+        let baseline = draw(&app, now);
+        app.annotations
+            .replace(
+                &epoch,
+                "build",
+                id.clone(),
+                1,
+                Some("passed".into()),
+                std::time::Duration::from_millis(1),
+                now,
+            )
+            .unwrap();
+        let visible = draw(&app, now);
+        let text: String = (0..40).map(|x| visible[(x, 0)].symbol()).collect();
+        assert!(text.contains("my shell  passed"), "{text:?}");
+        for x in 0..11 {
+            assert_eq!(visible[(x, 0)], baseline[(x, 0)]);
+        }
+        assert_eq!(
+            draw(&app, now + std::time::Duration::from_millis(1)),
+            baseline
+        );
+        assert_eq!(
+            app.terminals[&id].border_label(false).as_deref(),
+            Some("my shell")
+        );
+        assert!(!app.terminals[&id].is_agent_terminal());
+        app.terminals.get_mut(&id).unwrap().clear_manual_label();
+        let unnamed = draw(&app, now);
+        let text: String = (0..40).map(|x| unnamed[(x, 0)].symbol()).collect();
+        assert!(text.contains(" passed "));
+        assert_eq!(app.terminals[&id].border_label(false), None);
+        ws.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn annotations_single_pane_keeps_existing_borderless_frame() {
+        let now = std::time::Instant::now();
+        let mut app = AppState::test_new();
+        let ws = Workspace::test_new("shell");
+        let id = ws.terminal_id(ws.tabs[0].root_pane).unwrap().clone();
+        let mut state = TerminalState::new(id.clone(), "/tmp".into());
+        state.set_manual_label("my shell".into());
+        app.terminals.insert(id.clone(), state);
+        app.annotations.reconfigure(vec!["build".into()]).unwrap();
+        let infos = apply_pane_chrome(ws.tabs[0].layout.panes(Rect::new(0, 0, 80, 4)), true, false);
+        assert!(infos.iter().all(|info| info.borders.is_empty()));
+        let draw = |app: &AppState| {
+            let mut terminal =
+                ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 4)).unwrap();
+            terminal
+                .draw(|frame| render_pane_borders_at(app, &ws, &infos, &[], frame, now))
+                .unwrap();
+            terminal.backend().buffer().clone()
+        };
+        let baseline = draw(&app);
+        let epoch = app.annotations.epoch().to_owned();
+        app.annotations
+            .replace(
+                &epoch,
+                "build",
+                id.clone(),
+                1,
+                Some("passed".into()),
+                std::time::Duration::from_secs(1),
+                now,
+            )
+            .unwrap();
+        assert_eq!(app.annotations.project(&id, now), Some("passed"));
+        assert_eq!(draw(&app), baseline);
+        assert_eq!(
+            app.terminals[&id].border_label(false).as_deref(),
+            Some("my shell")
+        );
+        ws.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn annotations_border_unicode_controls_tiny_and_borderless_budgets() {
+        let now = std::time::Instant::now();
+        for width in 0..32 {
+            for borders in [Borders::ALL, Borders::NONE] {
+                let mut app = AppState::test_new();
+                let ws = Workspace::test_new("shell");
+                let pane = ws.tabs[0].root_pane;
+                let id = ws.terminal_id(pane).unwrap().clone();
+                let mut state = TerminalState::new(id.clone(), "/tmp".into());
+                state.set_manual_label("界name".into());
+                app.terminals.insert(id.clone(), state);
+                app.annotations.reconfigure(vec!["build".into()]).unwrap();
+                let infos = vec![PaneInfo {
+                    id: pane,
+                    rect: Rect::new(1, 0, width, 3),
+                    inner_rect: Rect::new(1, 1, width, 1),
+                    scrollbar_rect: None,
+                    borders,
+                    is_focused: true,
+                }];
+                let draw = |app: &AppState| {
+                    let mut terminal =
+                        ratatui::Terminal::new(ratatui::backend::TestBackend::new(34, 3)).unwrap();
+                    terminal
+                        .draw(|frame| render_pane_borders_at(app, &ws, &infos, &[], frame, now))
+                        .unwrap();
+                    terminal.backend().buffer().clone()
+                };
+                let baseline = draw(&app);
+                let epoch = app.annotations.epoch().to_owned();
+                app.annotations
+                    .replace(
+                        &epoch,
+                        "build",
+                        id,
+                        1,
+                        Some("界\n\u{1b}\u{202e}".into()),
+                        std::time::Duration::from_secs(1),
+                        now,
+                    )
+                    .unwrap();
+                let annotated = draw(&app);
+                if borders.is_empty() || width <= 4 {
+                    assert_eq!(annotated, baseline);
+                }
+                if let Some(title) = pane_border_title("界name", width, true) {
+                    for x in 2..2 + display_width(&title) as u16 {
+                        assert_eq!(annotated[(x, 0)], baseline[(x, 0)], "width {width}, x {x}");
+                    }
+                }
+                assert_eq!(annotated[(0, 0)], baseline[(0, 0)]);
+                for x in 1 + width.saturating_sub(1)..34 {
+                    assert_eq!(annotated[(x, 0)], baseline[(x, 0)]);
+                }
+                assert!(annotated
+                    .content
+                    .iter()
+                    .all(|cell| !cell.symbol().chars().any(char::is_control)));
+            }
+        }
     }
 
     #[test]

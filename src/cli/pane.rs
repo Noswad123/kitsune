@@ -1,5 +1,5 @@
 use crate::api::schema::{
-    Method, OutputMatch, PaneCurrentParams, PaneDirection, PaneEdgesParams,
+    Method, OutputMatch, PaneAnnotateParams, PaneCurrentParams, PaneDirection, PaneEdgesParams,
     PaneFocusDirectionParams, PaneLayoutParams, PaneListParams, PaneMoveDestination,
     PaneMoveParams, PaneNeighborParams, PaneProcessInfoParams, PaneReadParams,
     PaneReleaseAgentParams, PaneRenameParams, PaneReportAgentParams, PaneReportAgentSessionParams,
@@ -35,6 +35,7 @@ pub(super) fn run_pane_command(args: &[String]) -> std::io::Result<i32> {
         "zoom" => pane_zoom(&args[1..]),
         "read" => pane_read(&args[1..]),
         "rename" => pane_rename(&args[1..]),
+        "annotate" => pane_annotate(&args[1..]),
         "split" => pane_split(&args[1..]),
         "swap" => pane_swap(&args[1..]),
         "move" => pane_move(&args[1..]),
@@ -423,6 +424,115 @@ fn parse_pane_zoom_args(args: &[String]) -> Result<PaneZoomParams, String> {
     }
 
     Ok(PaneZoomParams { pane_id, mode })
+}
+
+fn pane_annotate(args: &[String]) -> std::io::Result<i32> {
+    let params = match parse_pane_annotate_args(args) {
+        Ok(params) => params,
+        Err(message) => {
+            eprintln!("{message}");
+            return Ok(2);
+        }
+    };
+    super::send_ok_request(Method::PaneAnnotate(params))
+}
+
+fn parse_pane_annotate_args(args: &[String]) -> Result<PaneAnnotateParams, String> {
+    let pane_id = args.first().ok_or("missing required canonical pane ID")?;
+    let canonical = pane_id.split_once(":p").is_some_and(|(workspace, pane)| {
+        crate::workspace::public_workspace_number(workspace).is_some_and(|n| n > 0)
+            && crate::workspace::decode_public_number(pane).is_some_and(|n| n > 0)
+    });
+    if pane_id.len() > 256 || !canonical {
+        return Err("expected canonical public pane ID (w1:p1)".into());
+    }
+
+    let mut flags = std::collections::HashMap::new();
+    let mut index = 1;
+    while index < args.len() {
+        let flag = args[index].as_str();
+        if !matches!(
+            flag,
+            "--expected-terminal"
+                | "--annotation-epoch"
+                | "--source"
+                | "--revision"
+                | "--text"
+                | "--clear"
+                | "--ttl-ms"
+        ) {
+            return Err(format!("unknown option: {flag}"));
+        }
+        if flags.contains_key(flag) {
+            return Err(format!("duplicate option: {flag}"));
+        }
+        let value = if flag == "--clear" {
+            index += 1;
+            ""
+        } else {
+            let value = args
+                .get(index + 1)
+                .filter(|value| !value.starts_with("--"))
+                .ok_or_else(|| format!("missing value for {flag}"))?;
+            index += 2;
+            value.as_str()
+        };
+        flags.insert(flag, value);
+    }
+    let required = |flag| {
+        flags
+            .get(flag)
+            .copied()
+            .ok_or_else(|| format!("missing required {flag}"))
+    };
+    let expected_terminal_id = required("--expected-terminal")?;
+    let annotation_epoch = required("--annotation-epoch")?;
+    for (flag, value) in [
+        ("--expected-terminal", expected_terminal_id),
+        ("--annotation-epoch", annotation_epoch),
+    ] {
+        if value.trim().is_empty() || value.len() > 256 {
+            return Err(format!("{flag} must be nonempty and at most 256 bytes"));
+        }
+    }
+    let source = required("--source")?;
+    if source.is_empty()
+        || source.len() > 64
+        || !source
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        return Err("--source must be 1..64 ASCII letters, digits, '-', '_', or '.'".into());
+    }
+    let number = |flag| -> Result<u64, String> {
+        let value = required(flag)?;
+        if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+            return Err(format!("invalid {flag}: expected u64"));
+        }
+        value
+            .parse()
+            .map_err(|_| format!("invalid {flag}: expected u64"))
+    };
+    let revision = number("--revision")?;
+    let ttl_ms = number("--ttl-ms")?;
+    if !(1..=300_000).contains(&ttl_ms) {
+        return Err("--ttl-ms must be 1..300000".into());
+    }
+    let text = match (flags.get("--text"), flags.contains_key("--clear")) {
+        (Some(text), false) if !text.is_empty() && text.len() <= 256 => Some((*text).to_owned()),
+        (Some(_), false) => return Err("--text must be 1..256 UTF-8 bytes".into()),
+        (None, true) => None,
+        _ => return Err("provide exactly one of --text or --clear".into()),
+    };
+    Ok(PaneAnnotateParams {
+        pane_id: pane_id.clone(),
+        expected_terminal_id: expected_terminal_id.to_owned(),
+        annotation_epoch: annotation_epoch.to_owned(),
+        source: source.to_owned(),
+        revision,
+        text,
+        ttl_ms,
+    })
 }
 
 fn pane_rename(args: &[String]) -> std::io::Result<i32> {
@@ -1547,6 +1657,7 @@ fn print_pane_help() {
         cli_command("pane zoom [<pane_id>|--pane ID|--current] [--toggle|--on|--off]")
     );
     eprintln!("  {}", cli_command("pane rename <pane_id> <label>|--clear"));
+    eprintln!("  {}", cli_command("pane annotate <pane_id> --expected-terminal ID --annotation-epoch EPOCH --source ID --revision N (--text TEXT|--clear) --ttl-ms N"));
     eprintln!(
         "  {}",
         cli_command("pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]")
@@ -1612,6 +1723,115 @@ mod tests {
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    fn annotation_args() -> Vec<String> {
+        args(&[
+            "w1:p1",
+            "--expected-terminal",
+            "term_1",
+            "--annotation-epoch",
+            "epoch_1",
+            "--source",
+            "build",
+            "--revision",
+            "0",
+            "--ttl-ms",
+            "1",
+            "--text",
+            "Build: running",
+        ])
+    }
+
+    #[test]
+    fn parse_pane_annotate_accepts_explicit_text_clear_and_limits() {
+        let mut values = annotation_args();
+        let params = parse_pane_annotate_args(&values).unwrap();
+        assert_eq!(params.pane_id, "w1:p1");
+        assert_eq!(params.expected_terminal_id, "term_1");
+        assert_eq!(params.annotation_epoch, "epoch_1");
+        assert_eq!(params.revision, 0);
+        assert_eq!(params.ttl_ms, 1);
+        assert_eq!(params.text.as_deref(), Some("Build: running"));
+        values[6] = "s".repeat(64);
+        values[8] = u64::MAX.to_string();
+        values[10] = "300000".into();
+        values[12] = "\u{00e9}".repeat(128);
+        let params = parse_pane_annotate_args(&values).unwrap();
+        assert_eq!(params.revision, u64::MAX);
+        assert_eq!(params.text.unwrap().len(), 256);
+        values.truncate(11);
+        values.push("--clear".into());
+        assert_eq!(parse_pane_annotate_args(&values).unwrap().text, None);
+    }
+
+    #[test]
+    fn parse_pane_annotate_rejects_invalid_values() {
+        for (index, invalid) in [
+            (0, "".into()),
+            (0, "1-1".into()),
+            (0, "p_1_1".into()),
+            (0, "agent:build".into()),
+            (0, "w1:p".into()),
+            (0, "w:p1".into()),
+            (2, "".into()),
+            (2, "t".repeat(257)),
+            (4, " ".into()),
+            (4, "e".repeat(257)),
+            (6, "".into()),
+            (6, "bad:source".into()),
+            (6, "\u{00e9}".into()),
+            (6, "s".repeat(65)),
+            (8, "-1".into()),
+            (8, "+1".into()),
+            (8, "18446744073709551616".into()),
+            (8, "1.0".into()),
+            (10, "0".into()),
+            (10, "300001".into()),
+            (10, "-1".into()),
+            (12, "".into()),
+            (12, "\u{00e9}".repeat(129)),
+        ] {
+            let mut values = annotation_args();
+            values[index] = invalid;
+            assert!(parse_pane_annotate_args(&values).is_err(), "{values:?}");
+        }
+    }
+
+    #[test]
+    fn parse_pane_annotate_requires_every_flag_and_rejects_duplicates() {
+        assert!(parse_pane_annotate_args(&[]).is_err());
+        for index in (1..13).step_by(2) {
+            let mut values = annotation_args();
+            values.drain(index..index + 2);
+            assert!(
+                parse_pane_annotate_args(&values).is_err(),
+                "missing flag {index}"
+            );
+            let mut values = annotation_args();
+            values.extend_from_within(index..index + 2);
+            assert!(
+                parse_pane_annotate_args(&values).is_err(),
+                "duplicate flag {index}"
+            );
+        }
+        for extra in [
+            args(&["--clear"]),
+            args(&["--unknown", "x"]),
+            args(&["--current"]),
+            args(&["w2:p1"]),
+        ] {
+            let mut values = annotation_args();
+            values.extend(extra);
+            assert!(parse_pane_annotate_args(&values).is_err());
+        }
+        let mut clear = annotation_args();
+        clear.truncate(11);
+        clear.extend(args(&["--clear", "--clear"]));
+        assert!(parse_pane_annotate_args(&clear).is_err());
+        let mut missing_value = annotation_args();
+        missing_value.pop();
+        assert!(parse_pane_annotate_args(&missing_value).is_err());
     }
 
     #[test]

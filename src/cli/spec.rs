@@ -507,6 +507,19 @@ fn pane_command() -> Command {
                 .arg(flag("clear")),
         )
         .subcommand(
+            Command::new("annotate")
+                .about("Set or clear a source-owned pane border annotation")
+                .arg(required("pane_id", "PANE_ID").help("Canonical public pane ID (w1:p1); no aliases or focused default"))
+                .arg(option("expected-terminal", "TERMINAL_ID").required(true))
+                .arg(option("annotation-epoch", "EPOCH").required(true))
+                .arg(option("source", "ID").required(true).help("Explicitly selected source; 1..64 ASCII letters, digits, '-', '_', '.'"))
+                .arg(option("revision", "N").required(true).help("u64 revision, strictly increasing per source and terminal"))
+                .arg(option("text", "TEXT").help("Nonempty plain text, at most 256 UTF-8 bytes"))
+                .arg(flag("clear").help("Clear this source's annotation"))
+                .group(ArgGroup::new("annotation-value").args(["text", "clear"]).required(true))
+                .arg(option("ttl-ms", "N").required(true).help("Lifetime in milliseconds, 1..300000, including clears")),
+        )
+        .subcommand(
             Command::new("split")
                 .about("Split a pane")
                 .arg(Arg::new("pane_id").value_name("PANE_ID"))
@@ -993,6 +1006,16 @@ mod tests {
             (&["pane", "neighbor"][..], &["direction"][..]),
             (&["pane", "focus"][..], &["direction"][..]),
             (&["pane", "resize"][..], &["direction"][..]),
+            (
+                &["pane", "annotate"][..],
+                &[
+                    "expected-terminal",
+                    "annotation-epoch",
+                    "source",
+                    "revision",
+                    "ttl-ms",
+                ][..],
+            ),
             (&["pane", "report-agent"][..], &["source", "agent"][..]),
             (
                 &["pane", "report-agent-session"][..],
@@ -1010,6 +1033,66 @@ mod tests {
                     path.join(" ")
                 );
             }
+        }
+    }
+
+    #[test]
+    fn pane_annotate_spec_requires_exactly_one_text_or_clear() {
+        let base = [
+            crate::product::CLI_NAME,
+            "pane",
+            "annotate",
+            "w1:p1",
+            "--expected-terminal",
+            "term_1",
+            "--annotation-epoch",
+            "epoch_1",
+            "--source",
+            "build",
+            "--revision",
+            "1",
+            "--ttl-ms",
+            "5000",
+        ];
+        for value in [&["--text", "Build: running"][..], &["--clear"][..]] {
+            let mut args = base.to_vec();
+            args.extend_from_slice(value);
+            assert!(super::command().try_get_matches_from(args).is_ok());
+        }
+        for value in [
+            &[][..],
+            &["--text", "running", "--clear"][..],
+            &["--clear", "--clear"][..],
+        ] {
+            let mut args = base.to_vec();
+            args.extend_from_slice(value);
+            assert!(super::command().try_get_matches_from(args).is_err());
+        }
+        let mut help = Vec::new();
+        super::write_requested_help(
+            &[
+                crate::product::CLI_NAME.to_owned(),
+                "pane".into(),
+                "annotate".into(),
+                "--help".into(),
+            ],
+            &mut help,
+        )
+        .unwrap();
+        let help = String::from_utf8(help).unwrap();
+        for expected in [
+            "--expected-terminal",
+            "--annotation-epoch",
+            "--source",
+            "--revision",
+            "--ttl-ms",
+            "--text",
+            "--clear",
+            "256",
+            "300000",
+            "Canonical",
+        ] {
+            assert!(help.contains(expected), "missing {expected} in {help}");
         }
     }
 

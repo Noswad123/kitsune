@@ -7,6 +7,7 @@ use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
     "agent_detection",
+    "annotations",
     "experimental",
     "keys",
     "onboarding",
@@ -284,6 +285,20 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
     let mut diagnostics = unknown_top_level_section_diagnostics(table);
     diagnostics.extend(unknown_top_level_config_key_diagnostics(table));
     let mut invalid_sections = Vec::new();
+
+    load_live_section(
+        table,
+        "annotations",
+        "annotations config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.annotations = section,
+    );
+    if crate::annotations::validate_sources(&config.annotations.sources).is_err() {
+        diagnostics
+            .push("invalid annotations.sources; keeping previous [annotations] settings".into());
+        invalid_sections.push("annotations".into());
+    }
 
     if let Some(value) = table.get("onboarding") {
         match value.clone().try_into::<Option<bool>>() {
@@ -758,6 +773,38 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn annotations_live_config_validates_without_activation() {
+        let empty = load_live_config_from_str("").unwrap();
+        assert!(empty.config.annotations.sources.is_empty());
+        let valid =
+            load_live_config_from_str("[annotations]\nsources = ['build', 'tests']\n").unwrap();
+        assert_eq!(valid.config.annotations.sources, ["build", "tests"]);
+        assert!(valid.invalid_sections.is_empty());
+        assert!(!valid
+            .diagnostics
+            .iter()
+            .any(|value| value.contains("annotations")));
+        for section in [
+            "sources = ['build', 'build']",
+            "sources = ['bad source']",
+            "sources = 1",
+        ] {
+            let invalid =
+                load_live_config_from_str(&format!("[annotations]\n{section}\n")).unwrap();
+            assert!(invalid
+                .invalid_sections
+                .iter()
+                .any(|value| value == "annotations"));
+            assert!(!invalid.diagnostics.is_empty());
+        }
+        let config: Config = toml::from_str("[annotations]\nsources = ['bad source']").unwrap();
+        assert!(config
+            .collect_diagnostics()
+            .iter()
+            .any(|value| value.contains("annotations.sources")));
+    }
 
     #[test]
     fn upsert_top_level_bool_replaces_existing_value() {

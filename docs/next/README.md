@@ -2,6 +2,11 @@
 
 Kitsune started as a personal Herdr fork and is distributed as the `kitsune` command.
 
+The [2026-10-22 app boundary decision](../../APP_BOUNDARIES.md) defines a target
+general multiplexer with optional Coven-owned agent features. This page describes
+current built-in behavior, not completed extraction. Djinn rollout notes below
+are compatibility work during that transition, not the target core boundary.
+
 The hosted Herdr website, versioned website docs, hosted updater manifests, and plugin marketplace docs do not apply to this fork. Keep durable local documentation in repository docs and keep the bundled API schema in `docs/next/api/`.
 
 ## Runtime identity
@@ -43,6 +48,11 @@ The session navigator is the shared surface for workspace, tab, pane, and agent 
 
 ## Integrations
 
+[Generic terminal annotations](../../ANNOTATIONS.md) are available through opt-in
+`[annotations] sources` and `pane.annotate`/`kitsune pane annotate`. This independent
+integration adds expiring plain text only to spare existing pane-border cells;
+single-pane layouts have no border. It adds no agent identity or Coven publisher.
+
 Current supported integration targets are:
 
 - `pi`
@@ -52,7 +62,7 @@ Current supported integration targets are:
 - `copilot`
 - `djinn`
 
-Djinn is a built-in first-class agent kind. It participates in process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, full lifecycle authority when compatible Djinn builds report pane state with source `kitsune:djinn` and agent label `djinn`, resume planning for reported Djinn session ids through `djinn agent chat --resume <id>`, and authority release when compatible Djinn builds report chat exit.
+Djinn is a built-in first-class agent kind. It participates in process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, full lifecycle authority when compatible Djinn builds report pane state with source `kitsune:djinn` and agent label `djinn`, resume planning for reported Djinn session ids through `djinn -s <id>`, and authority release when compatible Djinn builds report chat exit.
 
 Kitsune intentionally does not fetch, compare, or install Djinn versions. Install or update the managed Jamal Arcana tool suite with `arcana update` to keep Kitsune and Djinn on compatible builds. Older or unmanaged Djinn panes continue to fall back to process detection plus the generic known-agent idle behavior when lifecycle reports are unavailable.
 

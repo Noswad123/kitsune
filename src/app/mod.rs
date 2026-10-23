@@ -508,6 +508,11 @@ impl App {
         let (theme_palette, theme_name) = resolve_effective_theme(&theme_runtime, None);
 
         let mut state = AppState {
+            annotations: crate::annotations::AnnotationState::new(
+                config.annotations.sources.clone(),
+            )
+            .unwrap_or_default(),
+            next_annotation_deadline: None,
             terminals: std::collections::HashMap::new(),
             direct_attach_resize_locks: std::collections::HashSet::new(),
             pane_id_aliases: std::collections::HashMap::new(),
@@ -1348,6 +1353,19 @@ impl App {
         let mut diagnostics = load_diagnostics.to_vec();
         let invalid_section =
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
+
+        if !invalid_section("annotations") {
+            match self
+                .state
+                .annotations
+                .reconfigure(config.annotations.sources.clone())
+            {
+                Ok(_) => self.state.sync_annotation_deadline(Instant::now()),
+                Err(_) => diagnostics.push(
+                    "invalid annotations.sources; keeping previous [annotations] settings".into(),
+                ),
+            }
+        }
 
         if !invalid_section("keys") {
             match config.live_keybinds_with_diagnostics() {

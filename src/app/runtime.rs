@@ -320,6 +320,7 @@ impl App {
         }
 
         changed |= self.expire_due_metadata(now);
+        changed |= self.expire_due_annotations(now);
 
         if geometry_dirty || resized {
             self.pending_agent_resume_deadline = None;
@@ -329,6 +330,16 @@ impl App {
         }
         self.sync_animation_timer(now);
         changed
+    }
+
+    /// Consume expired display deadlines without deleting revision watermarks.
+    pub(crate) fn expire_due_annotations(&mut self, now: Instant) -> bool {
+        let due = self
+            .state
+            .next_annotation_deadline
+            .is_some_and(|deadline| now >= deadline);
+        self.state.sync_annotation_deadline(now);
+        due
     }
 
     /// Clears temporary copied-token highlights, such as after double-click copy.
@@ -545,6 +556,7 @@ impl App {
                 .flatten(),
             self.next_agent_manifest_update_check,
             self.agent_metadata_deadline,
+            self.state.next_annotation_deadline,
             self.pending_agent_resume_deadline,
             self.session_save_deadline,
             self.selection_autoscroll_deadline,
@@ -622,6 +634,162 @@ mod tests {
             is_focused: true,
         });
         (app, pane_id)
+    }
+
+    #[test]
+    fn annotations_quiet_expiry_repaints_once_without_busy_loop() {
+        let (mut app, pane) = test_app_with_pane();
+        app.state.ensure_test_terminals();
+        let id = app.state.terminal_id_for_pane(0, pane).unwrap();
+        let now = Instant::now();
+        let ttl = std::time::Duration::from_millis(1);
+        app.state
+            .annotations
+            .reconfigure(vec!["build".into()])
+            .unwrap();
+        let epoch = app.state.annotations.epoch().to_owned();
+        app.state
+            .annotations
+            .replace(
+                &epoch,
+                "build",
+                id.clone(),
+                1,
+                Some("busy".into()),
+                ttl,
+                now,
+            )
+            .unwrap();
+        app.state.sync_annotation_deadline(now);
+        assert_eq!(
+            app.next_headless_loop_deadline_with_git_refresh(now, false, false),
+            Some(now + ttl)
+        );
+        assert!(!app.expire_due_annotations(now));
+        assert!(app.handle_scheduled_tasks(now + ttl, true));
+        assert_eq!(app.state.annotations.project(&id, now + ttl), None);
+        assert_eq!(app.state.next_annotation_deadline, None);
+        assert!(!app.expire_due_annotations(now + ttl));
+        assert_ne!(
+            app.next_headless_loop_deadline_with_git_refresh(now + ttl, false, false),
+            Some(now + ttl)
+        );
+        app.state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn annotations_terminal_deletion_reclaims_capacity_through_lifecycle_cleanup() {
+        let mut state = crate::app::AppState::test_new();
+        state.workspaces = (0..65)
+            .map(|index| Workspace::test_new(&format!("shell-{index}")))
+            .collect();
+        state.active = Some(0);
+        state.ensure_test_terminals();
+        state.annotations.reconfigure(vec!["build".into()]).unwrap();
+        let epoch = state.annotations.epoch().to_owned();
+        let ids: Vec<_> = state
+            .workspaces
+            .iter()
+            .map(|ws| ws.terminal_id(ws.tabs[0].root_pane).unwrap().clone())
+            .collect();
+        let now = Instant::now();
+        let ttl = std::time::Duration::from_millis(1);
+        for id in &ids[..64] {
+            state
+                .annotations
+                .replace(&epoch, "build", id.clone(), 1, None, ttl, now)
+                .unwrap();
+        }
+        assert_eq!(
+            state
+                .annotations
+                .replace(&epoch, "build", ids[64].clone(), 1, None, ttl, now + ttl),
+            Err(crate::annotations::Error::Capacity)
+        );
+        state.assert_invariants_for_test();
+        state.workspaces.remove(0);
+        state.remove_unattached_terminal_ids([ids[0].clone()]);
+        assert!(!state.terminals.contains_key(&ids[0]));
+        assert!(state.terminal_runtime_shutdowns.contains(&ids[0]));
+        state
+            .annotations
+            .replace(
+                &epoch,
+                "build",
+                ids[64].clone(),
+                1,
+                Some("ready".into()),
+                ttl,
+                now + ttl,
+            )
+            .unwrap();
+        assert_eq!(
+            state.annotations.project(&ids[64], now + ttl),
+            Some("ready")
+        );
+        assert_eq!(state.annotations.epoch(), epoch);
+        state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn annotations_live_reload_preserves_same_and_invalid_resets_changed_order() {
+        let (mut app, pane) = test_app_with_pane();
+        app.state.ensure_test_terminals();
+        let id = app.state.terminal_id_for_pane(0, pane).unwrap();
+        let mut config = crate::config::Config::default();
+        config.annotations.sources = vec!["build".into(), "tests".into()];
+        app.apply_live_config(&config, &[], &[], false);
+        let epoch = app.state.annotations.epoch().to_owned();
+        let now = Instant::now();
+        app.state
+            .annotations
+            .replace(
+                &epoch,
+                "build",
+                id.clone(),
+                1,
+                Some("ready".into()),
+                std::time::Duration::from_secs(300),
+                now,
+            )
+            .unwrap();
+        app.state.sync_annotation_deadline(now);
+        app.apply_live_config(&config, &[], &[], false);
+        assert_eq!(app.state.annotations.epoch(), epoch);
+        assert_eq!(app.state.annotations.project(&id, now), Some("ready"));
+        config.annotations.sources = vec!["build".into(), "build".into()];
+        let report = app.apply_live_config(&config, &[], &[], false);
+        assert!(!report.diagnostics.is_empty());
+        assert_eq!(app.state.annotations.epoch(), epoch);
+        assert_eq!(app.state.annotations.project(&id, now), Some("ready"));
+        config.annotations.sources = vec!["tests".into(), "build".into()];
+        app.apply_live_config(&config, &[], &[], false);
+        assert_ne!(app.state.annotations.epoch(), epoch);
+        assert_eq!(app.state.annotations.project(&id, now), None);
+        assert_eq!(app.state.next_annotation_deadline, None);
+        config.annotations.sources.clear();
+        app.apply_live_config(&config, &[], &[], false);
+        assert!(app.state.annotations.sources().is_empty());
+        app.state.assert_invariants_for_test();
+    }
+
+    #[test]
+    fn annotations_invalid_startup_is_disabled_with_diagnostic() {
+        let mut config = crate::config::Config::default();
+        config.annotations.sources = vec!["invalid source".into()];
+        assert!(config
+            .collect_diagnostics()
+            .iter()
+            .any(|value| value.contains("annotations.sources")));
+        let app = super::super::App::new(
+            &config,
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        assert!(app.state.annotations.sources().is_empty());
+        assert_eq!(app.state.next_annotation_deadline, None);
     }
 
     #[test]

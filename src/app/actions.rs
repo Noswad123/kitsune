@@ -1718,6 +1718,13 @@ impl AppState {
                 self.terminal_runtime_shutdowns.push(terminal_id);
             }
         }
+        self.sync_annotation_deadline(std::time::Instant::now());
+    }
+
+    pub(crate) fn sync_annotation_deadline(&mut self, now: std::time::Instant) {
+        self.annotations
+            .retain_terminals(|id| self.terminals.contains_key(id));
+        self.next_annotation_deadline = self.annotations.next_deadline(now);
     }
 
     pub(crate) fn remove_pane_api_records(&mut self, pane_ids: impl IntoIterator<Item = PaneId>) {

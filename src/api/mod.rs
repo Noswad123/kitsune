@@ -56,6 +56,7 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::PaneResize(_)
             | Method::PaneFocus(_)
             | Method::PaneRename(_)
+            | Method::PaneAnnotate(_)
             | Method::PaneGraphicsSet(_)
             | Method::PaneGraphicsClear(_)
             | Method::PaneGraphicsStream(_)

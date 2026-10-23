@@ -73,7 +73,14 @@ impl Config {
             .chain(self.remote_image_paste_key().err())
             .chain(self.ui.sound.diagnostics())
             .chain(self.invalid_sidebar_bounds_diagnostic())
+            .chain(self.invalid_annotations_diagnostic())
             .collect()
+    }
+
+    pub(crate) fn invalid_annotations_diagnostic(&self) -> Option<String> {
+        crate::annotations::validate_sources(&self.annotations.sources)
+            .err()
+            .map(|_| "invalid annotations.sources: select at most 8 unique ASCII IDs (1-64 bytes, letters, digits, -_.); annotations disabled".to_string())
     }
 
     pub(crate) fn invalid_sidebar_bounds_diagnostic(&self) -> Option<String> {
