@@ -2,7 +2,10 @@ use std::path::{Path, PathBuf};
 
 use tracing::warn;
 
-use super::{model::LoadedConfig, Config, CONFIG_PATH_ENV_VAR};
+use super::{
+    model::{AnnotationsConfig, LoadedConfig},
+    Config, CONFIG_PATH_ENV_VAR,
+};
 
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
@@ -157,7 +160,30 @@ impl Config {
             }
         };
 
-        match deserialize_with_ignored::<Config, _>(toml::Deserializer::new(&content)) {
+        let mut annotation_parse_error = None;
+        let parsed = deserialize_with_ignored::<Config, _>(toml::Deserializer::new(&content))
+            .or_else(|err| {
+                let Ok(mut value) = content.parse::<toml::Value>() else {
+                    return Err(err);
+                };
+                let Some(table) = value.as_table_mut() else {
+                    return Err(err);
+                };
+                let Some(annotations) = table.get("annotations") else {
+                    return Err(err);
+                };
+                let Err(annotation_err) =
+                    deserialize_with_ignored::<AnnotationsConfig, _>(annotations.clone())
+                else {
+                    return Err(err);
+                };
+                // Recover only this optional section; other startup errors still use defaults.
+                table.remove("annotations");
+                let parsed = deserialize_with_ignored::<Config, _>(value).map_err(|_| err)?;
+                annotation_parse_error = Some(annotation_err.to_string());
+                Ok(parsed)
+            });
+        match parsed {
             Ok((config, ignored_keys)) => {
                 let (unknown_sections, mut diagnostics) =
                     unknown_top_level_sections_from_str(&content);
@@ -171,10 +197,18 @@ impl Config {
                     None,
                 ));
                 diagnostics.extend(config.collect_diagnostics());
+                let mut invalid_sections = Vec::new();
+                if let Some(err) = annotation_parse_error {
+                    warn!(err = %err, "invalid annotations config; annotations disabled");
+                    diagnostics.push(format!(
+                        "invalid annotations config: {err}; annotations disabled"
+                    ));
+                    invalid_sections.push("annotations".into());
+                }
                 LoadedConfig {
                     config,
                     diagnostics,
-                    invalid_sections: Vec::new(),
+                    invalid_sections,
                 }
             }
             Err(err) => {
@@ -773,6 +807,175 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct AnnotationConfigFixture {
+        path: PathBuf,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl AnnotationConfigFixture {
+        fn new() -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "kitsune-annotations-config-{}.toml",
+                std::process::id()
+            ));
+            let original = std::env::var_os(CONFIG_PATH_ENV_VAR);
+            std::env::set_var(CONFIG_PATH_ENV_VAR, &path);
+            Self { path, original }
+        }
+
+        fn write(&self, annotations: &str) {
+            std::fs::write(
+                &self.path,
+                format!(
+                    "{annotations}\n[keys]\nprefix = 'ctrl+space'\nfocus_pane_left = 'ctrl+h'\n[ui]\nsidebar_start_collapsed = true\n"
+                ),
+            )
+            .unwrap();
+        }
+    }
+
+    impl Drop for AnnotationConfigFixture {
+        fn drop(&mut self) {
+            if let Some(original) = &self.original {
+                std::env::set_var(CONFIG_PATH_ENV_VAR, original);
+            } else {
+                std::env::remove_var(CONFIG_PATH_ENV_VAR);
+            }
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    #[test]
+    fn annotations_structural_startup_error_preserves_keys_and_ui() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for annotations in [
+            "[annotations]\nsources = 'build'",
+            "annotations = false",
+            "[annotations]\nsources = ['build', 1]",
+            "[annotations]\nsources = -1",
+            "[annotations]\nsources = { build = true }",
+        ] {
+            fixture.write(annotations);
+            let loaded = Config::load();
+            assert_eq!(loaded.config.keys.prefix, "ctrl+space", "{annotations}");
+            assert!(loaded.config.ui.sidebar_start_collapsed);
+            assert!(loaded.config.annotations.sources.is_empty());
+            assert_eq!(loaded.invalid_sections, ["annotations"]);
+            assert_eq!(loaded.diagnostics.len(), 1);
+            assert!(loaded.diagnostics[0].contains("invalid annotations config"));
+            assert!(loaded.diagnostics[0].contains("annotations disabled"));
+            let app = crate::app::App::new(
+                &loaded.config,
+                true,
+                None,
+                tokio::sync::mpsc::unbounded_channel().1,
+                crate::api::EventHub::default(),
+            );
+            assert!(app.state.annotations.sources().is_empty());
+            assert_eq!(app.state.prefix_code, crossterm::event::KeyCode::Char(' '));
+            assert_eq!(
+                app.state.prefix_mods,
+                crossterm::event::KeyModifiers::CONTROL
+            );
+            assert_eq!(
+                app.state.keybinds.focus_pane_left.bindings[0].label,
+                "ctrl+h"
+            );
+        }
+    }
+
+    #[test]
+    fn annotations_unknown_key_warning_survives_startup_and_live_parsing() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        fixture.write("[annotations]\nsources = ['build']\nsoruces = ['tests']");
+        for loaded in [Config::load(), load_live_config().unwrap()] {
+            assert_eq!(loaded.config.annotations.sources, ["build"]);
+            assert!(loaded.invalid_sections.is_empty());
+            assert_eq!(
+                loaded.diagnostics,
+                ["unknown config key annotations.soruces; ignoring key"]
+            );
+        }
+    }
+
+    #[test]
+    fn annotations_startup_recovery_preserves_unknown_sibling_key_warning() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        fixture.write("[annotations]\nsources = 'build'\n[advanced]\nscrollback_limt = 1");
+        let loaded = Config::load();
+        assert_eq!(loaded.config.keys.prefix, "ctrl+space");
+        assert_eq!(loaded.diagnostics.len(), 2);
+        assert_eq!(
+            loaded.diagnostics[0],
+            "unknown config key advanced.scrollback_limt; ignoring key"
+        );
+        assert!(loaded.diagnostics[1].contains("annotations disabled"));
+    }
+
+    #[test]
+    fn annotations_startup_recovery_does_not_mask_other_config_errors() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for content in [
+            "[annotations]\nsources = 'build'\n[ui]\nsidebar_start_collapsed = 'yes'",
+            "[annotations]\nsources = ['build']\n[ui]\nsidebar_start_collapsed = 'yes'",
+            "[keys]\nprefix = 'ctrl+space'\n[annotations]\nsources = [",
+        ] {
+            std::fs::write(&fixture.path, content).unwrap();
+            let loaded = Config::load();
+            assert_eq!(loaded.config.keys.prefix, "ctrl+b");
+            assert!(!loaded.config.ui.sidebar_start_collapsed);
+            assert!(loaded.invalid_sections.is_empty());
+            assert_eq!(loaded.diagnostics.len(), 1);
+            assert!(loaded.diagnostics[0].starts_with("config parse error:"));
+            assert!(loaded.diagnostics[0].ends_with("using defaults"));
+        }
+        assert!(toml::from_str::<Config>("[annotations]\nsources = 'build'").is_err());
+    }
+
+    #[test]
+    fn annotations_structural_live_error_keeps_selection_and_epoch_applies_keys() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        let mut config = Config::default();
+        config.annotations.sources = vec!["build".into(), "tests".into()];
+        let mut app = crate::app::App::new(
+            &config,
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let epoch = app.state.annotations.epoch().to_owned();
+        for annotations in [
+            "[annotations]\nsources = 'build'",
+            "annotations = false",
+            "[annotations]\nsources = ['build', 1]",
+            "[annotations]\nsources = -1",
+        ] {
+            fixture.write(annotations);
+            let loaded = load_live_config().unwrap();
+            assert_eq!(loaded.invalid_sections, ["annotations"]);
+            assert_eq!(loaded.diagnostics.len(), 1);
+            let report = app.reload_config();
+            assert_eq!(report.status, crate::config::ConfigReloadStatus::Partial);
+            assert_eq!(app.state.annotations.sources(), ["build", "tests"]);
+            assert_eq!(app.state.annotations.epoch(), epoch);
+            assert_eq!(app.state.prefix_code, crossterm::event::KeyCode::Char(' '));
+            assert_eq!(
+                app.state.prefix_mods,
+                crossterm::event::KeyModifiers::CONTROL
+            );
+            assert_eq!(
+                app.state.keybinds.focus_pane_left.bindings[0].label,
+                "ctrl+h"
+            );
+        }
+    }
 
     #[test]
     fn annotations_live_config_validates_without_activation() {

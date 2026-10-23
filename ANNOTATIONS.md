@@ -4,7 +4,9 @@
 
 Kitsune supports opt-in, ephemeral plain-text annotations on existing terminals
 through `pane.annotate`. Build/test/export services and coordinators use the same
-generic interface; no Coven or Djinn dependency or Coven publisher is included.
+generic interface; no Coven or Djinn dependency is included. Coven now implements
+an explicit foreground group/role publisher in its own repository; the optional
+[Coven contract/quick start](../coven/GROUPS_CONTRACT.md) is navigation, not a dependency.
 This first production slice is terminal-border text, not workspace annotations,
 grouping, images, progress widgets, panels, or agent-feature extraction.
 
@@ -78,9 +80,16 @@ remain until its TTL expires.
   terminals cannot inherit a pinned write.
 - Identical ordered source-list reload preserves records and epoch. Any list or
   order change, including disabling, clears all records/watermarks and creates a
-  new opaque epoch. Invalid reload preserves the previous valid annotation
-  configuration; invalid startup selection disables annotations. Restart creates
-  a fresh epoch. Labels are neither persisted nor transferred through handoff.
+   new opaque epoch. Invalid reload preserves the previous valid annotation
+   configuration; invalid startup selection disables annotations. Restart creates
+   a fresh epoch. Labels are neither persisted nor transferred through handoff.
+- `sources` must be an array, e.g. `sources = ["build"]`, not `sources = "build"`.
+  Startup isolates structurally invalid annotation settings and disables that
+  section with a diagnostic, preserving otherwise valid keybindings and UI
+  settings. Invalid TOML or unrelated config type errors still follow the existing
+  startup fallback behavior. Older builds may discard the entire config for an
+  annotation type error; correct the setting and use `kitsune server reload-config`
+  to recover valid settings without restarting running panes.
 - Rejected writes do not consume revisions. Equal/older revisions are rejected,
   including after clear/expiry. Increment only for genuinely new updates: do not
   automatically reissue stale content at a higher revision. A missing acknowledgment
@@ -131,8 +140,13 @@ revision 2. `--clear` replaces `--text`; TTL remains required:
 kitsune pane annotate w1:p1 --expected-terminal '<terminal_id>' --annotation-epoch '<epoch>' --source build --revision 2 --clear --ttl-ms 5000
 ```
 
-Future Coven/build producers can use this same generic method; these commands do
-not install or activate a publisher. No live server or config was changed for this guide.
+Coven's foreground group publisher and independent build producers use this same
+generic method; these manual commands do not install or activate a publisher. Use
+a dedicated coordinated source per workspace, not the publisher's source for manual
+writes. For a combined policy, `sources = ["coven", "build"]` gives Coven priority
+even if build recorded first. Once Coven claims a target, its expired/cleared record
+still shadows lower sources until source-policy reset; stopping the publisher does
+not restore build-label fallback. No live server or config was changed for this guide.
 
 ## Validation
 

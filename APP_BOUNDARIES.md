@@ -4,7 +4,9 @@
 
 Decision date: **2026-10-22**. Status: **accepted target; initial read-only
 observation implemented in Coven; production opt-in terminal-border annotations
-implemented in Kitsune; extraction, workspace annotations, and grouping remain open**.
+implemented in Kitsune; explicit participant groups/roles and a foreground publisher
+implemented in Coven; native group status/scheduling, automatic following, extraction,
+and workspace annotations remain open**.
 Keep three independently useful apps rather than tightly coupling them.
 
 | App | Target responsibility |
@@ -52,7 +54,8 @@ API/CLI contract. Producers write bounded, revisioned, TTL-limited plain text,
 pinned to a current pane's `TerminalId` and annotation epoch. Source order governs
 priority; clear/expiry retains watermarks without lower-source fallback. Source
 labels are not authentication: any existing local API caller can claim an enabled
-source. No actual Coven publisher is included.
+source. Coven now implements an explicit foreground group publisher in its own
+repository; optional [contract/quick start](../coven/GROUPS_CONTRACT.md), not a dependency.
 
 Kitsune/user own layout, rendering, clipping, and quotas. Text uses only spare
 existing top-border cells, preserving manual titles and terminal space. Single-pane
@@ -60,7 +63,9 @@ layouts have no border; disabled borders hide labels. No panels, scripts, widget
 workspace annotations, agent identity, group membership, seen/notification changes,
 native success facts, or terminal-control permission are added. The
 [prototype notes](ANNOTATION_MODEL_PROTOTYPE.md) are historical; workspace targets
-remain test-only. Full annotation/grouping ambitions and extraction remain open.
+remain test-only. Coven's group declarations are separate from Kitsune's generic
+presentation; native group status/scheduling, automatic following, broader annotations,
+and extraction remain open.
 
 ## Data Flow
 
@@ -72,7 +77,8 @@ annotation: user-enabled producer -> pane.annotate -> Kitsune terminal border
 ```
 
 Kitsune supplies multiplexer evidence; runtimes retain native fact authority.
-Coven's grouping/assignment and job progress interpretation remain future work.
+Coven implements explicit participant groups/display roles and foreground labels;
+native group lifecycle/job progress interpretation and scheduling remain future work.
 Observed activity is not job acceptance. Pane presence is not success. Screen
 matches are heuristic evidence, never lifecycle truth.
 
@@ -99,12 +105,14 @@ matches are heuristic evidence, never lifecycle truth.
 
 ## Example usage
 
-Target scenario, not new CLI syntax: use Kitsune for ordinary shells with Coven
+Current optional workflow: use Kitsune for ordinary shells with Coven
 absent. Optionally connect Coven to group already-running native agent sessions
-into a review job. Kitsune renders a generic group label and fresh badge without
+into a declared review group. Coven's explicit foreground publisher sends generic
+group/role text; Kitsune renders it in available border cells without
 knowing the job or agent model. If Coven disconnects, terminal work continues and
 external badges expire by TTL, not immediate disconnect detection; no agent is
-launched or stopped. This grouping scenario remains future work; today's working
+launched or stopped. Native group status/scheduling and automatic following are not
+shipped. See the optional [Coven guide](../coven/GROUPS_CONTRACT.md); the independent
 manual build-label example is in [ANNOTATIONS.md](ANNOTATIONS.md).
 
 ## Transition
@@ -114,8 +122,9 @@ manual build-label example is in [ANNOTATIONS.md](ANNOTATIONS.md).
 3. Initial single-endpoint observation is implemented in Coven only; characterize
    generic surfaces before extraction. Kitsune's built-ins remain.
 4. First optional generic terminal-border annotation slice implemented; broader
-   workspace/presentation work and Coven publishing remain open.
-5. Group existing sessions in Coven before more worker/worktree implementation.
+   workspace/presentation work remains open; explicit Coven foreground publishing is implemented.
+5. Explicit participant groups/roles implemented in Coven before more worker/worktree
+   implementation; native group status/scheduling, automatic following, and extraction remain open.
 
 Maintain current Djinn rollout as compatibility during this transition; do not
 deepen agent-specific core coupling or assume an immediate removal. Older Coven
