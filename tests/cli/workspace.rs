@@ -406,7 +406,7 @@ fn config_check_reports_invalid_config_without_server() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let config_dir = config_home.join(app_dir_name());
+    let config_dir = config_file_dir(&config_home);
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(
         config_dir.join("config.toml"),
@@ -446,7 +446,7 @@ fn config_check_reports_unknown_keys_without_treating_comments_as_keys() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let config_dir = config_home.join(app_dir_name());
+    let config_dir = config_file_dir(&config_home);
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(
         config_dir.join("config.toml"),
@@ -501,7 +501,7 @@ fn config_check_reports_unreadable_config_path() {
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
-    let config_path = config_home.join(app_dir_name()).join("config.toml");
+    let config_path = config_file_dir(&config_home).join("config.toml");
     fs::create_dir_all(&config_path).unwrap();
 
     let checked = run_named_cli(&config_home, &runtime_dir, &["config", "check"]);
@@ -511,6 +511,23 @@ fn config_check_reports_unreadable_config_path() {
     assert!(stdout.contains("config: issues found"), "{stdout}");
     assert!(stdout.contains("config read error"), "{stdout}");
     assert!(stdout.contains("using defaults"), "{stdout}");
+
+    cleanup_test_base(&base);
+}
+
+#[test]
+fn config_path_uses_shared_config_directory() {
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let output = run_named_cli(&config_home, &runtime_dir, &["config", "path"]);
+
+    assert!(output.status.success());
+    assert!(output.stderr.is_empty());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        config_home.join("kitsune/config.toml").to_string_lossy()
+    );
 
     cleanup_test_base(&base);
 }

@@ -12,23 +12,12 @@ pub(super) use crate::support::{
 };
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
-pub(super) const WORKTREE_BOOTSTRAP_MANAGED_COMPONENT: &str =
-    "example.worktree-bootstrap-ef876653ffc3";
-
 pub(super) fn unique_test_dir() -> PathBuf {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     PathBuf::from(format!("/tmp/hcli-{}-{nanos}", std::process::id()))
-}
-
-pub(super) fn path_missing_or_empty(path: &Path) -> bool {
-    match fs::read_dir(path) {
-        Ok(mut entries) => entries.next().is_none(),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => true,
-        Err(err) => panic!("failed to read {}: {err}", path.display()),
-    }
 }
 
 pub(super) fn run_git(repo: &Path, args: &[&str]) {
@@ -148,6 +137,11 @@ pub(super) fn app_dir_name() -> &'static str {
     }
 }
 
+pub(super) fn config_file_dir(config_home: &Path) -> PathBuf {
+    // Debug/release share user config; only runtime/session data uses app_dir_name().
+    config_home.join("kitsune")
+}
+
 pub(super) fn named_session_socket(config_home: &Path, session: &str) -> PathBuf {
     config_home
         .join(app_dir_name())
@@ -161,11 +155,11 @@ pub(super) fn spawn_named_server(
     runtime_dir: &Path,
     session: &str,
 ) -> SpawnedServerProcess {
-    fs::create_dir_all(config_home.join(app_dir_name())).unwrap();
+    fs::create_dir_all(config_file_dir(config_home)).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
     fs::write(
-        config_home.join(app_dir_name()).join("config.toml"),
+        config_file_dir(config_home).join("config.toml"),
         "onboarding = false\n",
     )
     .unwrap();
@@ -177,6 +171,7 @@ pub(super) fn spawn_named_server(
         .env("XDG_RUNTIME_DIR", runtime_dir)
         .env_remove("KITSUNE_SOCKET_PATH")
         .env_remove("KITSUNE_CLIENT_SOCKET_PATH")
+        .env_remove("KITSUNE_CONFIG_PATH")
         .env_remove("KITSUNE_ENV")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -204,15 +199,6 @@ pub(super) fn run_named_cli_with_socket_override(
     run_named_cli_with_env_and_socket_override(config_home, runtime_dir, args, &[], socket_override)
 }
 
-pub(super) fn run_named_cli_with_env(
-    config_home: &Path,
-    runtime_dir: &Path,
-    args: &[&str],
-    envs: &[(&str, &Path)],
-) -> std::process::Output {
-    run_named_cli_with_env_and_socket_override(config_home, runtime_dir, args, envs, None)
-}
-
 pub(super) fn run_named_cli_with_env_and_socket_override(
     config_home: &Path,
     runtime_dir: &Path,
@@ -226,6 +212,7 @@ pub(super) fn run_named_cli_with_env_and_socket_override(
         .env("XDG_CONFIG_HOME", config_home)
         .env("XDG_RUNTIME_DIR", runtime_dir)
         .env_remove("KITSUNE_CLIENT_SOCKET_PATH")
+        .env_remove("KITSUNE_CONFIG_PATH")
         .env_remove("KITSUNE_ENV");
     for (key, value) in envs {
         command.env(key, value);
@@ -277,11 +264,11 @@ pub(super) fn spawn_kitsune_with_config(
     path_override: Option<&Path>,
     config_toml: &str,
 ) -> SpawnedKitsune {
-    fs::create_dir_all(config_home.join(app_dir_name())).unwrap();
+    fs::create_dir_all(config_file_dir(config_home)).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
     fs::write(
-        config_home.join(app_dir_name()).join("config.toml"),
+        config_file_dir(config_home).join("config.toml"),
         config_toml,
     )
     .unwrap();
@@ -301,6 +288,7 @@ pub(super) fn spawn_kitsune_with_config(
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
     cmd.env("KITSUNE_SOCKET_PATH", socket_path);
     cmd.env_remove("KITSUNE_CLIENT_SOCKET_PATH");
+    cmd.env_remove("KITSUNE_CONFIG_PATH");
     cmd.env("SHELL", "/bin/sh");
     cmd.env_remove("KITSUNE_ENV");
     if let Some(path) = path_override {

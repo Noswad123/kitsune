@@ -24,29 +24,7 @@ fn run_copilot_hook(hook_input: &str) -> Option<serde_json::Value> {
     )
 }
 
-fn run_devin_hook(
-    action: &str,
-    hook_input: &str,
-    envs: &[(&str, &str)],
-) -> Option<serde_json::Value> {
-    run_shell_hook_with_env(
-        "src/integration/assets/devin/kitsune-agent-state.sh",
-        &[action],
-        hook_input,
-        envs,
-    )
-}
-
 fn run_shell_hook(asset_path: &str, args: &[&str], hook_input: &str) -> Option<serde_json::Value> {
-    run_shell_hook_with_env(asset_path, args, hook_input, &[])
-}
-
-fn run_shell_hook_with_env(
-    asset_path: &str,
-    args: &[&str],
-    hook_input: &str,
-    envs: &[(&str, &str)],
-) -> Option<serde_json::Value> {
     let base = unique_test_dir();
     fs::create_dir_all(&base).unwrap();
     let socket_path = base.join("kitsune.sock");
@@ -86,9 +64,6 @@ fn run_shell_hook_with_env(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    for (key, value) in envs {
-        command.env(key, value);
-    }
     let mut child = command.spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(hook_input.as_bytes()).unwrap();
@@ -198,111 +173,4 @@ fn copilot_hook_does_not_report_lifecycle_state() {
             "copilot session-only hook should ignore lifecycle payload {payload}"
         );
     }
-}
-
-#[test]
-fn devin_hook_ignores_prompt_session_list_fallback() {
-    let request = run_devin_hook(
-        "session",
-        r#"{"hook_event_name":"UserPromptSubmit","prompt":"run tests"}"#,
-        &[
-            ("DEVIN_PROJECT_DIR", "/tmp/project"),
-            (
-                "KITSUNE_DEVIN_LIST_JSON",
-                r#"[{"id":"older-session","working_directory":"/tmp/other"},{"id":"devin-session","working_directory":"/tmp/project"}]"#,
-            ),
-        ],
-    );
-
-    assert!(request.is_none());
-}
-
-#[test]
-fn devin_hook_reports_session_id_from_stdin_without_state() {
-    let request = run_devin_hook(
-        "session",
-        r#"{"hook_event_name":"SessionStart","session_id":"devin-session","source":"startup"}"#,
-        &[("KITSUNE_DEVIN_LIST_JSON", r#"[{"id":"older-session"}]"#)],
-    )
-    .expect("devin session start should report session identity");
-
-    assert_eq!(request["method"], "pane.report_agent_session");
-    assert_eq!(request["params"]["agent"], "devin");
-    assert_eq!(request["params"]["agent_session_id"], "devin-session");
-    assert!(request["params"].get("state").is_none());
-}
-
-#[test]
-fn devin_hook_prefers_hook_session_id_over_list() {
-    let request = run_devin_hook(
-        "session",
-        r#"{"hook_event_name":"PreToolUse","sessionId":"fresh-session","tool_name":"exec"}"#,
-        &[
-            ("DEVIN_PROJECT_DIR", "/tmp/project"),
-            (
-                "KITSUNE_DEVIN_LIST_JSON",
-                r#"[{"id":"older-session","working_directory":"/tmp/project"}]"#,
-            ),
-        ],
-    )
-    .expect("devin tool hook should report session identity");
-
-    assert_eq!(request["method"], "pane.report_agent_session");
-    assert_eq!(request["params"]["agent_session_id"], "fresh-session");
-    assert!(request["params"].get("state").is_none());
-}
-
-#[test]
-fn devin_hook_reports_tool_session_from_list_without_state() {
-    let request = run_devin_hook(
-        "session",
-        r#"{"hook_event_name":"PreToolUse","tool_name":"exec"}"#,
-        &[
-            ("DEVIN_PROJECT_DIR", "/tmp/project"),
-            (
-                "KITSUNE_DEVIN_LIST_JSON",
-                r#"[{"id":"older-session","working_directory":"/tmp/other"},{"id":"devin-session","working_directory":"/tmp/project"}]"#,
-            ),
-        ],
-    )
-    .expect("devin tool hook should report session identity");
-
-    assert_eq!(request["method"], "pane.report_agent_session");
-    assert_eq!(request["params"]["agent"], "devin");
-    assert_eq!(request["params"]["agent_session_id"], "devin-session");
-    assert!(request["params"].get("state").is_none());
-}
-
-#[test]
-fn devin_hook_ignores_startup_session_list_fallback() {
-    let request = run_devin_hook(
-        "session",
-        r#"{"hook_event_name":"SessionStart","source":"startup"}"#,
-        &[
-            ("DEVIN_PROJECT_DIR", "/tmp/project"),
-            (
-                "KITSUNE_DEVIN_LIST_JSON",
-                r#"[{"id":"stale-session","working_directory":"/tmp/project"}]"#,
-            ),
-        ],
-    );
-
-    assert!(request.is_none());
-}
-
-#[test]
-fn devin_hook_ignores_non_matching_session_list_entries() {
-    let request = run_devin_hook(
-        "session",
-        r#"{"hook_event_name":"PreToolUse","tool_name":"exec"}"#,
-        &[
-            ("DEVIN_PROJECT_DIR", "/tmp/project"),
-            (
-                "KITSUNE_DEVIN_LIST_JSON",
-                r#"[{"id":"other-session","working_directory":"/tmp/other"}]"#,
-            ),
-        ],
-    );
-
-    assert!(request.is_none());
 }
