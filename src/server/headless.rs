@@ -5832,6 +5832,12 @@ next_tab = ""
 
     #[test]
     fn annotations_headless_quiet_expiry_consumes_deadline() {
+        for absolute in [false, true] {
+            check_annotations_headless_quiet_expiry(absolute);
+        }
+    }
+
+    fn check_annotations_headless_quiet_expiry(absolute: bool) {
         let mut server = test_headless_server();
         server.app.state.workspaces = vec![crate::workspace::Workspace::test_new("shell")];
         server.app.state.active = Some(0);
@@ -5846,20 +5852,37 @@ next_tab = ""
             .reconfigure(vec!["build".into()])
             .unwrap();
         let epoch = server.app.state.annotations.epoch().to_owned();
-        server
-            .app
-            .state
-            .annotations
-            .replace(
-                &epoch,
-                "build",
-                id.clone(),
-                1,
-                Some("busy".into()),
-                Duration::from_millis(1),
-                now,
-            )
-            .unwrap();
+        if absolute {
+            server
+                .app
+                .state
+                .annotations
+                .replace_with_timing(
+                    &epoch,
+                    "build",
+                    id.clone(),
+                    1,
+                    Some("busy".into()),
+                    Duration::from_secs(300),
+                    || Ok((now, now + Duration::from_nanos(500))),
+                )
+                .unwrap();
+        } else {
+            server
+                .app
+                .state
+                .annotations
+                .replace(
+                    &epoch,
+                    "build",
+                    id.clone(),
+                    1,
+                    Some("busy".into()),
+                    Duration::from_millis(1),
+                    now,
+                )
+                .unwrap();
+        }
         server.app.state.sync_annotation_deadline(now);
         let deadline = server.app.state.next_annotation_deadline.unwrap();
         assert!(server.handle_scheduled_tasks_headless(deadline, false));

@@ -21,6 +21,28 @@ pub struct PaneAnnotateParams {
     #[schemars(required, schema_with = "annotation_text_schema")]
     pub text: Option<String>,
     pub ttl_ms: u64,
+    /// Optional source validity ceiling, in Unix epoch milliseconds. Null is invalid.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "optional_annotation_deadline"
+    )]
+    #[schemars(schema_with = "annotation_deadline_schema")]
+    pub valid_until_unix_ms: Option<u64>,
+}
+
+fn optional_annotation_deadline<'de, D>(deserializer: D) -> Result<Option<u64>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    u64::deserialize(deserializer).map(Some)
+}
+
+fn annotation_deadline_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": "integer", "minimum": 0,
+        "maximum": crate::annotations::MAX_VALID_UNTIL_UNIX_MS
+    })
 }
 
 fn required_annotation_text<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>

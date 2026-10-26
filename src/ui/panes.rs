@@ -1013,6 +1013,12 @@ mod tests {
 
     #[test]
     fn annotations_json_update_reaches_shell_border_and_quiet_expiry() {
+        for source_deadline in [false, true] {
+            check_annotation_json_update_and_quiet_expiry(source_deadline);
+        }
+    }
+
+    fn check_annotation_json_update_and_quiet_expiry(source_deadline: bool) {
         use crate::api::schema::{Request, ResponseResult, SuccessResponse};
 
         let mut config = crate::config::Config::default();
@@ -1069,14 +1075,21 @@ mod tests {
             terminal.backend().buffer().clone()
         };
         let baseline = draw(&app.state, std::time::Instant::now());
-        let json = serde_json::json!({
+        let mut json = serde_json::json!({
             "id": "build-update", "method": "pane.annotate", "params": {
                 "pane_id": public_pane_id, "expected_terminal_id": id.to_string(),
                 "annotation_epoch": app.state.annotations.epoch(), "source": "build",
                 "revision": 1, "text": "Build: running", "ttl_ms": 300000
             }
-        })
-        .to_string();
+        });
+        if source_deadline {
+            let wall_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis() as u64;
+            json["params"]["valid_until_unix_ms"] = serde_json::json!(wall_ms + 5000);
+        }
+        let json = json.to_string();
         let request: Request = serde_json::from_str(&json).unwrap();
         assert!(crate::api::request_changes_ui(&request));
         let response: SuccessResponse =

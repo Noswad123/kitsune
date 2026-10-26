@@ -48,6 +48,7 @@ impl App {
             annotations: Some(AnnotationInfo {
                 epoch: self.state.annotations.epoch().to_owned(),
                 sources: self.state.annotations.sources().to_vec(),
+                valid_until_unix_ms: true,
             }),
             focused_workspace_id,
             focused_tab_id,
@@ -103,6 +104,7 @@ mod tests {
         assert_eq!(annotations.epoch, app.state.annotations.epoch());
         assert_eq!(annotations.sources, app.state.annotations.sources());
         assert!(annotations.sources.is_empty());
+        assert!(annotations.valid_until_unix_ms);
         assert_eq!(snapshot.workspaces.len(), 1);
         assert_eq!(snapshot.tabs.len(), 2);
         assert_eq!(snapshot.panes.len(), 2);

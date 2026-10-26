@@ -638,28 +638,54 @@ mod tests {
 
     #[test]
     fn annotations_quiet_expiry_repaints_once_without_busy_loop() {
+        for absolute in [false, true] {
+            check_annotations_quiet_expiry(absolute);
+        }
+    }
+
+    fn check_annotations_quiet_expiry(absolute: bool) {
         let (mut app, pane) = test_app_with_pane();
         app.state.ensure_test_terminals();
         let id = app.state.terminal_id_for_pane(0, pane).unwrap();
         let now = Instant::now();
-        let ttl = std::time::Duration::from_millis(1);
+        let ttl = if absolute {
+            std::time::Duration::from_nanos(500)
+        } else {
+            std::time::Duration::from_millis(1)
+        };
         app.state
             .annotations
             .reconfigure(vec!["build".into()])
             .unwrap();
         let epoch = app.state.annotations.epoch().to_owned();
-        app.state
-            .annotations
-            .replace(
-                &epoch,
-                "build",
-                id.clone(),
-                1,
-                Some("busy".into()),
-                ttl,
-                now,
-            )
-            .unwrap();
+        if absolute {
+            // A source ceiling may be below the minimum request TTL.
+            app.state
+                .annotations
+                .replace_with_timing(
+                    &epoch,
+                    "build",
+                    id.clone(),
+                    1,
+                    Some("busy".into()),
+                    std::time::Duration::from_secs(300),
+                    || Ok((now, now + ttl)),
+                )
+                .unwrap();
+        } else {
+            app.state
+                .annotations
+                .replace(
+                    &epoch,
+                    "build",
+                    id.clone(),
+                    1,
+                    Some("busy".into()),
+                    ttl,
+                    now,
+                )
+                .unwrap();
+        }
         app.state.sync_annotation_deadline(now);
         assert_eq!(
             app.next_headless_loop_deadline_with_git_refresh(now, false, false),

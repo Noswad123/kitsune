@@ -737,6 +737,7 @@ fn annotation_snapshot_descriptor_is_optional_and_advertised() {
         snapshot.annotations = Some(AnnotationInfo {
             epoch: "epoch_1".into(),
             sources: sources.clone(),
+            valid_until_unix_ms: false,
         });
         let value = serde_json::to_value(&snapshot).unwrap();
         assert_eq!(
@@ -747,6 +748,77 @@ fn annotation_snapshot_descriptor_is_optional_and_advertised() {
             serde_json::from_value::<SessionSnapshot>(value).unwrap(),
             snapshot
         );
+        snapshot.annotations.as_mut().unwrap().valid_until_unix_ms = true;
+        let value = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(value["annotations"]["valid_until_unix_ms"], true);
+        assert_eq!(
+            serde_json::from_value::<SessionSnapshot>(value).unwrap(),
+            snapshot
+        );
+    }
+}
+
+#[test]
+fn annotation_deadline_is_optional_nonnull_integer_with_bounded_schema() {
+    let base = serde_json::json!({
+        "id": "annotation", "method": "pane.annotate", "params": {
+            "pane_id": "w1:p1", "expected_terminal_id": "term_1",
+            "annotation_epoch": "epoch_1", "source": "build",
+            "revision": 1, "text": null, "ttl_ms": 5000
+        }
+    });
+    for deadline in [0, 1, crate::annotations::MAX_VALID_UNTIL_UNIX_MS, u64::MAX] {
+        let mut value = base.clone();
+        value["params"]["valid_until_unix_ms"] = serde_json::json!(deadline);
+        let request: Request = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(request).unwrap(), value);
+    }
+    // Parsed u64 values above the safe bound are rejected by the handler, not decoding.
+    for invalid in [
+        serde_json::Value::Null,
+        serde_json::json!(true),
+        serde_json::json!(-1),
+        serde_json::json!(1.5),
+        serde_json::json!("1"),
+    ] {
+        let mut value = base.clone();
+        value["params"]["valid_until_unix_ms"] = invalid;
+        assert!(serde_json::from_value::<Request>(value).is_err());
+    }
+    let overflow = serde_json::to_string(&base).unwrap().replace(
+        "\"ttl_ms\":5000",
+        "\"ttl_ms\":5000,\"valid_until_unix_ms\":18446744073709551616",
+    );
+    assert!(serde_json::from_str::<Request>(&overflow).is_err());
+    let schema = serde_json::to_value(schemars::schema_for!(PaneAnnotateParams)).unwrap();
+    assert!(!schema["required"]
+        .as_array()
+        .unwrap()
+        .contains(&serde_json::json!("valid_until_unix_ms")));
+    let deadline = &schema["properties"]["valid_until_unix_ms"];
+    assert_eq!(deadline["type"], "integer");
+    assert_eq!(deadline["minimum"], 0);
+    assert_eq!(
+        deadline["maximum"],
+        crate::annotations::MAX_VALID_UNTIL_UNIX_MS
+    );
+
+    for support in [serde_json::json!(false), serde_json::json!(true)] {
+        let descriptor: AnnotationInfo = serde_json::from_value(serde_json::json!({
+            "epoch": "epoch_1", "sources": [], "valid_until_unix_ms": support
+        }))
+        .unwrap();
+        assert_eq!(descriptor.valid_until_unix_ms, support.as_bool().unwrap());
+    }
+    for invalid in [
+        serde_json::Value::Null,
+        serde_json::json!(1),
+        serde_json::json!("true"),
+    ] {
+        assert!(serde_json::from_value::<AnnotationInfo>(serde_json::json!({
+            "epoch": "epoch_1", "sources": [], "valid_until_unix_ms": invalid
+        }))
+        .is_err());
     }
 }
 

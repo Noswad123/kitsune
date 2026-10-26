@@ -62,6 +62,10 @@ impl Fixture {
     }
 
     fn run(&self, args: &[&str], reject: bool) -> (Output, Vec<Value>) {
+        self.run_with_error(args, reject.then_some("annotation_stale_revision"))
+    }
+
+    fn run_with_error(&self, args: &[&str], reject: Option<&str>) -> (Output, Vec<Value>) {
         let stdout = self.root.join("stdout");
         let stderr = self.root.join("stderr");
         let mut command = Command::new(env!("CARGO_BIN_EXE_kitsune"));
@@ -110,9 +114,9 @@ impl Fixture {
                             "type": "pong", "version": "different-build-same-protocol", "protocol": 18,
                             "capabilities": {"live_handoff": true, "detached_server_daemon": true}
                         }})
-                    } else if reject {
+                    } else if let Some(code) = reject {
                         json!({"id": request["id"], "error": {
-                            "code": "annotation_stale_revision", "message": "annotation revision rejected"
+                            "code": code, "message": "annotation revision rejected"
                         }})
                     } else {
                         json!({"id": request["id"], "result": {"type": "ok"}})
@@ -223,6 +227,47 @@ fn pane_annotation_cli_server_error_exits_one_without_retry() {
 }
 
 #[test]
+fn pane_annotation_cli_deadline_is_exact_on_text_clear_and_expired_error_without_retry() {
+    for clear in [false, true] {
+        for error in [None, Some("annotation_expired")] {
+            let fixture = Fixture::new();
+            let mut args = annotation_args();
+            if clear {
+                args.truncate(13);
+                args.push("--clear");
+            }
+            args.extend(["--valid-until-unix-ms", "9007199254740991"]);
+            let (output, requests) = fixture.run_with_error(&args, error);
+            assert_eq!(
+                output.status.code(),
+                Some(if error.is_some() { 1 } else { 0 })
+            );
+            assert!(output.stdout.is_empty());
+            assert_eq!(
+                requests.len(),
+                2,
+                "unexpected discovery or retry: {requests:?}"
+            );
+            assert_eq!(requests[0]["method"], "ping");
+            assert_eq!(
+                requests[1],
+                json!({"id": "cli:request", "method": "pane.annotate", "params": {
+                    "pane_id": "w1:p1", "expected_terminal_id": "term_1", "annotation_epoch": "epoch_1",
+                    "source": "build", "revision": 1, "text": if clear { None } else { Some("Build: running") },
+                    "ttl_ms": 5000, "valid_until_unix_ms": 9_007_199_254_740_991u64
+                }})
+            );
+            if error.is_some() {
+                let response: Value = serde_json::from_slice(&output.stderr).unwrap();
+                assert_eq!(response["error"]["code"], "annotation_expired");
+            } else {
+                assert!(output.stderr.is_empty());
+            }
+        }
+    }
+}
+
+#[test]
 fn pane_annotation_cli_invalid_args_exit_two_without_peer_contact() {
     let fixture = Fixture::new();
     let mut cases = vec![vec!["pane", "annotate"]];
@@ -255,6 +300,27 @@ fn pane_annotation_cli_invalid_args_exit_two_without_peer_contact() {
         args.push(extra);
         cases.push(args);
     }
+    for invalid in [
+        "",
+        "-1",
+        "+1",
+        "1.0",
+        "1.5",
+        "null",
+        "true",
+        "9007199254740992",
+        "18446744073709551616",
+    ] {
+        let mut args = annotation_args();
+        args.extend(["--valid-until-unix-ms", invalid]);
+        cases.push(args);
+    }
+    let mut missing = annotation_args();
+    missing.push("--valid-until-unix-ms");
+    cases.push(missing);
+    let mut duplicate = annotation_args();
+    duplicate.extend(["--valid-until-unix-ms", "1", "--valid-until-unix-ms", "2"]);
+    cases.push(duplicate);
     for args in cases {
         let (output, requests) = fixture.run(&args, false);
         assert!(
@@ -312,6 +378,14 @@ fn pane_annotation_cli_embedded_schema_has_required_nullable_text_and_optional_d
         params["properties"]["text"]["type"],
         json!(["string", "null"])
     );
+    assert!(!params["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("valid_until_unix_ms")));
+    let deadline = &params["properties"]["valid_until_unix_ms"];
+    assert_eq!(deadline["type"], "integer");
+    assert_eq!(deadline["minimum"], 0);
+    assert_eq!(deadline["maximum"], 9_007_199_254_740_991u64);
     let definitions = &schema["schemas"]["success_response"]["$defs"];
     let snapshot = &definitions["SessionSnapshot"];
     assert!(snapshot["properties"].get("annotations").is_some());
@@ -327,6 +401,10 @@ fn pane_annotation_cli_embedded_schema_has_required_nullable_text_and_optional_d
         "string"
     );
     assert_eq!(descriptor["required"], json!(["epoch", "sources"]));
+    assert_eq!(
+        descriptor["properties"]["valid_until_unix_ms"]["type"],
+        "boolean"
+    );
 }
 
 #[test]
@@ -357,6 +435,7 @@ fn pane_annotation_cli_help_and_completion_include_explicit_fences() {
             "text",
             "clear",
             "ttl-ms",
+            "valid-until-unix-ms",
         ] {
             assert!(text.contains(expected), "{args:?}: missing {expected}");
         }

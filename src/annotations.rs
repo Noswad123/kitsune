@@ -13,6 +13,7 @@ const MAX_ID_BYTES: usize = 64;
 const MAX_TEXT_BYTES: usize = 256;
 const MIN_TTL: Duration = Duration::from_millis(1);
 const MAX_TTL: Duration = Duration::from_secs(300);
+pub(crate) const MAX_VALID_UNTIL_UNIX_MS: u64 = 9_007_199_254_740_991;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ResourceTarget {
@@ -31,6 +32,9 @@ pub(crate) enum Error {
     InvalidText,
     InvalidTtl,
     DeadlineOverflow,
+    InvalidDeadline,
+    Expired,
+    ClockUnavailable,
     StaleRevision,
     TimeRegression,
     Capacity,
@@ -129,6 +133,30 @@ impl AnnotationState {
             .project(&ResourceTarget::Terminal(terminal_id.clone()), &now)
     }
 
+    /// Evaluate timing only after validating the pair, without acquiring clocks here.
+    pub(crate) fn replace_with_timing(
+        &mut self,
+        epoch: &str,
+        source: &str,
+        terminal_id: TerminalId,
+        revision: u64,
+        text: Option<String>,
+        ttl: Duration,
+        timing: impl FnOnce() -> Result<(Instant, Instant), Error>,
+    ) -> Result<(), Error> {
+        if epoch != self.epoch {
+            return Err(Error::StaleEpoch);
+        }
+        self.store.replace_with_timing(
+            source,
+            ResourceTarget::Terminal(terminal_id),
+            revision,
+            text,
+            ttl,
+            timing,
+        )
+    }
+
     pub(crate) fn next_deadline(&self, now: Instant) -> Option<Instant> {
         self.store
             .targets
@@ -175,6 +203,21 @@ impl AnnotationStore {
         ttl: Duration,
         now: Instant,
     ) -> Result<(), Error> {
+        self.replace_with_timing(source, target, revision, text, ttl, || {
+            let deadline = now.checked_add(ttl).ok_or(Error::DeadlineOverflow)?;
+            Ok((now, deadline))
+        })
+    }
+
+    fn replace_with_timing(
+        &mut self,
+        source: &str,
+        target: ResourceTarget,
+        revision: u64,
+        text: Option<String>,
+        ttl: Duration,
+        timing: impl FnOnce() -> Result<(Instant, Instant), Error>,
+    ) -> Result<(), Error> {
         let source = self
             .sources
             .iter()
@@ -193,17 +236,27 @@ impl AnnotationStore {
         if !(MIN_TTL..=MAX_TTL).contains(&ttl) {
             return Err(Error::InvalidTtl);
         }
-        let deadline = now.checked_add(ttl).ok_or(Error::DeadlineOverflow)?;
         if let Some(record) = self.targets.get(&target).and_then(|rows| rows.get(&source)) {
             if revision <= record.revision {
                 return Err(Error::StaleRevision);
             }
-            if now < record.accepted_at {
-                return Err(Error::TimeRegression);
-            }
         }
         if !self.targets.contains_key(&target) && self.targets.len() >= MAX_TARGETS {
             return Err(Error::Capacity);
+        }
+        // Timing supplies an acceptance instant and an already absolute expiry.
+        // Never restart a mapped residual lifetime from this insertion time.
+        let (now, deadline) = timing()?;
+        if self
+            .targets
+            .get(&target)
+            .and_then(|rows| rows.get(&source))
+            .is_some_and(|record| now < record.accepted_at)
+        {
+            return Err(Error::TimeRegression);
+        }
+        if now >= deadline {
+            return Err(Error::Expired);
         }
         // Retain cleared/expired records as bounded priority and revision watermarks.
         self.targets.entry(target).or_default().insert(
@@ -323,6 +376,113 @@ mod tests {
         let restarted = AnnotationState::new(state.sources().to_vec()).unwrap();
         assert_ne!(restarted.epoch(), state.epoch());
         assert_eq!(restarted.project(&terminal, now), None);
+    }
+
+    #[test]
+    fn annotation_absolute_timing_rejection_preserves_every_pair_field() {
+        let now = Instant::now();
+        let target = workspace();
+        let mut store = store();
+        put(&mut store, "build", &target, 1, Some("old"), now).unwrap();
+        for timing in [
+            Err(Error::Expired),
+            Err(Error::InvalidDeadline),
+            Err(Error::ClockUnavailable),
+            Ok((now + MIN_TTL, now + MIN_TTL)),
+            Ok((now + MIN_TTL, now)),
+            Ok((now - MIN_TTL, now + MIN_TTL)),
+        ] {
+            assert!(store
+                .replace_with_timing("build", target.clone(), 2, None, MAX_TTL, || timing)
+                .is_err());
+            let record = &store.targets[&target][&0];
+            assert_eq!(record.revision, 1);
+            assert_eq!(record.accepted_at, now);
+            assert_eq!(record.deadline, now + MAX_TTL);
+            assert_eq!(record.text.as_deref(), Some("old"));
+            assert_eq!(store.targets.len(), 1);
+            assert_eq!(store.targets[&target].len(), 1);
+        }
+        // Rejection consumes neither a revision nor priority/capacity on an absent pair.
+        let other = workspace();
+        put(&mut store, "tests", &other, 1, Some("lower"), now).unwrap();
+        assert_eq!(
+            store.replace_with_timing("build", other.clone(), 2, None, MAX_TTL, || {
+                Err(Error::Expired)
+            }),
+            Err(Error::Expired)
+        );
+        assert_eq!(store.project(&other, &now), Some("lower"));
+        let absent = workspace();
+        assert_eq!(
+            store.replace_with_timing("build", absent.clone(), 2, None, MAX_TTL, || {
+                Err(Error::Expired)
+            }),
+            Err(Error::Expired)
+        );
+        assert!(!store.targets.contains_key(&absent));
+        store
+            .replace_with_timing(
+                "build",
+                target.clone(),
+                2,
+                Some("new".into()),
+                MAX_TTL,
+                || Ok((now + MIN_TTL, now + MIN_TTL * 2)),
+            )
+            .unwrap();
+        assert_eq!(store.project(&target, &(now + MIN_TTL)), Some("new"));
+        assert_eq!(store.project(&target, &(now + MIN_TTL * 2)), None);
+    }
+
+    #[test]
+    fn annotation_absolute_timing_runs_after_store_validation_and_keeps_quotas() {
+        let now = Instant::now();
+        let target = workspace();
+        let mut store = store();
+        put(&mut store, "build", &target, 1, Some("old"), now).unwrap();
+        for (source, revision, text, ttl, error) in [
+            ("other", 2, None, MAX_TTL, Error::UnselectedSource),
+            ("build", 1, None, MAX_TTL, Error::StaleRevision),
+            ("build", 2, Some(String::new()), MAX_TTL, Error::InvalidText),
+            ("build", 2, None, Duration::ZERO, Error::InvalidTtl),
+            ("build", 2, None, MAX_TTL + MIN_TTL, Error::InvalidTtl),
+        ] {
+            assert_eq!(
+                store.replace_with_timing(source, target.clone(), revision, text, ttl, || {
+                    panic!("timing must not run before store fences")
+                }),
+                Err(error)
+            );
+        }
+        for _ in 1..MAX_TARGETS {
+            put(&mut store, "build", &workspace(), 1, None, now).unwrap();
+        }
+        assert_eq!(
+            store.replace_with_timing("build", workspace(), 2, None, MAX_TTL, || {
+                panic!("timing must not run before quota check")
+            }),
+            Err(Error::Capacity)
+        );
+        // Existing target updates at capacity still retain absolute expiry and watermarks.
+        store
+            .replace_with_timing("build", target.clone(), 2, None, MAX_TTL, || {
+                Ok((now, now + MIN_TTL))
+            })
+            .unwrap();
+        assert_eq!(store.targets.len(), MAX_TARGETS);
+        assert_eq!(store.project(&target, &(now + MIN_TTL)), None);
+        assert_eq!(
+            put(
+                &mut store,
+                "build",
+                &target,
+                2,
+                Some("replay"),
+                now + MIN_TTL
+            ),
+            Err(Error::StaleRevision)
+        );
     }
 
     #[test]

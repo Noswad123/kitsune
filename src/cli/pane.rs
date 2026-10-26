@@ -460,6 +460,7 @@ fn parse_pane_annotate_args(args: &[String]) -> Result<PaneAnnotateParams, Strin
                 | "--text"
                 | "--clear"
                 | "--ttl-ms"
+                | "--valid-until-unix-ms"
         ) {
             return Err(format!("unknown option: {flag}"));
         }
@@ -518,6 +519,14 @@ fn parse_pane_annotate_args(args: &[String]) -> Result<PaneAnnotateParams, Strin
     if !(1..=300_000).contains(&ttl_ms) {
         return Err("--ttl-ms must be 1..300000".into());
     }
+    let valid_until_unix_ms = flags
+        .contains_key("--valid-until-unix-ms")
+        .then(|| number("--valid-until-unix-ms"))
+        .transpose()?;
+    if valid_until_unix_ms.is_some_and(|value| value > crate::annotations::MAX_VALID_UNTIL_UNIX_MS)
+    {
+        return Err("--valid-until-unix-ms must be 0..9007199254740991".into());
+    }
     let text = match (flags.get("--text"), flags.contains_key("--clear")) {
         (Some(text), false) if !text.is_empty() && text.len() <= 256 => Some((*text).to_owned()),
         (Some(_), false) => return Err("--text must be 1..256 UTF-8 bytes".into()),
@@ -532,6 +541,7 @@ fn parse_pane_annotate_args(args: &[String]) -> Result<PaneAnnotateParams, Strin
         revision,
         text,
         ttl_ms,
+        valid_until_unix_ms,
     })
 }
 
@@ -1657,7 +1667,7 @@ fn print_pane_help() {
         cli_command("pane zoom [<pane_id>|--pane ID|--current] [--toggle|--on|--off]")
     );
     eprintln!("  {}", cli_command("pane rename <pane_id> <label>|--clear"));
-    eprintln!("  {}", cli_command("pane annotate <pane_id> --expected-terminal ID --annotation-epoch EPOCH --source ID --revision N (--text TEXT|--clear) --ttl-ms N"));
+    eprintln!("  {}", cli_command("pane annotate <pane_id> --expected-terminal ID --annotation-epoch EPOCH --source ID --revision N (--text TEXT|--clear) --ttl-ms N [--valid-until-unix-ms N]"));
     eprintln!(
         "  {}",
         cli_command("pane read <pane_id> [--source visible|recent|recent-unwrapped] [--lines N] [--format text|ansi] [--ansi]")
@@ -1752,6 +1762,7 @@ mod tests {
         assert_eq!(params.annotation_epoch, "epoch_1");
         assert_eq!(params.revision, 0);
         assert_eq!(params.ttl_ms, 1);
+        assert_eq!(params.valid_until_unix_ms, None);
         assert_eq!(params.text.as_deref(), Some("Build: running"));
         values[6] = "s".repeat(64);
         values[8] = u64::MAX.to_string();
@@ -1796,6 +1807,46 @@ mod tests {
             values[index] = invalid;
             assert!(parse_pane_annotate_args(&values).is_err(), "{values:?}");
         }
+    }
+
+    #[test]
+    fn parse_pane_annotate_deadline_is_optional_bounded_and_not_recomputed() {
+        for deadline in ["0", "1792920005000", "9007199254740991"] {
+            let mut values = annotation_args();
+            values.extend(args(&["--valid-until-unix-ms", deadline]));
+            assert_eq!(
+                parse_pane_annotate_args(&values)
+                    .unwrap()
+                    .valid_until_unix_ms,
+                Some(deadline.parse().unwrap())
+            );
+        }
+        for invalid in [
+            "",
+            "-1",
+            "+1",
+            "1.0",
+            "1.5",
+            "null",
+            "true",
+            "9007199254740992",
+            "18446744073709551616",
+        ] {
+            let mut values = annotation_args();
+            values.extend(args(&["--valid-until-unix-ms", invalid]));
+            assert!(parse_pane_annotate_args(&values).is_err(), "{values:?}");
+        }
+        let mut missing = annotation_args();
+        missing.push("--valid-until-unix-ms".into());
+        assert!(parse_pane_annotate_args(&missing).is_err());
+        let mut duplicate = annotation_args();
+        duplicate.extend(args(&[
+            "--valid-until-unix-ms",
+            "1",
+            "--valid-until-unix-ms",
+            "2",
+        ]));
+        assert!(parse_pane_annotate_args(&duplicate).is_err());
     }
 
     #[test]
