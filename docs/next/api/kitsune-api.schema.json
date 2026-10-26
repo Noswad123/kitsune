@@ -3087,6 +3087,33 @@
           ],
           "type": "object"
         },
+        "PaneSubmitCommandParams": {
+          "additionalProperties": false,
+          "description": "One generic, terminal-pinned interactive shell submission, not direct exec.",
+          "properties": {
+            "argv": {
+              "description": "1..64 entries; absolute executable; no controls; at most 32768 UTF-8 bytes total.",
+              "items": {
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
+            },
+            "expected_terminal_id": {
+              "type": "string"
+            },
+            "pane_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pane_id",
+            "expected_terminal_id",
+            "argv"
+          ],
+          "type": "object"
+        },
         "PaneSwapParams": {
           "properties": {
             "direction": {
@@ -4944,6 +4971,22 @@
         {
           "properties": {
             "method": {
+              "const": "pane.submit_command",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/PaneSubmitCommandParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "pane.read",
               "type": "string"
             },
@@ -5680,6 +5723,19 @@
             "no_foreground_client"
           ],
           "type": "string"
+        },
+        "CommandSubmissionInfo": {
+          "properties": {
+            "version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version"
+          ],
+          "type": "object"
         },
         "ConfigReloadStatus": {
           "enum": [
@@ -7674,6 +7730,34 @@
               "type": "object"
             },
             {
+              "description": "A complete command input frame was queued, not proof of process startup.",
+              "properties": {
+                "argv": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "pane_id": {
+                  "type": "string"
+                },
+                "terminal_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "pane_command_submitted",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "pane_id",
+                "terminal_id",
+                "argv"
+              ],
+              "type": "object"
+            },
+            {
               "properties": {
                 "swap": {
                   "$ref": "#/schemas/success_response/$defs/PaneSwapResult"
@@ -8175,6 +8259,16 @@
               "anyOf": [
                 {
                   "$ref": "#/schemas/success_response/$defs/AnnotationInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "command_submission": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/CommandSubmissionInfo"
                 },
                 {
                   "type": "null"

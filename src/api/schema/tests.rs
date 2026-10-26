@@ -62,6 +62,60 @@ fn request_uses_dot_method_names() {
 }
 
 #[test]
+fn command_submission_requests_are_strict_and_round_trip() {
+    let value = serde_json::json!({
+        "id": "submit", "method": "pane.submit_command", "params": {
+            "pane_id": "w1:p1", "expected_terminal_id": "terminal-1",
+            "argv": ["/trusted/program", "literal argument", ""]
+        }
+    });
+    let request: Request = serde_json::from_value(value.clone()).unwrap();
+    assert!(matches!(&request.method, Method::PaneSubmitCommand(_)));
+    assert_eq!(serde_json::to_value(request).unwrap(), value);
+    for field in ["pane_id", "expected_terminal_id", "argv"] {
+        let mut absent = value.clone();
+        absent["params"].as_object_mut().unwrap().remove(field);
+        assert!(serde_json::from_value::<Request>(absent).is_err());
+        let mut null = value.clone();
+        null["params"][field] = serde_json::Value::Null;
+        assert!(serde_json::from_value::<Request>(null).is_err());
+    }
+    let mut extra = value;
+    extra["params"]["agent"] = serde_json::json!("must not be a generic command field");
+    assert!(serde_json::from_value::<Request>(extra).is_err());
+}
+
+#[test]
+fn command_submission_discovery_is_optional_for_old_snapshots() {
+    let old = serde_json::json!({
+        "version": "test", "protocol": 18, "workspaces": [], "tabs": [],
+        "panes": [], "layouts": [], "agents": []
+    });
+    let snapshot: SessionSnapshot = serde_json::from_value(old.clone()).unwrap();
+    assert!(snapshot.command_submission.is_none());
+    assert!(serde_json::to_value(snapshot)
+        .unwrap()
+        .get("command_submission")
+        .is_none());
+    let mut current = old;
+    current["command_submission"] = serde_json::json!({"version": 1});
+    assert_eq!(
+        serde_json::from_value::<SessionSnapshot>(current.clone())
+            .unwrap()
+            .command_submission,
+        Some(CommandSubmissionInfo { version: 1 })
+    );
+    for version in [
+        serde_json::json!(true),
+        serde_json::json!("1"),
+        serde_json::Value::Null,
+    ] {
+        current["command_submission"]["version"] = version;
+        assert!(serde_json::from_value::<SessionSnapshot>(current.clone()).is_err());
+    }
+}
+
+#[test]
 fn agent_start_and_prompt_requests_round_trip() {
     let start = Request {
         id: "start".into(),
@@ -840,6 +894,7 @@ fn session_snapshot_request_and_response_round_trip() {
                 version: "0.1.2".into(),
                 protocol: 16,
                 annotations: None,
+                command_submission: None,
                 focused_workspace_id: None,
                 focused_tab_id: None,
                 focused_pane_id: None,

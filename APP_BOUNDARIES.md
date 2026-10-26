@@ -38,6 +38,13 @@ with optional snapshot `annotations` capability/epoch discovery (binary protocol
 18 unchanged). Broader future interfaces remain undecided. Presentation uses
 generic terminal identities and text, not Djinn/Coven types or job interpretation.
 
+The separate [generic command submission API](COMMAND_SUBMISSION.md) lets explicit
+clients queue argument-encoded input to a pinned existing terminal's observed
+available shell. Its optional snapshot capability is `command_submission.version`.
+No agent registry, native arguments, lifecycle/readiness, task or UI presentation
+authority is added. Coven may consume it for interactive start/resume without
+calling Kitsune's agent-specific control methods; legacy behavior is unchanged.
+
 Keep native identity, Coven participant role/assignment, job/group membership,
 and presentation references distinct. An optional pane locator cannot be the sole
 agent identity. Never assume one pane equals one native session.

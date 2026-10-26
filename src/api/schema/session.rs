@@ -14,12 +14,19 @@ pub struct AnnotationInfo {
     pub valid_until_unix_ms: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CommandSubmissionInfo {
+    pub version: u32,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SessionSnapshot {
     pub version: String,
     pub protocol: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotations: Option<AnnotationInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_submission: Option<CommandSubmissionInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused_workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

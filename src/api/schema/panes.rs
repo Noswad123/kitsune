@@ -297,6 +297,17 @@ pub struct PaneSendInputParams {
     pub keys: Vec<String>,
 }
 
+/// One generic, terminal-pinned interactive shell submission, not direct exec.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PaneSubmitCommandParams {
+    pub pane_id: String,
+    pub expected_terminal_id: String,
+    /// 1..64 entries; absolute executable; no controls; at most 32768 UTF-8 bytes total.
+    #[schemars(length(min = 1, max = 64))]
+    pub argv: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct PaneReadParams {
     pub pane_id: String,

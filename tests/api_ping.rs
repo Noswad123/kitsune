@@ -2475,6 +2475,135 @@ fn pane_info_and_subscriptions_expose_done_agent_status() {
 }
 
 #[test]
+fn command_submission_real_shell_preserves_argv_and_rejects_busy_and_mismatched_targets() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let child = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
+    wait_for_socket(&socket_path, Duration::from_secs(5));
+    let created = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "command-workspace", "method": "workspace.create",
+            "params": {"cwd": base, "focus": false}
+        })
+        .to_string(),
+    );
+    let pane = &created["result"]["root_pane"];
+    let pane_id = pane["pane_id"].as_str().unwrap();
+    let terminal_id = pane["terminal_id"].as_str().unwrap();
+    let snapshot = send_request(
+        &socket_path,
+        r#"{"id":"command-capability","method":"session.snapshot","params":{}}"#,
+    );
+    assert_eq!(
+        snapshot["result"]["snapshot"]["command_submission"]["version"],
+        1
+    );
+
+    // Observe shell setup without retrying a mutating command or guessing readiness.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let observed = send_request(
+            &socket_path,
+            &serde_json::json!({
+                "id": "command-shell", "method": "pane.process_info", "params": {"pane_id": pane_id}
+            })
+            .to_string(),
+        );
+        let process = &observed["result"]["process_info"];
+        if process["foreground_processes"]
+            .as_array()
+            .is_some_and(|rows| {
+                rows.len() == 1
+                    && rows[0]["pid"] == process["shell_pid"]
+                    && process["foreground_process_group_id"] == process["shell_pid"]
+            })
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "shell never became observable: {observed}"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    let executable = base.join("harmless executable with spaces");
+    let arguments = base.join("received-arguments");
+    let stop = base.join("stop-fixture");
+    let injected = base.join("must-not-exist");
+    fs::write(
+        &executable,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
+            arguments.display(),
+            stop.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let argv = vec![
+        executable.to_string_lossy().into_owned(),
+        "a b".into(),
+        String::new(),
+        format!("$(touch {})", injected.display()),
+        "semi; ' quote".into(),
+        "λ".into(),
+    ];
+    let params =
+        serde_json::json!({"pane_id": pane_id, "expected_terminal_id": terminal_id, "argv": argv});
+    let submitted = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "command-submit", "method": "pane.submit_command", "params": params
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        submitted["result"]["type"], "pane_command_submitted",
+        "{submitted}"
+    );
+    assert_eq!(submitted["result"]["terminal_id"], terminal_id);
+    assert_eq!(submitted["result"]["argv"], params["argv"]);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let expected = format!("{}\n", argv[1..].join("\n"));
+    while fs::read_to_string(&arguments).ok().as_deref() != Some(expected.as_str()) {
+        assert!(
+            Instant::now() < deadline,
+            "harmless fixture did not receive exact argv"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        !injected.exists(),
+        "shell interpreted an argument instead of quoting it"
+    );
+    let busy = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "command-busy", "method": "pane.submit_command", "params": params
+        })
+        .to_string(),
+    );
+    assert_eq!(busy["error"]["code"], "pane_command_busy", "{busy}");
+    let mut wrong = params;
+    wrong["expected_terminal_id"] = serde_json::json!("not-the-terminal");
+    let mismatch = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "command-wrong", "method": "pane.submit_command", "params": wrong
+        })
+        .to_string(),
+    );
+    assert_eq!(mismatch["error"]["code"], "terminal_mismatch");
+    fs::write(stop, "stop").unwrap();
+    cleanup_spawned_kitsune(child, base);
+}
+
+#[test]
 fn metadata_status_subscription_filter_and_ttl_expiry_are_observable() {
     let _lock = test_lock();
     let base = unique_test_dir();

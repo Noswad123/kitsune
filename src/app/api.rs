@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 mod agent_view;
 mod agents;
 mod annotations;
+mod command_submission;
 mod env;
 mod integrations;
 mod layouts;
@@ -1057,6 +1058,9 @@ impl App {
             Method::PaneSendText(params) => return self.handle_pane_send_text(request.id, params),
             Method::PaneSendInput(params) => {
                 return self.handle_pane_send_input(request.id, params)
+            }
+            Method::PaneSubmitCommand(params) => {
+                return self.handle_pane_submit_command(request.id, params)
             }
             Method::PaneClose(target) => return self.handle_pane_close(request.id, target),
             Method::PopupClose(_) => {
