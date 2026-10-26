@@ -471,9 +471,10 @@ mod tests {
             .iter()
             .find(|(group, _)| *group == "global")
             .expect("global keybind help group");
-        assert!(global.1.iter().any(|(_, label)| {
-            label.as_ref() == "workspace / pane maintenance"
-        }));
+        assert!(global
+            .1
+            .iter()
+            .any(|(_, label)| { label.as_ref() == "workspace / pane maintenance" }));
     }
 
     #[test]
