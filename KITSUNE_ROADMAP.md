@@ -103,6 +103,29 @@ Keep internal Herdr module/type names where they help upstream comparison.
 Rename internals only when the old name causes active confusion or blocks a
 product change.
 
+### Upgrade-safe executable paths for pane integrations
+
+Deferred bug fix: Neovim Ctrl-H/J/K/L navigation can fail at a split boundary with
+`E5108` / `ENOENT` when `KITSUNE_BIN_PATH` points to a removed Homebrew Cellar
+binary, observed as `/home/linuxbrew/.linuxbrew/Cellar/kitsune/0.1.0-dev/bin/kitsune (deleted)`.
+The dotfiles `pane-navigator.lua` currently trusts that override verbatim. A
+still-running Kitsune process after an upgrade is the suspected source of the
+stale value; confirm how Kitsune exports the path before changing runtime code.
+
+Make executable discovery upgrade-safe: honor `KITSUNE_BIN_PATH` only when it is
+executable, otherwise resolve `kitsune` on `PATH`. If neither is usable, skip the
+external pane-focus request with a clear warning rather than an uncaught Lua
+spawn error. Handle spawn failures even after validation, preserve Neovim split
+navigation and the existing pane/session targeting, and audit the other dotfiles
+consumers (`lua/util/harness/opencode.lua` and `kpm.py`) for the same assumption.
+Do not simply strip ` (deleted)`; the underlying versioned path may also be gone.
+
+Validate valid overrides, stale/deleted overrides with a working PATH fallback,
+no executable available, and an executable disappearing between lookup and
+spawn. Include an upgrade-with-a-running-session regression check. Until fixed,
+save work and fully restart the Kitsune server/session after upgrades; an
+existing Neovim can clear `vim.env.KITSUNE_BIN_PATH` if `kitsune` is on its PATH.
+
 ### Validation hygiene audit
 
 Audit current full-suite behavior before listing blockers. Several previously

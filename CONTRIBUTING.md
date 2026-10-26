@@ -89,7 +89,11 @@ Run the PR checks and make sure they pass.
 just ci
 ```
 
-`just ci` runs `cargo fmt --check` and `cargo nextest run`.
+`just ci` runs formatting, all-target Clippy, Rust tests, maintenance script tests,
+integration-asset tests, and workflow configuration tests. `just check` runs the
+same complete host-platform checks without installing cross-compilation targets.
+GitHub CI checks Linux and macOS for pushes to `main` and pull requests targeting
+`main`; Windows is not part of the CI or manual artifact-build matrix.
 
 Do not open a PR that bypasses failing tests, formatting, or build errors.
 
