@@ -2,8 +2,9 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,6 +14,18 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
+
+fn configure_peer(stream: &UnixStream) {
+    // macOS can inherit the listener's nonblocking mode. Keep accept polling
+    // nonblocking, but make each peer honor its bounded read/write timeouts.
+    stream.set_nonblocking(false).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+}
 
 struct Fixture {
     root: PathBuf,
@@ -97,12 +110,7 @@ impl Fixture {
             let exited = child.0.try_wait().unwrap();
             match self.listener.as_ref().unwrap().accept() {
                 Ok((mut stream, _)) => {
-                    stream
-                        .set_read_timeout(Some(Duration::from_secs(2)))
-                        .unwrap();
-                    stream
-                        .set_write_timeout(Some(Duration::from_secs(2)))
-                        .unwrap();
+                    configure_peer(&stream);
                     let mut line = String::new();
                     BufReader::new((&stream).take(64 * 1024))
                         .read_line(&mut line)
@@ -209,6 +217,31 @@ fn check_transport(clear: bool, reject: bool) {
             "text": if clear { None } else { Some("Build: running") }, "ttl_ms": 5000
         }})
     );
+}
+
+#[test]
+fn annotation_fixture_configures_nonblocking_peers_for_bounded_reads() {
+    let (peer, mut client) = UnixStream::pair().unwrap();
+    peer.set_nonblocking(true).unwrap();
+    configure_peer(&peer);
+    // Inspect only this owned test descriptor, so Linux also catches the macOS
+    // inherited-mode regression deterministically rather than relying on a race.
+    let flags = unsafe { libc::fcntl(peer.as_raw_fd(), libc::F_GETFL) };
+    assert_ne!(flags, -1);
+    assert_eq!(flags & libc::O_NONBLOCK, 0);
+    assert_eq!(peer.read_timeout().unwrap(), Some(Duration::from_secs(2)));
+    assert_eq!(peer.write_timeout().unwrap(), Some(Duration::from_secs(2)));
+    let writer = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(30));
+        writeln!(client, "{{\"id\":\"delayed-peer\"}}").unwrap();
+    });
+    let mut line = String::new();
+    BufReader::new(peer).read_line(&mut line).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&line).unwrap(),
+        json!({"id": "delayed-peer"})
+    );
+    writer.join().unwrap();
 }
 
 #[test]
