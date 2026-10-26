@@ -81,7 +81,10 @@ Install the repo hook once in your clone.
 just install-hooks
 ```
 
-The pre-commit hook runs `cargo fmt --check` before every commit.
+The pre-commit hook runs `just lint` (formatting and Clippy) before every commit.
+Commit messages and PR titles should be descriptive, but do not need a
+Conventional Commit prefix such as `fix:` or `ci:`. No message-format hook or CI
+check enforces a naming convention.
 
 Run the PR checks and make sure they pass.
 
@@ -104,12 +107,12 @@ If your PR relates to a GitHub issue, reference it in the commit body with `refs
 Example:
 
 ```text
-fix: handle pane focus
+Handle pane focus
 
 refs #128
 ```
 
-Do not use GitHub closing keywords like `fixes #128`, `closes #128`, or `resolves #128` in normal PR commits. Kitsune closes released issues after a release is published, not when unreleased commits land on `master`.
+Do not use GitHub closing keywords like `fixes #128`, `closes #128`, or `resolves #128` in normal PR commits. Kitsune closes released issues after a release is published, not when unreleased commits land on `main`.
 
 ## PR scope
 

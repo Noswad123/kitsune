@@ -20,23 +20,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  conventional-commits:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Validate commit subjects
-        if: github.event_name == 'push'
-        run: python3 scripts/conventional_commits.py --range "${{ github.event.before }}..${{ github.event.after }}"
-
-      - name: Validate PR title
-        if: github.event_name == 'pull_request'
-        run: python3 scripts/conventional_commits.py "${{ github.event.pull_request.title }}"
-
   check:
     name: check (${{ matrix.os }})
     strategy:

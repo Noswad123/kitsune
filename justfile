@@ -87,7 +87,6 @@ ci-workflows-test:
 install-hooks:
     git config core.hooksPath .githooks
     chmod +x .githooks/pre-commit
-    chmod +x .githooks/commit-msg
     @echo "installed git hooks from .githooks"
 
 # Build release binary
