@@ -1,4 +1,5 @@
 # Kitsune
+![kitsune](img/kitsune.png)
 
 Kitsune started as a personal fork of Herdr, a terminal-based runtime for running coding agents in panes, tabs, workspaces, and detached sessions.
 
