@@ -2,8 +2,9 @@
 
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::ffi::OsStrExt;
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -13,6 +14,18 @@ use std::time::{Duration, Instant};
 use serde_json::{json, Value};
 
 static NEXT_FIXTURE: AtomicUsize = AtomicUsize::new(0);
+
+fn configure_peer(stream: &UnixStream) {
+    // macOS can inherit the listener's nonblocking mode. Keep accept polling
+    // nonblocking, but make each peer honor its bounded read/write timeouts.
+    stream.set_nonblocking(false).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+    stream
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .unwrap();
+}
 
 struct Fixture {
     root: PathBuf,
@@ -62,6 +75,10 @@ impl Fixture {
     }
 
     fn run(&self, args: &[&str], reject: bool) -> (Output, Vec<Value>) {
+        self.run_with_error(args, reject.then_some("annotation_stale_revision"))
+    }
+
+    fn run_with_error(&self, args: &[&str], reject: Option<&str>) -> (Output, Vec<Value>) {
         let stdout = self.root.join("stdout");
         let stderr = self.root.join("stderr");
         let mut command = Command::new(env!("CARGO_BIN_EXE_kitsune"));
@@ -93,12 +110,7 @@ impl Fixture {
             let exited = child.0.try_wait().unwrap();
             match self.listener.as_ref().unwrap().accept() {
                 Ok((mut stream, _)) => {
-                    stream
-                        .set_read_timeout(Some(Duration::from_secs(2)))
-                        .unwrap();
-                    stream
-                        .set_write_timeout(Some(Duration::from_secs(2)))
-                        .unwrap();
+                    configure_peer(&stream);
                     let mut line = String::new();
                     BufReader::new((&stream).take(64 * 1024))
                         .read_line(&mut line)
@@ -110,9 +122,9 @@ impl Fixture {
                             "type": "pong", "version": "different-build-same-protocol", "protocol": 18,
                             "capabilities": {"live_handoff": true, "detached_server_daemon": true}
                         }})
-                    } else if reject {
+                    } else if let Some(code) = reject {
                         json!({"id": request["id"], "error": {
-                            "code": "annotation_stale_revision", "message": "annotation revision rejected"
+                            "code": code, "message": "annotation revision rejected"
                         }})
                     } else {
                         json!({"id": request["id"], "result": {"type": "ok"}})
@@ -208,6 +220,31 @@ fn check_transport(clear: bool, reject: bool) {
 }
 
 #[test]
+fn annotation_fixture_configures_nonblocking_peers_for_bounded_reads() {
+    let (peer, mut client) = UnixStream::pair().unwrap();
+    peer.set_nonblocking(true).unwrap();
+    configure_peer(&peer);
+    // Inspect only this owned test descriptor, so Linux also catches the macOS
+    // inherited-mode regression deterministically rather than relying on a race.
+    let flags = unsafe { libc::fcntl(peer.as_raw_fd(), libc::F_GETFL) };
+    assert_ne!(flags, -1);
+    assert_eq!(flags & libc::O_NONBLOCK, 0);
+    assert_eq!(peer.read_timeout().unwrap(), Some(Duration::from_secs(2)));
+    assert_eq!(peer.write_timeout().unwrap(), Some(Duration::from_secs(2)));
+    let writer = thread::spawn(move || {
+        thread::sleep(Duration::from_millis(30));
+        writeln!(client, "{{\"id\":\"delayed-peer\"}}").unwrap();
+    });
+    let mut line = String::new();
+    BufReader::new(peer).read_line(&mut line).unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&line).unwrap(),
+        json!({"id": "delayed-peer"})
+    );
+    writer.join().unwrap();
+}
+
+#[test]
 fn pane_annotation_cli_sends_only_ping_then_one_annotation() {
     check_transport(false, false);
 }
@@ -220,6 +257,47 @@ fn pane_annotation_cli_clear_sends_explicit_null() {
 #[test]
 fn pane_annotation_cli_server_error_exits_one_without_retry() {
     check_transport(false, true);
+}
+
+#[test]
+fn pane_annotation_cli_deadline_is_exact_on_text_clear_and_expired_error_without_retry() {
+    for clear in [false, true] {
+        for error in [None, Some("annotation_expired")] {
+            let fixture = Fixture::new();
+            let mut args = annotation_args();
+            if clear {
+                args.truncate(13);
+                args.push("--clear");
+            }
+            args.extend(["--valid-until-unix-ms", "9007199254740991"]);
+            let (output, requests) = fixture.run_with_error(&args, error);
+            assert_eq!(
+                output.status.code(),
+                Some(if error.is_some() { 1 } else { 0 })
+            );
+            assert!(output.stdout.is_empty());
+            assert_eq!(
+                requests.len(),
+                2,
+                "unexpected discovery or retry: {requests:?}"
+            );
+            assert_eq!(requests[0]["method"], "ping");
+            assert_eq!(
+                requests[1],
+                json!({"id": "cli:request", "method": "pane.annotate", "params": {
+                    "pane_id": "w1:p1", "expected_terminal_id": "term_1", "annotation_epoch": "epoch_1",
+                    "source": "build", "revision": 1, "text": if clear { None } else { Some("Build: running") },
+                    "ttl_ms": 5000, "valid_until_unix_ms": 9_007_199_254_740_991u64
+                }})
+            );
+            if error.is_some() {
+                let response: Value = serde_json::from_slice(&output.stderr).unwrap();
+                assert_eq!(response["error"]["code"], "annotation_expired");
+            } else {
+                assert!(output.stderr.is_empty());
+            }
+        }
+    }
 }
 
 #[test]
@@ -255,6 +333,27 @@ fn pane_annotation_cli_invalid_args_exit_two_without_peer_contact() {
         args.push(extra);
         cases.push(args);
     }
+    for invalid in [
+        "",
+        "-1",
+        "+1",
+        "1.0",
+        "1.5",
+        "null",
+        "true",
+        "9007199254740992",
+        "18446744073709551616",
+    ] {
+        let mut args = annotation_args();
+        args.extend(["--valid-until-unix-ms", invalid]);
+        cases.push(args);
+    }
+    let mut missing = annotation_args();
+    missing.push("--valid-until-unix-ms");
+    cases.push(missing);
+    let mut duplicate = annotation_args();
+    duplicate.extend(["--valid-until-unix-ms", "1", "--valid-until-unix-ms", "2"]);
+    cases.push(duplicate);
     for args in cases {
         let (output, requests) = fixture.run(&args, false);
         assert!(
@@ -312,6 +411,14 @@ fn pane_annotation_cli_embedded_schema_has_required_nullable_text_and_optional_d
         params["properties"]["text"]["type"],
         json!(["string", "null"])
     );
+    assert!(!params["required"]
+        .as_array()
+        .unwrap()
+        .contains(&json!("valid_until_unix_ms")));
+    let deadline = &params["properties"]["valid_until_unix_ms"];
+    assert_eq!(deadline["type"], "integer");
+    assert_eq!(deadline["minimum"], 0);
+    assert_eq!(deadline["maximum"], 9_007_199_254_740_991u64);
     let definitions = &schema["schemas"]["success_response"]["$defs"];
     let snapshot = &definitions["SessionSnapshot"];
     assert!(snapshot["properties"].get("annotations").is_some());
@@ -327,6 +434,10 @@ fn pane_annotation_cli_embedded_schema_has_required_nullable_text_and_optional_d
         "string"
     );
     assert_eq!(descriptor["required"], json!(["epoch", "sources"]));
+    assert_eq!(
+        descriptor["properties"]["valid_until_unix_ms"]["type"],
+        "boolean"
+    );
 }
 
 #[test]
@@ -357,6 +468,7 @@ fn pane_annotation_cli_help_and_completion_include_explicit_fences() {
             "text",
             "clear",
             "ttl-ms",
+            "valid-until-unix-ms",
         ] {
             assert!(text.contains(expected), "{args:?}: missing {expected}");
         }

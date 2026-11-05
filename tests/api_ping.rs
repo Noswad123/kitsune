@@ -2175,9 +2175,15 @@ fn events_subscribe_streams_output_and_agent_status_events() {
 
     fs::create_dir_all(&bin_dir).unwrap();
     let fake_pi = bin_dir.join("pi");
+    let stop_file = base.join("pi-stop");
+    // Separate a normal turn from the detector's three-second startup grace,
+    // then keep the interactive process alive until its completion is observed.
     fs::write(
         &fake_pi,
-        "#!/bin/sh\nprintf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\n",
+        format!(
+            "#!/bin/sh\nprintf 'starting\\n'\nsleep 4\nprintf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
+            stop_file.display()
+        ),
     )
     .unwrap();
     #[cfg(unix)]
@@ -2205,26 +2211,18 @@ fn events_subscribe_streams_output_and_agent_status_events() {
             base.display()
         ),
     );
-    let workspace_id = created["result"]["workspace"]["workspace_id"]
+    // A startup workspace may already exist; use the created pane's actual ID
+    // for input and both subscriptions instead of guessing a legacy locator.
+    let pane_id = created["result"]["root_pane"]["pane_id"]
         .as_str()
         .unwrap()
         .to_string();
-
-    let panes = send_request(
-        &socket_path,
-        r#"{"id":"req_21","method":"pane.list","params":{}}"#,
-    );
-    let pane_id = panes["result"]["panes"][0]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let legacy_pane_id = format!("{workspace_id}-1");
 
     let mut reader = open_subscription(
         &socket_path,
         &format!(
             r#"{{"id":"sub_1","method":"events.subscribe","params":{{"subscriptions":[{{"type":"pane.output_matched","pane_id":"{}","source":"recent","lines":40,"match":{{"type":"substring","value":"hello from socket"}}}},{{"type":"pane.agent_status_changed","pane_id":"{}","agent_status":"done"}}]}}}}"#,
-            pane_id, legacy_pane_id,
+            pane_id, pane_id,
         ),
     );
 
@@ -2262,6 +2260,21 @@ fn events_subscribe_streams_output_and_agent_status_events() {
         .unwrap()
         .contains("hello from socket"));
 
+    // Done is an unseen completion: a focused pane is acknowledged as idle.
+    // Keep this pane in the background for the done-filtered subscription.
+    let tab_created = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "req_background", "method": "tab.create",
+            "params": {
+                "workspace_id": created["result"]["workspace"]["workspace_id"],
+                "focus": true
+            }
+        })
+        .to_string(),
+    );
+    assert_eq!(tab_created["result"]["type"], "tab_created");
+
     let send_pi = send_request(
         &socket_path,
         &format!(
@@ -2279,12 +2292,35 @@ fn events_subscribe_streams_output_and_agent_status_events() {
     );
     assert_eq!(send_enter["result"]["type"], "ok");
 
-    let agent_done = reader.read_json_line(Duration::from_secs(8));
+    let agent_done = reader
+        .try_read_json_line(Duration::from_secs(8))
+        .unwrap_or_else(|| {
+            let pane = send_request(
+                &socket_path,
+                &serde_json::json!({
+                    "id": "status_timeout_pane", "method": "pane.get",
+                    "params": {"pane_id": pane_id}
+                })
+                .to_string(),
+            );
+            let processes = send_request(
+                &socket_path,
+                &serde_json::json!({
+                    "id": "status_timeout_process", "method": "pane.process_info",
+                    "params": {"pane_id": pane_id}
+                })
+                .to_string(),
+            );
+            panic!("timed out waiting for done event; pane: {pane}; processes: {processes}");
+        });
     assert_eq!(agent_done["event"], "pane.agent_status_changed");
     assert_eq!(agent_done["data"]["pane_id"], pane_id);
     assert_eq!(agent_done["data"]["agent_status"], "done");
     assert_eq!(agent_done["data"]["agent"], "pi");
 
+    // An interactive agent stays alive after finishing; exit only after observing
+    // its done event rather than racing process disappearance with screen detection.
+    fs::write(&stop_file, "stop").unwrap();
     cleanup_spawned_kitsune(child, base);
 }
 
@@ -2435,6 +2471,135 @@ fn pane_info_and_subscriptions_expose_done_agent_status() {
 
     fs::write(&stop_file, "stop").unwrap();
 
+    cleanup_spawned_kitsune(child, base);
+}
+
+#[test]
+fn command_submission_real_shell_preserves_argv_and_rejects_busy_and_mismatched_targets() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("config");
+    let runtime_dir = base.join("runtime");
+    let socket_path = runtime_dir.join("kitsune.sock");
+    let child = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
+    wait_for_socket(&socket_path, Duration::from_secs(5));
+    let created = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "command-workspace", "method": "workspace.create",
+            "params": {"cwd": base, "focus": false}
+        })
+        .to_string(),
+    );
+    let pane = &created["result"]["root_pane"];
+    let pane_id = pane["pane_id"].as_str().unwrap();
+    let terminal_id = pane["terminal_id"].as_str().unwrap();
+    let snapshot = send_request(
+        &socket_path,
+        r#"{"id":"command-capability","method":"session.snapshot","params":{}}"#,
+    );
+    assert_eq!(
+        snapshot["result"]["snapshot"]["command_submission"]["version"],
+        1
+    );
+
+    // Observe shell setup without retrying a mutating command or guessing readiness.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let observed = send_request(
+            &socket_path,
+            &serde_json::json!({
+                "id": "command-shell", "method": "pane.process_info", "params": {"pane_id": pane_id}
+            })
+            .to_string(),
+        );
+        let process = &observed["result"]["process_info"];
+        if process["foreground_processes"]
+            .as_array()
+            .is_some_and(|rows| {
+                rows.len() == 1
+                    && rows[0]["pid"] == process["shell_pid"]
+                    && process["foreground_process_group_id"] == process["shell_pid"]
+            })
+        {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "shell never became observable: {observed}"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    let executable = base.join("harmless executable with spaces");
+    let arguments = base.join("received-arguments");
+    let stop = base.join("stop-fixture");
+    let injected = base.join("must-not-exist");
+    fs::write(
+        &executable,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
+            arguments.display(),
+            stop.display()
+        ),
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&executable, fs::Permissions::from_mode(0o700)).unwrap();
+    let argv = vec![
+        executable.to_string_lossy().into_owned(),
+        "a b".into(),
+        String::new(),
+        format!("$(touch {})", injected.display()),
+        "semi; ' quote".into(),
+        "λ".into(),
+    ];
+    let params =
+        serde_json::json!({"pane_id": pane_id, "expected_terminal_id": terminal_id, "argv": argv});
+    let submitted = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "command-submit", "method": "pane.submit_command", "params": params
+        })
+        .to_string(),
+    );
+    assert_eq!(
+        submitted["result"]["type"], "pane_command_submitted",
+        "{submitted}"
+    );
+    assert_eq!(submitted["result"]["terminal_id"], terminal_id);
+    assert_eq!(submitted["result"]["argv"], params["argv"]);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let expected = format!("{}\n", argv[1..].join("\n"));
+    while fs::read_to_string(&arguments).ok().as_deref() != Some(expected.as_str()) {
+        assert!(
+            Instant::now() < deadline,
+            "harmless fixture did not receive exact argv"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        !injected.exists(),
+        "shell interpreted an argument instead of quoting it"
+    );
+    let busy = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "command-busy", "method": "pane.submit_command", "params": params
+        })
+        .to_string(),
+    );
+    assert_eq!(busy["error"]["code"], "pane_command_busy", "{busy}");
+    let mut wrong = params;
+    wrong["expected_terminal_id"] = serde_json::json!("not-the-terminal");
+    let mismatch = send_request(
+        &socket_path,
+        &serde_json::json!({
+            "id": "command-wrong", "method": "pane.submit_command", "params": wrong
+        })
+        .to_string(),
+    );
+    assert_eq!(mismatch["error"]["code"], "terminal_mismatch");
+    fs::write(stop, "stop").unwrap();
     cleanup_spawned_kitsune(child, base);
 }
 

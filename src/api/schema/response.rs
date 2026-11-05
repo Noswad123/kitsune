@@ -119,6 +119,12 @@ pub enum ResponseResult {
     PaneCurrent {
         pane: PaneInfo,
     },
+    /// A complete command input frame was queued, not proof of process startup.
+    PaneCommandSubmitted {
+        pane_id: String,
+        terminal_id: String,
+        argv: Vec<String>,
+    },
     PaneSwap {
         swap: PaneSwapResult,
     },

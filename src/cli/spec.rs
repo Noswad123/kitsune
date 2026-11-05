@@ -517,7 +517,8 @@ fn pane_command() -> Command {
                 .arg(option("text", "TEXT").help("Nonempty plain text, at most 256 UTF-8 bytes"))
                 .arg(flag("clear").help("Clear this source's annotation"))
                 .group(ArgGroup::new("annotation-value").args(["text", "clear"]).required(true))
-                .arg(option("ttl-ms", "N").required(true).help("Lifetime in milliseconds, 1..300000, including clears")),
+                .arg(option("ttl-ms", "N").required(true).help("Lifetime in milliseconds, 1..300000, including clears"))
+                .arg(option("valid-until-unix-ms", "N").help("Optional source validity ceiling in Unix milliseconds, 0..9007199254740991")),
         )
         .subcommand(
             Command::new("split")

@@ -166,19 +166,21 @@ Put local PRDs, planning notes, and exploratory specs under `.local/prd/`; `.loc
 
 ## Commit Style
 
-Use lowercase conventional commits, no emojis, and no AI co-author lines. Commit subjects feed preview release notes, so keep them descriptive.
+Use clear, descriptive commit subjects. Conventional Commit prefixes are not
+required for commit messages or pull request titles. Do not add emojis or AI
+co-author lines.
 
 Before committing, propose the commit message and get alignment.
 
 When a normal feature or fix commit relates to a GitHub issue, add a commit body line `refs #<issue-number>` after the subject:
 
 ```text
-fix: handle pane focus
+Handle pane focus
 
 refs #82
 ```
 
-Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue-number>`, or `resolves #<issue-number>` in normal commits. `master` contains unreleased work; release CI closes referenced issues after the GitHub Release is created.
+Do not use GitHub closing keywords like `fixes #<issue-number>`, `closes #<issue-number>`, or `resolves #<issue-number>` in normal commits. `main` contains unreleased work; release CI closes referenced issues after the GitHub Release is created.
 
 ## Code Conventions
 

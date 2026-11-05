@@ -406,6 +406,7 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::PaneSendText(_) => "pane.send_text",
         Method::PaneSendKeys(_) => "pane.send_keys",
         Method::PaneSendInput(_) => "pane.send_input",
+        Method::PaneSubmitCommand(_) => "pane.submit_command",
         Method::PaneRead(_) => "pane.read",
         Method::PaneGraphicsSet(_) => "pane.graphics.set",
         Method::PaneGraphicsClear(_) => "pane.graphics.clear",

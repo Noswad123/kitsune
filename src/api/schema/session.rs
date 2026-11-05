@@ -9,6 +9,14 @@ use super::workspaces::WorkspaceInfo;
 pub struct AnnotationInfo {
     pub epoch: String,
     pub sources: Vec<String>,
+    /// Supports source validity deadlines on pane.annotate; not a clock-quality guarantee.
+    #[serde(default, skip_serializing_if = "super::is_false")]
+    pub valid_until_unix_ms: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct CommandSubmissionInfo {
+    pub version: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
@@ -17,6 +25,8 @@ pub struct SessionSnapshot {
     pub protocol: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub annotations: Option<AnnotationInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_submission: Option<CommandSubmissionInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused_workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
