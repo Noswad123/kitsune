@@ -887,6 +887,25 @@ mod tests {
     }
 
     #[test]
+    fn legacy_kitty_graphics_flag_is_unknown_at_startup_and_reload() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for value in [true, false] {
+            fixture.write(&format!(
+                "[experimental]\nkitty_graphics = {value}\nallow_nested = true\n"
+            ));
+            for loaded in [Config::load(), load_live_config().unwrap()] {
+                assert!(loaded.config.experimental.allow_nested);
+                assert!(loaded.invalid_sections.is_empty());
+                assert_eq!(
+                    loaded.diagnostics,
+                    ["unknown config key experimental.kitty_graphics; ignoring key"]
+                );
+            }
+        }
+    }
+
+    #[test]
     fn annotations_unknown_key_warning_survives_startup_and_live_parsing() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let fixture = AnnotationConfigFixture::new();

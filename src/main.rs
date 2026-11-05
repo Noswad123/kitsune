@@ -385,9 +385,6 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 [experimental]
 # Allow launching Kitsune from inside a Kitsune-managed pane.
 # allow_nested = false
-# Experimental local Kitty graphics rendering for attached clients.
-# Requires a Kitty graphics-compatible outer terminal.
-# kitty_graphics = false
 # Save recent pane screen history across full server restarts.
 pane_history = false
 # While prefix mode is active, temporarily switch the host input source to
@@ -714,9 +711,7 @@ fn main() -> io::Result<()> {
         if panic_resets_modify_other_keys {
             let _ = std::io::Write::write_all(&mut io::stdout(), b"\x1b[>4;0m");
         }
-        if crate::kitty_graphics::is_enabled() {
-            let _ = crate::kitty_graphics::clear_all_host_graphics();
-        }
+        let _ = crate::kitty_graphics::clear_all_host_graphics();
         let _ = execute!(
             io::stdout(),
             DisableFocusChange,
@@ -780,9 +775,7 @@ fn main() -> io::Result<()> {
             std::io::stdout().flush()?;
         }
 
-        if crate::kitty_graphics::is_enabled() {
-            crate::kitty_graphics::clear_all_host_graphics()?;
-        }
+        crate::kitty_graphics::clear_all_host_graphics()?;
         pop_keyboard_enhancement_flags()?;
         execute!(
             io::stdout(),

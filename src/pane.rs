@@ -1761,11 +1761,9 @@ impl PaneRuntime {
         terminal
             .resize(cols, rows, cell_width_px, cell_height_px)
             .map_err(|e| std::io::Error::other(e.to_string()))?;
-        if crate::kitty_graphics::is_enabled() {
-            terminal
-                .enable_kitty_graphics()
-                .map_err(|e| std::io::Error::other(e.to_string()))?;
-        }
+        terminal
+            .enable_kitty_graphics()
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         let pane_terminal = GhosttyPaneTerminal::new(terminal, response_tx.clone())?;
         pane_terminal.apply_host_terminal_theme(host_terminal_theme);
         pane_terminal.seed_terminal_title(terminal_title);
@@ -1894,11 +1892,9 @@ impl PaneRuntime {
         let (response_tx, _response_rx) = mpsc::channel::<Bytes>(1);
         let mut terminal = crate::ghostty::Terminal::new(cols, rows, scrollback_limit_bytes)
             .map_err(|e| std::io::Error::other(e.to_string()))?;
-        if crate::kitty_graphics::is_enabled() {
-            terminal
-                .enable_kitty_graphics()
-                .map_err(|e| std::io::Error::other(e.to_string()))?;
-        }
+        terminal
+            .enable_kitty_graphics()
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         let pane_terminal = GhosttyPaneTerminal::new(terminal, response_tx.clone())?;
         pane_terminal.apply_host_terminal_theme(host_terminal_theme);
         pane_terminal.set_windows_powershell_prompt_cwd_reporting(
@@ -3256,6 +3252,62 @@ mod tests {
             &[("TERM", "vt100"), ("COLORTERM", "24bit")],
         );
         assert_eq!(output, "vt100\n24bit\n");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn kitty_graphics_enabled_for_fresh_and_handoff_panes() {
+        let (events, _event_rx) = mpsc::channel(16);
+        let render_notify = Arc::new(Notify::new());
+        let render_dirty = Arc::new(AtomicBool::new(false));
+        let runtime = PaneRuntime::spawn_command_builder(
+            PaneId::alloc(),
+            24,
+            80,
+            0,
+            crate::terminal_theme::TerminalTheme::default(),
+            events.clone(),
+            render_notify.clone(),
+            render_dirty.clone(),
+            CommandBuilder::new("/bin/cat"),
+            "failed to spawn graphics test pane",
+            SpawnInitialState::default(),
+            AgentDetection::Disabled,
+        )
+        .unwrap();
+        let graphics = b"\x1b_Ga=T,f=32,t=d,i=7,p=1,s=1,v=1,q=2;/wAA/w==\x1b\\";
+        runtime.resize(24, 80, 8, 16);
+        runtime.test_process_pty_bytes(graphics);
+        assert_eq!(
+            runtime
+                .kitty_image_placements_with_data_filter(|_| true)
+                .len(),
+            1
+        );
+
+        runtime
+            .pause_handoff_reader(std::time::Duration::from_secs(1))
+            .unwrap();
+        let imported = crate::handoff_runtime::ImportedHandoffRuntime {
+            master_fd: runtime.duplicate_handoff_fd().unwrap(),
+            state: runtime.handoff_runtime_state(runtime.pane_id.raw()),
+        };
+        let handoff = PaneRuntime::from_handoff_fd(
+            imported,
+            0,
+            crate::terminal_theme::TerminalTheme::default(),
+            events,
+            render_notify,
+            render_dirty,
+        )
+        .unwrap();
+        handoff.test_process_pty_bytes(graphics);
+        assert_eq!(
+            handoff
+                .kitty_image_placements_with_data_filter(|_| true)
+                .len(),
+            1
+        );
     }
 
     #[cfg(unix)]

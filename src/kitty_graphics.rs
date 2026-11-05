@@ -3,7 +3,6 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use base64::Engine;
@@ -134,16 +133,7 @@ pub(crate) struct HostGraphicsCache {
     view: Option<HostViewKey>,
 }
 
-static KITTY_GRAPHICS_ENABLED: AtomicBool = AtomicBool::new(false);
 static LOCAL_HOST_GRAPHICS: OnceLock<Mutex<HostGraphicsCache>> = OnceLock::new();
-
-pub(crate) fn set_enabled(enabled: bool) {
-    KITTY_GRAPHICS_ENABLED.store(enabled, Ordering::Release);
-}
-
-pub(crate) fn is_enabled() -> bool {
-    KITTY_GRAPHICS_ENABLED.load(Ordering::Acquire)
-}
 
 pub(crate) fn paint_local_pane_graphics(
     app: &AppState,

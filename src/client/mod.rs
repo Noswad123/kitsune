@@ -1134,8 +1134,7 @@ fn run_client_with_mode(
     let direct_attach_requested = attach_request.is_some();
     #[cfg(unix)]
     let remote_image_paste_key = client_remote_image_paste_key(&loaded_config.config);
-    let kitty_graphics_enabled =
-        loaded_config.config.experimental.kitty_graphics && !direct_attach_requested;
+    let kitty_graphics_enabled = attachment_allows_kitty_graphics(direct_attach_requested);
     let loop_config = ClientLoopConfig {
         sound_config: loaded_config.config.ui.sound,
         mouse_scroll_lines,
@@ -2086,6 +2085,10 @@ fn find_subslice(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 // Resize polling
 // ---------------------------------------------------------------------------
 
+fn attachment_allows_kitty_graphics(direct_attach_requested: bool) -> bool {
+    !direct_attach_requested
+}
+
 fn current_terminal_geometry(kitty_graphics_enabled: bool) -> (u16, u16, u32, u32) {
     let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
     if !kitty_graphics_enabled {
@@ -2201,6 +2204,12 @@ mod tests {
         fn drop(&mut self) {
             restore_env_var(self.key, self.previous.clone());
         }
+    }
+
+    #[test]
+    fn kitty_graphics_allowed_for_app_but_not_direct_attach() {
+        assert!(attachment_allows_kitty_graphics(false));
+        assert!(!attachment_allows_kitty_graphics(true));
     }
 
     #[test]

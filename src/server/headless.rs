@@ -952,7 +952,7 @@ impl HeadlessServer {
         };
         let (cols, rows) = self.effective_size;
         let area = Rect::new(0, 0, cols, rows);
-        if self.app.state.kitty_graphics_enabled && client.cell_size.is_known() {
+        if client.cell_size.is_known() {
             crate::ui::compute_view_with_cell_size(
                 &mut self.app.state,
                 &self.app.terminal_runtimes,
@@ -1012,8 +1012,7 @@ impl HeadlessServer {
 
         let terminal_size = client.terminal_size;
         let outer_terminal_focus = client.outer_terminal_focus;
-        let host_cell_size = if self.app.state.kitty_graphics_enabled && client.cell_size.is_known()
-        {
+        let host_cell_size = if client.cell_size.is_known() {
             client.cell_size
         } else {
             crate::kitty_graphics::HostCellSize::default()
@@ -3396,14 +3395,13 @@ impl HeadlessServer {
         if client.deferred_render() != DeferredRender::None {
             retained_fallback!("render_pending");
         }
-        if self.app.state.kitty_graphics_enabled && !client.graphics_cache.is_empty() {
+        if !client.graphics_cache.is_empty() {
             retained_fallback!("graphics_cache_active");
         }
         if client.graphics_surface_reset_pending {
             retained_fallback!("graphics_surface_reset");
         }
-        if self.app.state.kitty_graphics_enabled
-            && cell_size.is_known()
+        if cell_size.is_known()
             && crate::kitty_graphics::has_visible_pane_graphics(
                 &self.app.state,
                 &self.app.terminal_runtimes,
@@ -3605,12 +3603,11 @@ impl HeadlessServer {
             let mut frame = match mode {
                 ClientConnectionMode::App => {
                     let render_started = crate::render_prof::timer();
-                    let render_cell_size =
-                        if self.app.state.kitty_graphics_enabled && cell_size.is_known() {
-                            cell_size
-                        } else {
-                            crate::kitty_graphics::HostCellSize::default()
-                        };
+                    let render_cell_size = if cell_size.is_known() {
+                        cell_size
+                    } else {
+                        crate::kitty_graphics::HostCellSize::default()
+                    };
                     let (buffer, cursor) =
                         crate::server::render_stream::render_virtual_with_runtime_registry(
                             &mut self.app.state,
@@ -3684,7 +3681,7 @@ impl HeadlessServer {
             };
             let mut next_graphics_cache = client.graphics_cache.clone();
             let graphics_surface_reset_pending = client.graphics_surface_reset_pending;
-            if is_app_client && self.app.state.kitty_graphics_enabled && cell_size.is_known() {
+            if is_app_client && cell_size.is_known() {
                 if graphics_surface_reset_pending {
                     frame.graphics = next_graphics_cache.clear_bytes();
                 }
@@ -8479,7 +8476,6 @@ next_tab = ""
     #[tokio::test]
     async fn retained_pty_update_allows_kitty_enabled_empty_graphics_cache() {
         let (mut server, client_rx, pane_id) = retained_test_server(b"aaaa");
-        server.app.state.kitty_graphics_enabled = true;
         server.clients.get_mut(&1).unwrap().cell_size = crate::kitty_graphics::HostCellSize {
             width_px: 10,
             height_px: 20,
@@ -8509,7 +8505,6 @@ next_tab = ""
     #[tokio::test]
     async fn retained_pty_update_declines_when_graphics_cache_has_content() {
         let (mut server, client_rx, pane_id) = retained_test_server(b"aaaa");
-        server.app.state.kitty_graphics_enabled = true;
         let client = server.clients.get_mut(&1).unwrap();
         client.cell_size = crate::kitty_graphics::HostCellSize {
             width_px: 10,

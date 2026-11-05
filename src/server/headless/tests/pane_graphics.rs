@@ -13,7 +13,6 @@ fn enable_graphics_and_render(
     server: &mut HeadlessServer,
     client_rx: &std::sync::mpsc::Receiver<Vec<u8>>,
 ) -> FrameData {
-    server.app.state.kitty_graphics_enabled = true;
     server.clients.get_mut(&1).unwrap().cell_size = crate::kitty_graphics::HostCellSize {
         width_px: 10,
         height_px: 20,
@@ -255,7 +254,6 @@ fn stream_set_has_graphics_only_render_impact() {
     server.app.state.workspaces = vec![workspace];
     server.app.state.active = Some(0);
     server.app.state.selected = 0;
-    server.app.state.kitty_graphics_enabled = true;
     server
         .app
         .state
@@ -339,12 +337,12 @@ fn rejected_or_stale_requests_do_not_schedule_rendering() {
     let (respond_to, response_rx) = std::sync::mpsc::channel();
     let changed = server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
         request: api::schema::Request {
-            id: "disabled-set".into(),
+            id: "invalid-set".into(),
             method: api::schema::Method::PaneGraphicsSet(api::schema::PaneGraphicsSetParams {
                 pane_id: public_pane_id.clone(),
                 owner: String::new(),
                 format: api::schema::PaneGraphicsFormat::Png,
-                image_width: 1,
+                image_width: 0,
                 image_height: 1,
                 data: Some(vec![1, 2, 3]),
                 data_base64: String::new(),
@@ -363,10 +361,9 @@ fn rejected_or_stale_requests_do_not_schedule_rendering() {
             .unwrap()
             .error
             .code,
-        "feature_disabled"
+        "invalid_image"
     );
 
-    server.app.state.kitty_graphics_enabled = true;
     server
         .app
         .state

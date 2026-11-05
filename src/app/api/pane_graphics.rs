@@ -16,9 +16,6 @@ impl App {
         id: String,
         target: crate::api::schema::PaneTarget,
     ) -> String {
-        if let Err(response) = require_pane_graphics_enabled(self, &id) {
-            return response;
-        }
         if self.parse_pane_id(&target.pane_id).is_none() {
             return pane_not_found(id, &target.pane_id);
         }
@@ -39,9 +36,6 @@ impl App {
         id: String,
         params: PaneGraphicsSetParams,
     ) -> String {
-        if let Err(response) = require_pane_graphics_enabled(self, &id) {
-            return response;
-        }
         let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
@@ -124,9 +118,6 @@ impl App {
         id: String,
         params: PaneGraphicsClearParams,
     ) -> String {
-        if let Err(response) = require_pane_graphics_enabled(self, &id) {
-            return response;
-        }
         let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
@@ -149,9 +140,6 @@ impl App {
         id: String,
         params: PaneGraphicsSetParams,
     ) -> String {
-        if let Err(response) = require_pane_graphics_enabled(self, &id) {
-            return response;
-        }
         let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
@@ -174,9 +162,6 @@ impl App {
         id: String,
         params: PaneGraphicsStreamParams,
     ) -> String {
-        if let Err(response) = require_pane_graphics_enabled(self, &id) {
-            return response;
-        }
         if params.owner.is_empty() {
             return encode_error(
                 id,
@@ -224,17 +209,6 @@ impl App {
 
         encode_success(id, ResponseResult::Ok {})
     }
-}
-
-fn require_pane_graphics_enabled(app: &App, id: &str) -> Result<(), String> {
-    if app.state.kitty_graphics_enabled {
-        return Ok(());
-    }
-    Err(encode_error(
-        id.to_owned(),
-        "feature_disabled",
-        "pane graphics require experimental.kitty_graphics",
-    ))
 }
 
 fn pane_graphics_expected_data_len(
@@ -285,6 +259,45 @@ mod tests {
     }
 
     #[test]
+    fn api_pane_graphics_survive_unrelated_config_reload() {
+        let (mut app, public_pane_id) = app_with_test_workspace();
+        let (_, pane_id) = app.parse_pane_id(&public_pane_id).unwrap();
+        app.state.host_cell_size = crate::kitty_graphics::HostCellSize {
+            width_px: 10,
+            height_px: 20,
+        };
+        app.state
+            .pane_graphics_streams
+            .insert(pane_id, "owner".into());
+        let response = app.handle_pane_graphics_stream_set(
+            "set".into(),
+            PaneGraphicsSetParams {
+                pane_id: public_pane_id,
+                owner: "owner".into(),
+                format: crate::api::schema::PaneGraphicsFormat::Rgba,
+                image_width: 1,
+                image_height: 1,
+                data: Some(vec![1, 2, 3, 4]),
+                data_base64: String::new(),
+                placement: Default::default(),
+            },
+        );
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert!(matches!(success.result, ResponseResult::Ok {}));
+        let revision = app.state.pane_graphics_revision;
+        let mut config = Config::default();
+        config.ui.confirm_close = !config.ui.confirm_close;
+        app.apply_live_config(&config, &[], &[], false);
+
+        assert_eq!(app.state.confirm_close, config.ui.confirm_close);
+        assert_eq!(app.state.pane_graphics_layers[&pane_id].data, [1, 2, 3, 4]);
+        assert_eq!(app.state.pane_graphics_streams[&pane_id], "owner");
+        assert_eq!(app.state.pane_graphics_revision, revision);
+        assert_eq!(app.state.host_cell_size.width_px, 10);
+        assert_eq!(app.state.host_cell_size.height_px, 20);
+    }
+
+    #[test]
     fn api_pane_graphics_info_is_explicit_and_side_effect_free() {
         let (mut app, public_pane_id) = app_with_test_workspace();
         let request = |pane_id: String| crate::api::schema::Request {
@@ -296,9 +309,8 @@ mod tests {
 
         let response = app.handle_api_request(request(public_pane_id.clone()));
         let error: ErrorResponse = serde_json::from_str(&response).unwrap();
-        assert_eq!(error.error.code, "feature_disabled");
+        assert_eq!(error.error.code, "cell_size_unavailable");
 
-        app.state.kitty_graphics_enabled = true;
         app.state.host_cell_size = crate::kitty_graphics::HostCellSize {
             width_px: 11,
             height_px: 22,
@@ -319,7 +331,6 @@ mod tests {
     #[test]
     fn api_pane_graphics_set_and_clear_updates_runtime_layers() {
         let (mut app, public_pane_id) = app_with_test_workspace();
-        app.state.kitty_graphics_enabled = true;
         let (_, pane_id) = app.parse_pane_id(&public_pane_id).unwrap();
         let data = base64::engine::general_purpose::STANDARD.encode([1_u8, 2, 3, 4]);
 
@@ -366,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn api_pane_graphics_rejects_when_kitty_graphics_disabled() {
+    fn api_pane_graphics_rejects_missing_panes() {
         let (mut app, public_pane_id) = app_with_test_workspace();
         let (_, pane_id) = app.parse_pane_id(&public_pane_id).unwrap();
         let data = base64::engine::general_purpose::STANDARD.encode([1_u8, 2, 3, 4]);
@@ -374,7 +385,7 @@ mod tests {
         let response = app.handle_api_request(crate::api::schema::Request {
             id: "graphics-set".into(),
             method: crate::api::schema::Method::PaneGraphicsSet(PaneGraphicsSetParams {
-                pane_id: public_pane_id.clone(),
+                pane_id: "missing-pane".into(),
                 owner: String::new(),
                 format: crate::api::schema::PaneGraphicsFormat::Rgba,
                 image_width: 1,
@@ -385,24 +396,23 @@ mod tests {
             }),
         });
         let error: ErrorResponse = serde_json::from_str(&response).unwrap();
-        assert_eq!(error.error.code, "feature_disabled");
+        assert_eq!(error.error.code, "pane_not_found");
         assert!(!app.state.pane_graphics_layers.contains_key(&pane_id));
 
         let response = app.handle_api_request(crate::api::schema::Request {
             id: "graphics-clear".into(),
             method: crate::api::schema::Method::PaneGraphicsClear(PaneGraphicsClearParams {
-                pane_id: public_pane_id,
+                pane_id: "missing-pane".into(),
             }),
         });
         let error: ErrorResponse = serde_json::from_str(&response).unwrap();
-        assert_eq!(error.error.code, "feature_disabled");
+        assert_eq!(error.error.code, "pane_not_found");
         assert!(!app.state.pane_graphics_layers.contains_key(&pane_id));
     }
 
     #[test]
     fn api_pane_graphics_stream_claim_uses_resolved_pane_identity() {
         let (mut app, public_pane_id) = app_with_test_workspace();
-        app.state.kitty_graphics_enabled = true;
         let (_, pane_id) = app.parse_pane_id(&public_pane_id).unwrap();
         let alias = format!("{public_pane_id}:alias");
         app.state
@@ -474,7 +484,6 @@ mod tests {
     #[test]
     fn api_pane_graphics_stream_owns_layer_while_active() {
         let (mut app, public_pane_id) = app_with_test_workspace();
-        app.state.kitty_graphics_enabled = true;
         let (_, pane_id) = app.parse_pane_id(&public_pane_id).unwrap();
         let public_data = base64::engine::general_purpose::STANDARD.encode([1_u8, 2, 3, 4]);
 
@@ -576,7 +585,6 @@ mod tests {
             crate::api::schema::PaneGraphicsFormat::Rgba,
         ] {
             let (mut app, public_pane_id) = app_with_test_workspace();
-            app.state.kitty_graphics_enabled = true;
             let (_, pane_id) = app.parse_pane_id(&public_pane_id).unwrap();
 
             let response = app.handle_api_request(crate::api::schema::Request {
@@ -607,7 +615,6 @@ mod tests {
         ] {
             for data_len in [exact_len, exact_len - 1] {
                 let (mut app, public_pane_id) = app_with_test_workspace();
-                app.state.kitty_graphics_enabled = true;
                 let (_, pane_id) = app.parse_pane_id(&public_pane_id).unwrap();
                 let response = app.handle_api_request(crate::api::schema::Request {
                     id: "graphics-raw-length".into(),
@@ -640,7 +647,6 @@ mod tests {
     #[test]
     fn api_pane_graphics_uses_transport_specific_limits() {
         let (mut app, public_pane_id) = app_with_test_workspace();
-        app.state.kitty_graphics_enabled = true;
         let (_, pane_id) = app.parse_pane_id(&public_pane_id).unwrap();
         let response = app.handle_api_request(crate::api::schema::Request {
             id: "graphics-public-too-large".into(),
@@ -666,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn api_pane_graphics_stream_methods_require_kitty_graphics() {
+    fn api_pane_graphics_stream_methods_work_by_default() {
         let (mut app, public_pane_id) = app_with_test_workspace();
         let (_, pane_id) = app.parse_pane_id(&public_pane_id).unwrap();
         let open = app.handle_api_request(crate::api::schema::Request {
@@ -678,8 +684,8 @@ mod tests {
                 },
             ),
         });
-        let error: ErrorResponse = serde_json::from_str(&open).unwrap();
-        assert_eq!(error.error.code, "feature_disabled");
+        let success: SuccessResponse = serde_json::from_str(&open).unwrap();
+        assert!(matches!(success.result, ResponseResult::Ok {}));
 
         let set = app.handle_api_request(crate::api::schema::Request {
             id: "graphics-stream-set".into(),
@@ -694,9 +700,9 @@ mod tests {
                 placement: crate::api::schema::PaneGraphicsPlacementParams::default(),
             }),
         });
-        let error: ErrorResponse = serde_json::from_str(&set).unwrap();
-        assert_eq!(error.error.code, "feature_disabled");
-        assert!(!app.state.pane_graphics_streams.contains_key(&pane_id));
-        assert!(!app.state.pane_graphics_layers.contains_key(&pane_id));
+        let success: SuccessResponse = serde_json::from_str(&set).unwrap();
+        assert!(matches!(success.result, ResponseResult::Ok {}));
+        assert!(app.state.pane_graphics_streams.contains_key(&pane_id));
+        assert!(app.state.pane_graphics_layers.contains_key(&pane_id));
     }
 }

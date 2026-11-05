@@ -367,7 +367,6 @@ impl App {
         event_hub: crate::api::EventHub,
     ) -> Self {
         let (prefix_code, prefix_mods) = config.prefix_key();
-        crate::kitty_graphics::set_enabled(config.experimental.kitty_graphics);
         let (event_tx, event_rx) = mpsc::channel::<AppEvent>(APP_EVENT_CHANNEL_CAPACITY);
         let render_notify = Arc::new(Notify::new());
         let render_dirty = Arc::new(AtomicBool::new(false));
@@ -636,7 +635,6 @@ impl App {
             switch_ascii_input_source_in_prefix: config
                 .experimental
                 .switch_ascii_input_source_in_prefix,
-            kitty_graphics_enabled: config.experimental.kitty_graphics,
             default_shell: config.terminal.default_shell.clone(),
             shell_mode: config.terminal.shell_mode,
             new_terminal_cwd: config.terminal.new_cwd.clone(),
@@ -1013,7 +1011,6 @@ impl App {
             if needs_render && self.can_render_now(now) {
                 self.render_dirty.swap(false, Ordering::AcqRel);
                 let _sync_output = SyncOutputGuard::begin()?;
-                let kitty_graphics_enabled = self.state.kitty_graphics_enabled;
                 if self.full_redraw_pending {
                     for cell in &mut terminal.current_buffer_mut().content {
                         cell.set_skip(true);
@@ -1024,41 +1021,31 @@ impl App {
                 let mut cell_size = crate::kitty_graphics::HostCellSize::default();
                 terminal.draw(|frame| {
                     let area = frame.area();
-                    if kitty_graphics_enabled {
-                        let observed_cell_size =
-                            crate::kitty_graphics::HostCellSize::try_from_terminal(area);
-                        if let Some(observed_cell_size) = observed_cell_size {
-                            self.state.host_cell_size = observed_cell_size;
-                        }
-                        cell_size = observed_cell_size.unwrap_or_else(|| {
-                            crate::kitty_graphics::HostCellSize::fallback_for_area(area)
-                        });
-                        crate::ui::compute_view_with_cell_size(
-                            &mut self.state,
-                            &self.terminal_runtimes,
-                            area,
-                            cell_size,
-                        );
-                    } else {
-                        crate::ui::compute_view_with_runtime_registry(
-                            &mut self.state,
-                            &self.terminal_runtimes,
-                            area,
-                        );
+                    let observed_cell_size =
+                        crate::kitty_graphics::HostCellSize::try_from_terminal(area);
+                    if let Some(observed_cell_size) = observed_cell_size {
+                        self.state.host_cell_size = observed_cell_size;
                     }
+                    cell_size = observed_cell_size.unwrap_or_else(|| {
+                        crate::kitty_graphics::HostCellSize::fallback_for_area(area)
+                    });
+                    crate::ui::compute_view_with_cell_size(
+                        &mut self.state,
+                        &self.terminal_runtimes,
+                        area,
+                        cell_size,
+                    );
                     crate::ui::render_with_runtime_registry(
                         &self.state,
                         &self.terminal_runtimes,
                         frame,
                     );
                 })?;
-                if kitty_graphics_enabled {
-                    crate::kitty_graphics::paint_local_pane_graphics(
-                        &self.state,
-                        &self.terminal_runtimes,
-                        cell_size,
-                    )?;
-                }
+                crate::kitty_graphics::paint_local_pane_graphics(
+                    &self.state,
+                    &self.terminal_runtimes,
+                    cell_size,
+                )?;
                 self.sync_pending_agent_resume_deadline(now);
                 if self.start_pending_agent_resumes(self.pending_agent_resume_due(now)) {
                     self.render_dirty.store(true, Ordering::Release);
@@ -1445,15 +1432,6 @@ impl App {
         }
 
         if !invalid_section("experimental") {
-            let was_kitty_graphics_enabled = self.state.kitty_graphics_enabled;
-            self.state.kitty_graphics_enabled = config.experimental.kitty_graphics;
-            crate::kitty_graphics::set_enabled(config.experimental.kitty_graphics);
-            if was_kitty_graphics_enabled && !config.experimental.kitty_graphics {
-                let _ = crate::kitty_graphics::clear_all_host_graphics();
-                self.state.pane_graphics_layers.clear();
-                self.state.pane_graphics_streams.clear();
-                self.state.host_cell_size = crate::kitty_graphics::HostCellSize::default();
-            }
             self.state.reveal_hidden_cursor_for_cjk_ime =
                 config.experimental.reveal_hidden_cursor_for_cjk_ime;
             self.state.cjk_ime_agent_filter_configured =

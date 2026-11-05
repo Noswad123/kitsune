@@ -1155,8 +1155,7 @@ impl GhosttyPaneTerminal {
         windows_recent_fallback::update(&mut core);
         crate::render_prof::duration_since("pty.ghostty_write", write_started);
 
-        let has_kitty_graphics_sequence = crate::kitty_graphics::is_enabled()
-            && contains_kitty_graphics_sequence(filtered_bytes.as_ref());
+        let has_kitty_graphics_sequence = contains_kitty_graphics_sequence(filtered_bytes.as_ref());
         if has_kitty_graphics_sequence {
             debug!(pane = pane_id.raw(), "processed kitty graphics sequence");
         }
@@ -1827,7 +1826,6 @@ impl GhosttyPaneTerminal {
             .and_then(|c| ghostty_default_fg(c.foreground, host_theme, initial_default_foreground));
         let resolved_fg = colors.map(|c| ghostty_color(c.foreground));
         let resolved_bg = colors.map(|c| ghostty_color(c.background));
-        let hide_kitty_placeholders = crate::kitty_graphics::is_enabled();
 
         let mut row_iterator = match crate::ghostty::RowIterator::new() {
             Ok(iterator) => iterator,
@@ -1865,7 +1863,6 @@ impl GhosttyPaneTerminal {
                     let symbol = match ghostty_buffer_symbol_into(
                         &cells,
                         basic.wide,
-                        hide_kitty_placeholders,
                         &mut grapheme_bytes,
                         &mut symbol_scratch,
                     ) {
@@ -2086,7 +2083,6 @@ fn ghostty_collect_dirty_patch(
         .and_then(|c| ghostty_default_fg(c.foreground, host_theme, initial_default_foreground));
     let resolved_fg = colors.map(|c| ghostty_color(c.foreground));
     let resolved_bg = colors.map(|c| ghostty_color(c.background));
-    let hide_kitty_placeholders = crate::kitty_graphics::is_enabled();
 
     let Ok(mut row_iterator) = crate::ghostty::RowIterator::new() else {
         fallback!("row_iterator_new_error");
@@ -2134,7 +2130,6 @@ fn ghostty_collect_dirty_patch(
                 let symbol = match ghostty_buffer_symbol_into(
                     &cells,
                     basic.wide,
-                    hide_kitty_placeholders,
                     &mut grapheme_bytes,
                     &mut symbol_scratch,
                 ) {
@@ -2553,7 +2548,6 @@ pub(super) fn ghostty_normalize_buffer_symbol(
 fn ghostty_buffer_symbol_into<'a>(
     cells: &crate::ghostty::RowCellIter<'_>,
     wide: crate::ghostty::CellWide,
-    hide_kitty_placeholders: bool,
     grapheme_bytes: &mut Vec<u8>,
     symbol_scratch: &'a mut String,
 ) -> Result<&'a str, crate::ghostty::Error> {
@@ -2563,9 +2557,8 @@ fn ghostty_buffer_symbol_into<'a>(
         crate::ghostty::CellWide::SpacerHead => symbol_scratch.push(' '),
         crate::ghostty::CellWide::Narrow | crate::ghostty::CellWide::Wide => {
             cells.grapheme_text_into(grapheme_bytes, symbol_scratch)?;
-            let hidden_kitty_placeholder = hide_kitty_placeholders
-                && symbol_scratch.chars().next().map(u32::from)
-                    == Some(crate::ghostty::KITTY_UNICODE_PLACEHOLDER);
+            let hidden_kitty_placeholder = symbol_scratch.chars().next().map(u32::from)
+                == Some(crate::ghostty::KITTY_UNICODE_PLACEHOLDER);
             if hidden_kitty_placeholder || symbol_scratch.is_empty() {
                 symbol_scratch.clear();
                 symbol_scratch.push(' ');
@@ -4220,7 +4213,6 @@ mod tests {
                 let symbol = ghostty_buffer_symbol_into(
                     &cells,
                     wide,
-                    false,
                     &mut grapheme_bytes,
                     &mut symbol_scratch,
                 )
@@ -4631,7 +4623,6 @@ mod tests {
 
     #[test]
     fn kitty_graphics_write_requests_render_with_settle_backstop() {
-        crate::kitty_graphics::set_enabled(true);
         let (tx, _rx) = mpsc::channel(4);
         let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
         let pane_terminal = GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap();
@@ -4692,8 +4683,7 @@ mod tests {
     }
 
     #[test]
-    fn render_blanks_kitty_unicode_placeholders_when_graphics_enabled() {
-        crate::kitty_graphics::set_enabled(true);
+    fn render_blanks_kitty_unicode_placeholders_by_default() {
         let (tx, _rx) = mpsc::channel(4);
         let terminal = crate::ghostty::Terminal::new(20, 5, 0).unwrap();
         let pane = GhosttyPaneTerminal::new(terminal, tx).unwrap();
@@ -4708,7 +4698,6 @@ mod tests {
         terminal
             .draw(|frame| pane.render(frame, Rect::new(0, 0, 20, 5), false))
             .unwrap();
-        crate::kitty_graphics::set_enabled(false);
 
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(0, 0)].symbol(), "b");

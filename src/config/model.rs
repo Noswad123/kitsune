@@ -867,8 +867,6 @@ impl Default for RemoteConfig {
 pub struct ExperimentalConfig {
     /// Allow launching kitsune inside an existing kitsune pane. Default: false.
     pub allow_nested: bool,
-    /// Experimental local Kitty graphics rendering for attached clients. Default: false.
-    pub kitty_graphics: bool,
     /// Persist pane screen history to session-history.json. Default: false.
     pub pane_history: bool,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
@@ -1660,30 +1658,15 @@ pane_history = true
     }
 
     #[test]
-    fn kitty_graphics_default_off_and_parse() {
-        let config = Config::default();
-        assert!(!config.experimental.kitty_graphics);
-
-        let toml = r#"
-[experimental]
-kitty_graphics = true
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(config.experimental.kitty_graphics);
-    }
-
-    #[test]
     fn experimental_config_parses() {
         let toml = r#"
 [experimental]
 allow_nested = true
-kitty_graphics = true
 pane_history = true
 switch_ascii_input_source_in_prefix = true
 "#;
         let config: Config = toml::from_str(toml).unwrap();
         assert!(config.experimental.allow_nested);
-        assert!(config.experimental.kitty_graphics);
         assert!(config.experimental.pane_history);
         assert!(config.experimental.switch_ascii_input_source_in_prefix);
     }

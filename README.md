@@ -49,6 +49,13 @@ The local helper justfile can install the debug binary as `~/.local/bin/kitsune`
 just install
 ```
 
+## Kitty graphics
+
+Kitty graphics work by default when using a compatible outer terminal. Restart
+existing Kitsune servers after updating to enable graphics in their panes. The
+legacy `experimental.kitty_graphics` flag is no longer necessary and can be removed
+from your config; either value is ignored with the normal unknown-key diagnostic.
+
 ## Session recall
 
 Kitsune includes a `session_recall` action bound by default to `prefix+shift+s`. The action opens the external session recall TUI in a popup and invokes it with the native Kitsune backend.

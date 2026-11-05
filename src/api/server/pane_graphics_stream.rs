@@ -751,15 +751,15 @@ mod tests {
         open.respond_to
             .send(super::super::error_response_json(
                 open.request.id,
-                "feature_disabled",
-                "pane graphics require experimental.kitty_graphics".into(),
+                "pane_not_found",
+                "pane pane_1 not found".into(),
             ))
             .unwrap();
 
         let response: ErrorResponse =
             serde_json::from_str(&read_response_line(&mut client)).unwrap();
         assert_eq!(response.id, "stream_2");
-        assert_eq!(response.error.code, "feature_disabled");
+        assert_eq!(response.error.code, "pane_not_found");
 
         let close = api_rx.blocking_recv().unwrap();
         match &close.request.method {
