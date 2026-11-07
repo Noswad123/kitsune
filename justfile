@@ -21,14 +21,14 @@ run: dev-build
     env -u KITSUNE_SOCKET_PATH -u KITSUNE_CLIENT_SOCKET_PATH -u KITSUNE_ENV \
         ./target/debug/{{app_name}}
 
-# Install the signed debug binary to INSTALL_DIR, defaulting to ~/.local/bin
+# Install the signed debug binary to INSTALL_DIR, defaulting to ~/.local/libexec/arcana-dev/kitsune/bin
 install: dev-build
-    @install_dir="${INSTALL_DIR:-$HOME/.local/bin}"; \
+    @install_dir="${INSTALL_DIR:-$HOME/.local/libexec/arcana-dev/kitsune/bin}"; \
     echo "📦 Installing to $install_dir"; \
     mkdir -p "$install_dir"; \
     cp target/debug/{{app_name}} "$install_dir/{{app_name}}"; \
     scripts/sign_dev_binary.sh "$install_dir/{{app_name}}"; \
-    echo "✅ Installed. Run with: {{app_name}}"
+    echo "✅ Installed. Run with: \"$install_dir/{{app_name}}\""
 
 # Run the focused bin test loop from the old makefile `test`
 test-bin:

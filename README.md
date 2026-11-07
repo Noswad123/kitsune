@@ -44,11 +44,17 @@ cargo build --bin kitsune
 ./target/debug/kitsune
 ```
 
-The local helper justfile can install the debug binary as `~/.local/bin/kitsune`:
+The local helper justfile installs the debug binary into the scoped development
+directory `~/.local/libexec/arcana-dev/kitsune/bin`, separate from Arcana-managed
+commands:
 
 ```bash
 just install
+"$HOME/.local/libexec/arcana-dev/kitsune/bin/kitsune"
 ```
+
+Use `INSTALL_DIR="/your/dev/bin" just install` to override the destination explicitly.
+The development directory is not added to `PATH`; use the full path to select it.
 
 ## Kitty graphics
 
