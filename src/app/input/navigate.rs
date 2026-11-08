@@ -1144,12 +1144,10 @@ impl App {
             crate::api::SOCKET_PATH_ENV_VAR.to_string(),
             crate::api::socket_path().display().to_string(),
         )];
-        if let Ok(current_exe) = std::env::current_exe() {
-            env.push((
-                crate::product::BIN_PATH_ENV_VAR.to_string(),
-                current_exe.display().to_string(),
-            ));
-        }
+        env.push((
+            crate::product::BIN_PATH_ENV_VAR.to_string(),
+            crate::integration::binary_path_env_value(),
+        ));
 
         let mut cwd = None;
         if let Some(ws_idx) = self.state.active {
@@ -1228,9 +1226,7 @@ impl App {
         let client_socket_path = crate::server::socket_paths::client_socket_path()
             .display()
             .to_string();
-        let current_exe = std::env::current_exe()
-            .map(|path| path.display().to_string())
-            .unwrap_or_else(|_| crate::product::CLI_NAME.to_string());
+        let current_exe = crate::integration::binary_path_env_value();
         Self::append_session_recall_env_with_values(
             env,
             current_exe,
@@ -2451,7 +2447,7 @@ mod tests {
             ),
             (
                 "KITSUNE_BIN_PATH".to_string(),
-                "/usr/local/bin/kitsune".to_string(),
+                "/missing/kitsune (deleted)".to_string(),
             ),
             ("KITSUNE_ACTIVE_WORKSPACE_ID".to_string(), "w2".to_string()),
             ("KITSUNE_ACTIVE_TAB_ID".to_string(), "w2:t3".to_string()),
@@ -2508,6 +2504,14 @@ mod tests {
             env_last_value(&env, crate::api::SOCKET_PATH_ENV_VAR),
             Some("/tmp/kitsune.sock")
         );
+        for (key, expected) in [
+            ("KITSUNE_ACTIVE_WORKSPACE_ID", "w2"),
+            ("KITSUNE_ACTIVE_TAB_ID", "w2:t3"),
+            ("KITSUNE_ACTIVE_PANE_ID", "w2:p4"),
+            ("KITSUNE_ACTIVE_PANE_CWD", "/repo/kitsune"),
+        ] {
+            assert_eq!(env_last_value(&env, key), Some(expected));
+        }
         assert_eq!(env_last_value(&env, "HERDR_ENV"), None);
         assert_eq!(env_last_value(&env, "HERDR_BIN_PATH"), None);
         assert_eq!(env_last_value(&env, "HERDR_SOCKET_PATH"), None);
