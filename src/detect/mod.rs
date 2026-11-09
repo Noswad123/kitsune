@@ -213,12 +213,26 @@ pub fn identify_agent(process_name: &str) -> Option<Agent> {
 }
 
 pub fn identify_agent_in_job(job: &crate::platform::ForegroundJob) -> Option<(Agent, String)> {
+    identify_agent_in_job_with_resolver(job, &mut canonicalize_path)
+}
+
+pub(crate) type PathResolver<'a> =
+    dyn FnMut(&std::path::Path) -> std::io::Result<std::path::PathBuf> + 'a;
+
+fn canonicalize_path(path: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    std::fs::canonicalize(path)
+}
+
+pub(crate) fn identify_agent_in_job_with_resolver(
+    job: &crate::platform::ForegroundJob,
+    resolve: &mut PathResolver<'_>,
+) -> Option<(Agent, String)> {
     if let Some(process) = job
         .processes
         .iter()
         .find(|process| process.pid == job.process_group_id)
     {
-        let candidate = normalized_process_name(process);
+        let candidate = normalized_process_name_with_resolver(process, resolve);
         if let Some(agent) = identify_agent(&candidate) {
             return Some((agent, candidate));
         }
@@ -227,7 +241,7 @@ pub fn identify_agent_in_job(job: &crate::platform::ForegroundJob) -> Option<(Ag
     let mut best: Option<(u8, Agent, String)> = None;
 
     for process in &job.processes {
-        let candidate = normalized_process_name(process);
+        let candidate = normalized_process_name_with_resolver(process, resolve);
         let Some(agent) = identify_agent(&candidate) else {
             continue;
         };
@@ -326,14 +340,24 @@ pub fn foreground_process_group_id(child_pid: u32) -> Option<u32> {
     crate::platform::foreground_process_group_id(child_pid)
 }
 
+#[cfg(test)]
 fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> String {
+    normalized_process_name_with_resolver(process, &mut canonicalize_path)
+}
+
+fn normalized_process_name_with_resolver(
+    process: &crate::platform::ForegroundProcess,
+    resolve: &mut PathResolver<'_>,
+) -> String {
     let effective = process.argv0.as_deref().unwrap_or(&process.name);
     let lower_effective = effective.to_lowercase();
 
     if is_generic_runtime_or_shell(&lower_effective) {
-        if let Some(wrapped_agent) =
-            wrapped_agent_name_from_runtime_argv(&lower_effective, process.argv.as_deref())
-        {
+        if let Some(wrapped_agent) = wrapped_agent_name_from_runtime_argv_with_resolver(
+            &lower_effective,
+            process.argv.as_deref(),
+            resolve,
+        ) {
             return wrapped_agent;
         }
     }
@@ -342,31 +366,45 @@ fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> Stri
         return effective.to_string();
     }
 
-    if let Some(wrapped_agent) = argv0_agent_name(process.argv.as_deref())
-        .or_else(|| cmdline_argv0_agent_name(process.cmdline.as_deref().unwrap_or_default()))
-    {
+    if let Some(wrapped_agent) = argv0_agent_name(process.argv.as_deref(), resolve).or_else(|| {
+        cmdline_argv0_agent_name_with_resolver(
+            process.cmdline.as_deref().unwrap_or_default(),
+            resolve,
+        )
+    }) {
         return wrapped_agent;
     }
 
     effective.to_string()
 }
 
+#[cfg(test)]
 fn wrapped_agent_name_from_runtime_argv(runtime: &str, argv: Option<&[String]>) -> Option<String> {
+    wrapped_agent_name_from_runtime_argv_with_resolver(runtime, argv, &mut canonicalize_path)
+}
+
+fn wrapped_agent_name_from_runtime_argv_with_resolver(
+    runtime: &str,
+    argv: Option<&[String]>,
+    resolve: &mut PathResolver<'_>,
+) -> Option<String> {
     let argv = argv?;
     let runtime = normalized_agent_lookup_name(path_basename(runtime));
 
     match runtime.as_str() {
-        "node" | "bun" => script_arg_agent_name(argv, &["-e", "--eval", "-p", "--print"], &[]),
-        "python" | "python3" => script_arg_agent_name(argv, &["-c"], &["-m"]),
-        "sh" | "bash" | "zsh" | "fish" => script_arg_agent_name(argv, &["-c"], &[]),
-        "cmd" => windows_cmd_arg_agent_name(argv),
-        "powershell" | "pwsh" => powershell_arg_agent_name(argv),
+        "node" | "bun" => {
+            script_arg_agent_name(argv, &["-e", "--eval", "-p", "--print"], &[], resolve)
+        }
+        "python" | "python3" => script_arg_agent_name(argv, &["-c"], &["-m"], resolve),
+        "sh" | "bash" | "zsh" | "fish" => script_arg_agent_name(argv, &["-c"], &[], resolve),
+        "cmd" => windows_cmd_arg_agent_name(argv, resolve),
+        "powershell" | "pwsh" => powershell_arg_agent_name(argv, resolve),
         "tmux" => None,
         _ => None,
     }
 }
 
-fn windows_cmd_arg_agent_name(argv: &[String]) -> Option<String> {
+fn windows_cmd_arg_agent_name(argv: &[String], resolve: &mut PathResolver<'_>) -> Option<String> {
     let mut args = argv.iter().skip(1);
     while let Some(arg) = args.next() {
         let flag = arg.trim_matches('"').to_lowercase();
@@ -374,7 +412,7 @@ fn windows_cmd_arg_agent_name(argv: &[String]) -> Option<String> {
             "/c" | "/k" => {
                 return args
                     .next()
-                    .and_then(|command| command_text_agent_name(command))
+                    .and_then(|command| command_text_agent_name(command, resolve));
             }
             "/d" | "/s" | "/q" | "/a" | "/u" | "/e:on" | "/e:off" | "/f:on" | "/f:off"
             | "/v:on" | "/v:off" => continue,
@@ -384,7 +422,7 @@ fn windows_cmd_arg_agent_name(argv: &[String]) -> Option<String> {
     None
 }
 
-fn powershell_arg_agent_name(argv: &[String]) -> Option<String> {
+fn powershell_arg_agent_name(argv: &[String], resolve: &mut PathResolver<'_>) -> Option<String> {
     let mut args = argv.iter().skip(1);
     while let Some(arg) = args.next() {
         let flag = arg.trim_matches('"').to_lowercase();
@@ -392,12 +430,12 @@ fn powershell_arg_agent_name(argv: &[String]) -> Option<String> {
             "-file" | "-f" | "/file" => {
                 return args
                     .next()
-                    .and_then(|path| agent_name_from_path_token(path));
+                    .and_then(|path| agent_name_from_path_token(path, resolve));
             }
             "-command" | "-c" | "/command" | "/c" => {
                 return args
                     .next()
-                    .and_then(|command| command_text_agent_name(command));
+                    .and_then(|command| command_text_agent_name(command, resolve));
             }
             "-encodedcommand" | "-enc" | "/encodedcommand" | "/enc" => return None,
             "-configurationname" | "-executionpolicy" | "-outputformat" | "-psconsolefile"
@@ -405,13 +443,13 @@ fn powershell_arg_agent_name(argv: &[String]) -> Option<String> {
                 let _ = args.next();
             }
             _ if flag.starts_with('-') || flag.starts_with('/') => {}
-            _ => return agent_name_from_path_token(arg),
+            _ => return agent_name_from_path_token(arg, resolve),
         }
     }
     None
 }
 
-fn command_text_agent_name(command: &str) -> Option<String> {
+fn command_text_agent_name(command: &str, resolve: &mut PathResolver<'_>) -> Option<String> {
     let mut rest = command;
     while let Some((token, next)) = command_text_token(rest) {
         let token = token.trim();
@@ -422,7 +460,7 @@ fn command_text_agent_name(command: &str) -> Option<String> {
             rest = next;
             continue;
         }
-        return agent_name_from_path_token(token);
+        return agent_name_from_path_token(token, resolve);
     }
     None
 }
@@ -447,13 +485,14 @@ fn script_arg_agent_name(
     argv: &[String],
     eval_flags: &[&str],
     module_flags: &[&str],
+    resolve: &mut PathResolver<'_>,
 ) -> Option<String> {
     let mut args = argv.iter().skip(1);
     while let Some(arg) = args.next() {
         if arg == "--" {
             return args
                 .next()
-                .and_then(|token| agent_name_from_path_token(token));
+                .and_then(|token| agent_name_from_path_token(token, resolve));
         }
 
         if flag_matches(arg, eval_flags) || flag_matches(arg, module_flags) {
@@ -467,7 +506,7 @@ fn script_arg_agent_name(
             continue;
         }
 
-        return agent_name_from_path_token(arg);
+        return agent_name_from_path_token(arg, resolve);
     }
 
     None
@@ -509,15 +548,23 @@ fn option_takes_value(arg: &str) -> bool {
     )
 }
 
-fn argv0_agent_name(argv: Option<&[String]>) -> Option<String> {
-    agent_name_from_path_token(argv?.first()?)
+fn argv0_agent_name(argv: Option<&[String]>, resolve: &mut PathResolver<'_>) -> Option<String> {
+    agent_name_from_path_token(argv?.first()?, resolve)
 }
 
+#[cfg(test)]
 fn cmdline_argv0_agent_name(cmdline: &str) -> Option<String> {
-    agent_name_from_path_token(cmdline.split_whitespace().next()?)
+    cmdline_argv0_agent_name_with_resolver(cmdline, &mut canonicalize_path)
 }
 
-fn agent_name_from_path_token(token: &str) -> Option<String> {
+fn cmdline_argv0_agent_name_with_resolver(
+    cmdline: &str,
+    resolve: &mut PathResolver<'_>,
+) -> Option<String> {
+    agent_name_from_path_token(cmdline.split_whitespace().next()?, resolve)
+}
+
+fn agent_name_from_path_token(token: &str, resolve: &mut PathResolver<'_>) -> Option<String> {
     let trimmed = token.trim_matches(|c| matches!(c, '"' | '\''));
     if trimmed.is_empty() || trimmed.starts_with('-') {
         return None;
@@ -525,7 +572,7 @@ fn agent_name_from_path_token(token: &str) -> Option<String> {
 
     agent_name_from_basename(path_basename(trimmed))
         .or_else(|| agent_name_from_known_package_path(trimmed))
-        .or_else(|| resolved_agent_name_from_path_token(trimmed))
+        .or_else(|| resolved_agent_name_from_path_token(trimmed, resolve))
 }
 
 fn agent_name_from_known_package_path(path: &str) -> Option<String> {
@@ -551,13 +598,16 @@ fn agent_name_from_known_package_path(path: &str) -> Option<String> {
     None
 }
 
-fn resolved_agent_name_from_path_token(token: &str) -> Option<String> {
+fn resolved_agent_name_from_path_token(
+    token: &str,
+    resolve: &mut PathResolver<'_>,
+) -> Option<String> {
     let path = std::path::Path::new(token);
     if path.components().count() < 2 {
         return None;
     }
 
-    let resolved = std::fs::canonicalize(path).ok()?;
+    let resolved = resolve(path).ok()?;
     let basename = resolved.file_name()?.to_str()?;
     agent_name_from_basename(basename)
 }
@@ -1337,3 +1387,6 @@ mod tests {
         let _ = tpgid;
     }
 }
+
+#[cfg(test)]
+mod resolver_tests;

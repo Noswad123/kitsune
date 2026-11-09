@@ -39,6 +39,13 @@ Internal module/type names may still reference Herdr where keeping the fork easy
 
 ## Build and run
 
+The current terminal engine is vendored libghostty-vt and requires the matching
+Zig toolchain (currently 0.15.2). `ZIG=/absolute/path/to/zig` selects an explicit
+compiler without a global installation. A possible Rust backend and alternatives
+to the local compiler requirement have their own
+[terminal engine roadmap](TERMINAL_ENGINE_ROADMAP.md); no engine replacement has
+been selected or shipped.
+
 ```bash
 cargo build --bin kitsune
 ./target/debug/kitsune

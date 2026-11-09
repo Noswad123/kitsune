@@ -40,6 +40,11 @@ This fork started as a Kitsune-branded distribution of Herdr. Completed product
 baseline and feature behavior live in `README.md` and `docs/next/README.md`.
 This file tracks only work that is still intentionally open.
 
+The separate [terminal engine roadmap](TERMINAL_ENGINE_ROADMAP.md) evaluates Zig
+build convenience and a possible Rust backend. It is proposed work, not an approved
+engine rewrite or a prerequisite for agent-policy extraction; Ghostty remains the
+default, with the matching Zig toolchain as the immediate build solution.
+
 ## Product direction
 
 Kitsune should become a general terminal multiplexer with a Kitsune-owned product

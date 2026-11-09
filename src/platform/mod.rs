@@ -139,6 +139,9 @@ pub(crate) fn read_limited_reader(
     }
 }
 
+#[cfg(any(windows, test))]
+mod process_selection;
+
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
