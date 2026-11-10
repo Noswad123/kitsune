@@ -572,13 +572,8 @@ impl App {
                     leave_navigate_mode(&mut self.state);
                 }
             }
-            NavigateAction::FocusAgent(idx) => {
-                if let Some((ws_idx, pane_id)) = self.agent_entry_target(idx) {
-                    self.focus_pane_internal_via_api(ws_idx, pane_id);
-                    self.state.ensure_agent_panel_entry_visible(idx);
-                    leave_navigate_mode(&mut self.state);
-                }
-            }
+            NavigateAction::FocusAgent(_) => {}
+            NavigateAction::PreviousAgent | NavigateAction::NextAgent => {}
             NavigateAction::WorkspacePicker => {
                 self.state.mobile_switcher_scroll = 0;
                 self.state.mode = Mode::Navigate;
@@ -600,20 +595,6 @@ impl App {
             NavigateAction::NextWorkspace => {
                 if let Some(ws_idx) = self.relative_visible_workspace(1) {
                     self.focus_workspace_idx_via_api(ws_idx);
-                    leave_navigate_mode(&mut self.state);
-                }
-            }
-            NavigateAction::PreviousAgent => {
-                if let Some((idx, ws_idx, pane_id)) = self.relative_agent_entry(false) {
-                    self.focus_pane_internal_via_api(ws_idx, pane_id);
-                    self.state.ensure_agent_panel_entry_visible(idx);
-                    leave_navigate_mode(&mut self.state);
-                }
-            }
-            NavigateAction::NextAgent => {
-                if let Some((idx, ws_idx, pane_id)) = self.relative_agent_entry(true) {
-                    self.focus_pane_internal_via_api(ws_idx, pane_id);
-                    self.state.ensure_agent_panel_entry_visible(idx);
                     leave_navigate_mode(&mut self.state);
                 }
             }
@@ -1042,36 +1023,6 @@ impl App {
             return None;
         }
         Some((ws.active_tab as isize + delta).rem_euclid(ws.tabs.len() as isize) as usize)
-    }
-
-    fn agent_entry_target(&self, idx: usize) -> Option<(usize, crate::layout::PaneId)> {
-        let entries = crate::ui::agent_panel_entries(&self.state);
-        let target = entries.get(idx)?;
-        Some((target.ws_idx, target.pane_id))
-    }
-
-    fn relative_agent_entry(&self, forward: bool) -> Option<(usize, usize, crate::layout::PaneId)> {
-        let entries = crate::ui::agent_panel_entries(&self.state);
-        if entries.is_empty() {
-            return None;
-        }
-        let focused = self
-            .state
-            .active
-            .and_then(|idx| self.state.workspaces.get(idx))
-            .and_then(crate::workspace::Workspace::focused_pane_id);
-        let current_idx = entries
-            .iter()
-            .position(|entry| Some(entry.pane_id) == focused);
-        let next_idx = match (current_idx, forward) {
-            (Some(idx), true) => (idx + 1) % entries.len(),
-            (Some(0), false) => entries.len() - 1,
-            (Some(idx), false) => idx - 1,
-            (None, true) => 0,
-            (None, false) => entries.len() - 1,
-        };
-        let target = entries.get(next_idx)?;
-        Some((next_idx, target.ws_idx, target.pane_id))
     }
 
     fn pass_through_key_to_focused_pane(&mut self, key: TerminalKey) -> bool {
@@ -2137,11 +2088,7 @@ pub(super) fn execute_navigate_action_in_context(
                 leave_navigate_mode(state);
             }
         }
-        NavigateAction::FocusAgent(idx) => {
-            if state.focus_agent_entry(idx) {
-                leave_navigate_mode(state);
-            }
-        }
+        NavigateAction::FocusAgent(_) => {}
         NavigateAction::WorkspacePicker => {
             state.mobile_switcher_scroll = 0;
             state.mode = Mode::Navigate;
@@ -2157,14 +2104,8 @@ pub(super) fn execute_navigate_action_in_context(
             state.next_workspace();
             leave_navigate_mode(state);
         }
-        NavigateAction::PreviousAgent => {
-            state.previous_agent();
-            leave_navigate_mode(state);
-        }
-        NavigateAction::NextAgent => {
-            state.next_agent();
-            leave_navigate_mode(state);
-        }
+        NavigateAction::PreviousAgent => {}
+        NavigateAction::NextAgent => {}
         NavigateAction::NewTab => {
             if state.active.is_some() {
                 if state.prompt_new_tab_name {
@@ -2523,7 +2464,7 @@ mod tests {
     }
 
     #[test]
-    fn next_agent_starts_at_first_visible_entry_when_focused_agent_is_filtered_out() {
+    fn native_agent_cycle_is_noop_even_with_legacy_filter_and_no_integrations() {
         let mut app = app_with_test_workspaces(&["hidden", "first", "second"]);
         for ws_idx in 0..app.state.workspaces.len() {
             let pane_id = app.state.workspaces[ws_idx].tabs[0].root_pane;
@@ -2552,7 +2493,7 @@ mod tests {
 
         app.execute_tui_navigate_action(NavigateAction::NextAgent, ActionContext::Prefix);
 
-        assert_eq!(app.state.active, Some(1));
+        assert_eq!(app.state.active, Some(0));
     }
 
     #[test]

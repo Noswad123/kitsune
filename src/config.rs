@@ -20,9 +20,9 @@ pub use self::{
     },
     model::{
         validated_sidebar_bounds, AgentPanelSortConfig, Config, ConfigReloadReport,
-        ConfigReloadStatus, HostCursorModeConfig, NewTerminalCwdConfig, ShellModeConfig,
-        SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig, ToastDelivery,
-        ToastKitsunePosition, MAX_TOAST_DELAY_SECONDS,
+        ConfigReloadStatus, HostCursorModeConfig, IntegrationsConfig, NewTerminalCwdConfig,
+        ShellModeConfig, SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig,
+        ToastDelivery, ToastKitsunePosition, MAX_TOAST_DELAY_SECONDS,
     },
     sidebar::{
         AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarTokenStyle,
@@ -74,6 +74,7 @@ impl Config {
             .chain(self.ui.sound.diagnostics())
             .chain(self.invalid_sidebar_bounds_diagnostic())
             .chain(self.invalid_annotations_diagnostic())
+            .chain(self.invalid_integrations_diagnostic())
             .collect()
     }
 

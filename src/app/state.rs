@@ -1008,7 +1008,7 @@ impl SettingsSection {
             Self::Toast => "toasts",
             Self::PaneLabels => "pane labels",
             Self::Experiments => "experiments",
-            Self::Integrations => "integrations",
+            Self::Integrations => "legacy agent hooks",
         }
     }
 }
@@ -1460,6 +1460,11 @@ pub struct AppState {
     pub copy_mode: Option<CopyModeState>,
     pub workspace_scroll: usize,
     pub agent_panel_scroll: usize,
+    pub(crate) integration_views: crate::integration_views::IntegrationViewsState,
+    pub(crate) integration_view_selected: Option<String>,
+    pub(crate) integration_view_scrolls: std::collections::HashMap<String, usize>,
+    pub(crate) integration_views_computed: Option<crate::ui::IntegrationViewsSnapshot>,
+    pub(crate) integration_views_displayed: Option<crate::ui::IntegrationViewsSnapshot>,
     pub tab_scroll: usize,
     pub tab_scroll_follow_active: bool,
     pub mobile_switcher_scroll: usize,
@@ -1821,6 +1826,11 @@ impl AppState {
             copy_mode: None,
             workspace_scroll: 0,
             agent_panel_scroll: 0,
+            integration_views: Default::default(),
+            integration_view_selected: None,
+            integration_view_scrolls: Default::default(),
+            integration_views_computed: None,
+            integration_views_displayed: None,
             tab_scroll: 0,
             tab_scroll_follow_active: true,
             mobile_switcher_scroll: 0,

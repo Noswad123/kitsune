@@ -22,6 +22,8 @@ mod session;
 pub mod state;
 mod terminal_targets;
 mod terminal_titles;
+#[cfg(test)]
+pub(crate) mod test_support;
 mod theme_sync;
 mod worktrees;
 
@@ -566,6 +568,13 @@ impl App {
             copy_mode: None,
             workspace_scroll: 0,
             agent_panel_scroll: 0,
+            integration_views: crate::integration_views::IntegrationViewsState::new(
+                config.integrations.sources.clone(),
+            ),
+            integration_view_selected: config.integrations.sources.first().cloned(),
+            integration_view_scrolls: Default::default(),
+            integration_views_computed: None,
+            integration_views_displayed: None,
             tab_scroll: 0,
             tab_scroll_follow_active: true,
             mobile_switcher_scroll: 0,
@@ -1041,6 +1050,7 @@ impl App {
                         frame,
                     );
                 })?;
+                self.state.commit_integration_views_render();
                 crate::kitty_graphics::paint_local_pane_graphics(
                     &self.state,
                     &self.terminal_runtimes,
@@ -1340,6 +1350,22 @@ impl App {
         let mut diagnostics = load_diagnostics.to_vec();
         let invalid_section =
             |section: &str| invalid_sections.iter().any(|invalid| invalid == section);
+
+        if !invalid_section("integrations") {
+            if let Some(diagnostic) = config.invalid_integrations_diagnostic() {
+                diagnostics.push(diagnostic);
+            } else if self
+                .state
+                .integration_views
+                .reconfigure(config.integrations.sources.clone())
+                == Ok(true)
+            {
+                self.state.reconcile_integration_views();
+                self.state.integration_views_computed = None;
+                self.state.integration_views_displayed = None;
+                self.state.sync_annotation_deadline(Instant::now());
+            }
+        }
 
         if !invalid_section("annotations") {
             match self
@@ -2417,6 +2443,61 @@ mod tests {
         );
         assert!(app.copy_feedback_deadline.is_some());
         assert!(app.event_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn integration_views_config_reorder_preserves_local_selection_scrolls_and_leases() {
+        let mut config = Config::default();
+        config.integrations.sources = vec!["alpha".into(), "beta".into()];
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(&config, true, None, api_rx, crate::api::EventHub::default());
+        assert_eq!(
+            app.state.integration_view_selected.as_deref(),
+            Some("alpha")
+        );
+        let now = Instant::now();
+        let owner = app
+            .state
+            .integration_views
+            .open(
+                &crate::api::schema::ViewOpenParams {
+                    source: "beta".into(),
+                    version: 1,
+                },
+                now,
+            )
+            .unwrap();
+        app.state.integration_view_selected = Some("beta".into());
+        app.state.integration_view_scrolls =
+            std::collections::HashMap::from([("alpha".into(), 4), ("beta".into(), 7)]);
+        config.integrations.sources.reverse();
+        app.apply_live_config(&config, &[], &[], false);
+        assert_eq!(app.state.integration_view_selected.as_deref(), Some("beta"));
+        assert_eq!(app.state.integration_view_scrolls["alpha"], 4);
+        assert_eq!(app.state.integration_view_scrolls["beta"], 7);
+        assert_eq!(
+            app.state.integration_views.descriptor(now).sources[0]
+                .epoch
+                .as_deref(),
+            Some(owner.epoch.as_str())
+        );
+        config.integrations.sources = vec!["alpha".into()];
+        app.apply_live_config(&config, &[], &[], false);
+        assert_eq!(
+            app.state.integration_view_selected.as_deref(),
+            Some("alpha")
+        );
+        assert_eq!(app.state.integration_view_scrolls.len(), 1);
+        assert_eq!(app.state.integration_view_scrolls["alpha"], 4);
+        config.integrations.sources.clear();
+        app.apply_live_config(&config, &[], &["integrations".into()], false);
+        assert_eq!(
+            app.state.integration_views.configured_sources(),
+            &["alpha".to_owned()]
+        );
+        app.apply_live_config(&config, &[], &[], false);
+        assert!(app.state.integration_view_selected.is_none());
+        assert!(app.state.integration_view_scrolls.is_empty());
     }
 
     #[test]

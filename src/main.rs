@@ -66,6 +66,7 @@ mod ghostty;
 mod handoff_runtime;
 mod input;
 mod integration;
+mod integration_views;
 mod ipc;
 mod kitty_graphics;
 mod layout;

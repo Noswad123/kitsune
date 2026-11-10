@@ -512,6 +512,19 @@ impl AppState {
                 if in_sidebar {
                     if self.on_sidebar_toggle(mouse.column, mouse.row) {
                         self.sidebar_collapsed = !self.sidebar_collapsed;
+                        self.integration_views_displayed = None;
+                        return None;
+                    }
+
+                    if self
+                        .integration_views_area()
+                        .contains(ratatui::layout::Position::new(mouse.column, mouse.row))
+                    {
+                        self.activate_integration_view_at(
+                            mouse.column,
+                            mouse.row,
+                            std::time::Instant::now(),
+                        );
                         return None;
                     }
 
@@ -935,39 +948,37 @@ impl AppState {
                 }
             }
 
+            MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
+                if in_sidebar
+                    && self
+                        .integration_views_area()
+                        .contains(ratatui::layout::Position::new(mouse.column, mouse.row)) =>
+            {
+                self.scroll_integration_views_at(
+                    mouse.column,
+                    mouse.row,
+                    if mouse.kind == MouseEventKind::ScrollUp {
+                        -1
+                    } else {
+                        1
+                    },
+                );
+            }
             MouseEventKind::ScrollUp if in_sidebar => {
-                let agent_area = self.agent_panel_rect();
-                let over_agent_panel = agent_area != Rect::default()
-                    && mouse.row >= agent_area.y
-                    && mouse.row < agent_area.y + agent_area.height;
-                if over_agent_panel {
-                    if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
-                        self, agent_area,
-                    )) {
-                        self.scroll_agent_panel(-1);
-                    }
-                } else if crate::ui::should_show_scrollbar(
-                    crate::ui::workspace_list_scroll_metrics(self, self.workspace_list_rect()),
-                ) {
+                if crate::ui::should_show_scrollbar(crate::ui::workspace_list_scroll_metrics(
+                    self,
+                    self.workspace_list_rect(),
+                )) {
                     self.scroll_workspace_list(-1);
                 } else {
                     self.move_selected_workspace_by_visible_delta(-1);
                 }
             }
             MouseEventKind::ScrollDown if in_sidebar => {
-                let agent_area = self.agent_panel_rect();
-                let over_agent_panel = agent_area != Rect::default()
-                    && mouse.row >= agent_area.y
-                    && mouse.row < agent_area.y + agent_area.height;
-                if over_agent_panel {
-                    if crate::ui::should_show_scrollbar(crate::ui::agent_panel_scroll_metrics(
-                        self, agent_area,
-                    )) {
-                        self.scroll_agent_panel(1);
-                    }
-                } else if crate::ui::should_show_scrollbar(
-                    crate::ui::workspace_list_scroll_metrics(self, self.workspace_list_rect()),
-                ) {
+                if crate::ui::should_show_scrollbar(crate::ui::workspace_list_scroll_metrics(
+                    self,
+                    self.workspace_list_rect(),
+                )) {
                     self.scroll_workspace_list(1);
                 } else {
                     self.move_selected_workspace_by_visible_delta(1);

@@ -308,13 +308,13 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
     .areas::<6>(area);
 
     frame.render_widget(
-        Paragraph::new("agent integrations")
+        Paragraph::new("Legacy agent hooks")
             .style(Style::default().fg(p.text).add_modifier(Modifier::BOLD)),
         rows[0],
     );
     frame.render_widget(
         Paragraph::new(
-            "let agents report state directly instead of relying only on process detection",
+            "compatibility hook installers; separate from the generic Integrations menu",
         )
         .style(Style::default().fg(p.overlay1))
         .wrap(ratatui::widgets::Wrap { trim: false }),

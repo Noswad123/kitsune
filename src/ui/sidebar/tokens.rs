@@ -1,8 +1,8 @@
+#[cfg(test)]
 use super::AgentPanelEntry;
-use crate::config::{
-    AgentSidebarToken, AgentsSidebarConfig, SidebarTokenStyle, SpaceSidebarToken,
-    SpacesSidebarConfig,
-};
+#[cfg(test)]
+use crate::config::{AgentSidebarToken, AgentsSidebarConfig};
+use crate::config::{SidebarTokenStyle, SpaceSidebarToken, SpacesSidebarConfig};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ResolvedToken {
@@ -15,12 +15,20 @@ pub(super) enum ResolvedTokenKind {
     StateIcon,
     StateText(String),
     Workspace(String),
+    // Legacy desktop token resolution remains covered by parser tests only.
+    #[cfg(test)]
     Tab(String),
+    #[cfg(test)]
     Pane(String),
+    #[cfg(test)]
     Agent(String),
+    #[cfg(test)]
     TerminalTitle(String),
     Branch(String),
-    GitStatus { ahead: usize, behind: usize },
+    GitStatus {
+        ahead: usize,
+        behind: usize,
+    },
     Custom(String),
 }
 
@@ -35,6 +43,7 @@ impl ResolvedToken {
     }
 }
 
+#[cfg(test)]
 pub(super) fn agent_rows(
     config: &AgentsSidebarConfig,
     entry: &AgentPanelEntry,

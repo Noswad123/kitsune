@@ -11,8 +11,9 @@ not an immediate removal or a claim that extraction has shipped.
 
 Initial single-endpoint observation is implemented in Coven only; built-in
 interpretation remains here. The first opt-in generic terminal-border annotation
-slice is implemented. Next: characterize generic surfaces before extraction
-and group existing sessions in Coven. Do not require a
+slice and Coven's explicit existing-session groups/publishers are implemented.
+Next: move management model/adapters into Coven through generic surfaces, while
+characterizing affected legacy subsystems before removal. Do not require a
 scheduler, daemon, plugin framework, or native admission design for this slice.
 Missing/unreachable/incompatible Coven must not break startup or terminal work;
 stale badges are hidden/unknown, never stale active status. Decoration grants no
@@ -32,9 +33,10 @@ live-terminal records/watermarks, reload fencing, cleanup, timer expiry, and tex
 in spare existing top-border cells. Single-pane layouts have no border. Disconnect
 is not immediately detected; TTL bounds visibility. Source labels are not auth.
 The [prototype](ANNOTATION_MODEL_PROTOTYPE.md) is historical context, with workspace
-targets still test-only. Workspace presentation, richer progress/group hints,
-actual Coven publishing, grouping, and agent extraction remain open; no panels,
-widgets, unrequested UI space, or terminal-control authority follows from labels.
+targets still test-only. Workspace annotations and richer progress hints remain
+open; Coven publishing and grouping are implemented separately. Agent extraction
+remains open; no widgets, unrequested UI space or terminal-control authority follows
+from labels. Persistent application rows use the separate Integrations block below.
 
 This fork started as a Kitsune-branded distribution of Herdr. Completed product
 baseline and feature behavior live in `README.md` and `docs/next/README.md`.
@@ -66,6 +68,28 @@ integrations, and workflows that make Kitsune its own product.
   separation are already stable.
 
 ## Open work
+
+### Coven-owned management through generic presentation and messaging
+
+The [integration-view bridge](INTEGRATION_VIEWS.md) implements the default generic
+desktop lower `Integrations` block, with a vertical app selector, selected-app
+label/detail rows and read-only selection roundtrip. Empty config shows
+`No integrations configured`, not native agents. Up to eight independent sources
+use `integration.view.*` and whole-list `snapshot.integration_views` discovery;
+reorder preserves retained state, and removal/expiry/close is per provider. Extend
+Coven's management model/runtime adapters through generic interfaces, then retire
+the matching built-in detection/status/navigation/start/resume surfaces in steps.
+Do not add Coven semantics to Kitsune, or let characterization alone replace this
+ownership milestone. Existing legacy restore/failure tests remain subsystem
+removal gates; full-suite and supported-platform validation remain separate.
+
+This is not complete agent removal: agent APIs/detection, mobile/native hooks,
+restore/resume and legacy hook installers remain (see the
+[migration matrix](APP_BOUNDARIES.md#migration-scope)). Keep `IntegrationTarget` and
+`integration.install/uninstall` separate from generic provider configuration.
+Retire management through Coven-owned model/adapters, not a permanent test-only
+gate or another Kitsune agent registry. The obsolete unreleased singleton config
+and methods have no aliases; manual `integrations.sources` replaces that prototype.
 
 ### Djinn lifecycle rollout
 

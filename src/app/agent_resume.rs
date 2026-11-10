@@ -1,3 +1,7 @@
+#[cfg(test)]
+#[path = "agent_resume_guards_tests.rs"]
+mod guard_tests;
+
 use std::time::Instant;
 
 use bytes::Bytes;

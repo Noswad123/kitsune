@@ -1627,6 +1627,7 @@ impl AppState {
         self.focus_agent_entry(target_idx);
     }
 
+    #[cfg(test)]
     pub(crate) fn ensure_agent_panel_entry_visible(&mut self, idx: usize) {
         if self.sidebar_collapsed {
             return;
@@ -1724,7 +1725,12 @@ impl AppState {
     pub(crate) fn sync_annotation_deadline(&mut self, now: std::time::Instant) {
         self.annotations
             .retain_terminals(|id| self.terminals.contains_key(id));
-        self.next_annotation_deadline = self.annotations.next_deadline(now);
+        self.next_annotation_deadline = self
+            .annotations
+            .next_deadline(now)
+            .into_iter()
+            .chain(self.integration_views.next_deadline())
+            .min();
     }
 
     pub(crate) fn remove_pane_api_records(&mut self, pane_ids: impl IntoIterator<Item = PaneId>) {

@@ -62,6 +62,105 @@ fn request_uses_dot_method_names() {
 }
 
 #[test]
+fn integration_views_requests_and_results_round_trip_with_explicit_types() {
+    let owner = ViewOwnerParams {
+        source: "example".into(),
+        lease: "lease".into(),
+        epoch: "epoch".into(),
+    };
+    for (name, method) in [
+        (
+            "integration.view.open",
+            Method::ViewOpen(ViewOpenParams {
+                source: owner.source.clone(),
+                version: 1,
+            }),
+        ),
+        (
+            "integration.view.replace",
+            Method::ViewReplace(ViewReplaceParams {
+                source: owner.source.clone(),
+                lease: owner.lease.clone(),
+                epoch: owner.epoch.clone(),
+                revision: 1,
+                items: Vec::new(),
+            }),
+        ),
+        ("integration.view.poll", Method::ViewPoll(owner.clone())),
+        ("integration.view.close", Method::ViewClose(owner.clone())),
+    ] {
+        let request = Request {
+            id: "request".into(),
+            method,
+        };
+        let json = serde_json::to_value(&request).unwrap();
+        assert_eq!(json["method"], name);
+        assert_eq!(serde_json::from_value::<Request>(json).unwrap(), request);
+    }
+    for method in ["view.open", "view.replace", "view.poll", "view.close"] {
+        assert!(serde_json::from_value::<Request>(serde_json::json!({
+            "id": "obsolete", "method": method,
+            "params": { "source": "example", "version": 1 }
+        }))
+        .is_err());
+    }
+    for (name, result) in [
+        (
+            "view_opened",
+            ResponseResult::ViewOpened {
+                lease: owner.lease,
+                epoch: owner.epoch.clone(),
+                revision: 0,
+                ttl_ms: 5000,
+            },
+        ),
+        (
+            "view_replaced",
+            ResponseResult::ViewReplaced {
+                epoch: owner.epoch.clone(),
+                revision: 1,
+            },
+        ),
+        (
+            "view_intents",
+            ResponseResult::ViewIntents {
+                epoch: owner.epoch.clone(),
+                revision: 1,
+                intents: vec![IntegrationViewIntent {
+                    epoch: owner.epoch.clone(),
+                    revision: 1,
+                    item_id: "item".into(),
+                }],
+                ttl_ms: 5000,
+            },
+        ),
+        ("view_closed", ResponseResult::ViewClosed {}),
+    ] {
+        let response = SuccessResponse {
+            id: "request".into(),
+            result,
+        };
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(json["result"]["type"], name);
+        assert_eq!(
+            serde_json::from_value::<SuccessResponse>(json).unwrap(),
+            response
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(IntegrationViewsInfo {
+            version: 1,
+            sources: vec![IntegrationViewSourceInfo {
+                id: "inactive".into(),
+                epoch: None
+            }],
+        })
+        .unwrap(),
+        serde_json::json!({ "version": 1, "sources": [{ "id": "inactive", "epoch": null }] })
+    );
+}
+
+#[test]
 fn command_submission_requests_are_strict_and_round_trip() {
     let value = serde_json::json!({
         "id": "submit", "method": "pane.submit_command", "params": {
@@ -895,6 +994,7 @@ fn session_snapshot_request_and_response_round_trip() {
                 protocol: 16,
                 annotations: None,
                 command_submission: None,
+                integration_views: None,
                 focused_workspace_id: None,
                 focused_tab_id: None,
                 focused_pane_id: None,

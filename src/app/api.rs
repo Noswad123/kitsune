@@ -6,6 +6,9 @@ mod agents;
 mod annotations;
 mod command_submission;
 mod env;
+mod integration_views;
+#[cfg(all(test, unix))]
+mod integration_views_roundtrip_tests;
 mod integrations;
 mod layouts;
 #[cfg(test)]
@@ -924,6 +927,10 @@ impl App {
                 );
             }
             Method::SessionSnapshot(_) => return self.handle_session_snapshot(request.id),
+            Method::ViewOpen(params) => return self.handle_view_open(request.id, params),
+            Method::ViewReplace(params) => return self.handle_view_replace(request.id, params),
+            Method::ViewPoll(params) => return self.handle_view_poll(request.id, params),
+            Method::ViewClose(params) => return self.handle_view_close(request.id, params),
             Method::WorkspaceList(_) => return self.handle_workspace_list(request.id),
             Method::WorkspaceGet(target) => return self.handle_workspace_get(request.id, target),
             Method::WorkspaceCreate(params) => {

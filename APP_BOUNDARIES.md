@@ -15,6 +15,15 @@ Keep three independently useful apps rather than tightly coupling them.
 | Coven | Cross-runtime agent discovery, observations/provenance, job/task-group membership, participant roles/assignments, orchestration, and job progress. |
 | Djinn | Djinn-native agent/session execution, configuration, tools, policy, transcripts, and results. |
 
+Clarified implementation priority: **Coven owns agent management; Kitsune exposes
+generic multiplexer controls, persistent side-menu presentation and app messaging.**
+The default desktop [Integrations block](INTEGRATION_VIEWS.md) lists multiple
+configured apps and renders the locally selected app's generic label/detail rows.
+Coven supplies its own rows and consumes read-only selection messages. Kitsune
+interprets no participant/role/agent meaning in that model. With no sources it shows
+`No integrations configured`, never native-agent fallback. This advances ownership;
+it does not claim legacy agent management has already been removed.
+
 Kitsune's target is a good general multiplexer. Agent-specific discovery, status
 interpretation, start/resume, and job concepts should move to optional Coven
 integration. **Target: no Coven means fully functional multiplexing and no
@@ -35,7 +44,12 @@ Coven must also work headless or with other multiplexers.
 Use a small, versioned, capability-described external boundary. The initial Coven
 adapter reads `session.snapshot`; Kitsune now exposes additive `pane.annotate`
 with optional snapshot `annotations` capability/epoch discovery (binary protocol
-18 unchanged). Broader future interfaces remain undecided. Presentation uses
+18 unchanged). The separate [integration views](INTEGRATION_VIEWS.md) expose
+`integration.view.open/replace/poll/close` and `snapshot.integration_views` for the
+whole configured source list, without changing that binary version. Up to eight
+ordered unique sources have independent leases/frames/revisions/queues. Local UI
+selection and source IDs are routing, not authentication or execution authority.
+Broader interfaces remain undecided. Presentation uses
 generic terminal identities and text, not Djinn/Coven types or job interpretation.
 
 The separate [generic command submission API](COMMAND_SUBMISSION.md) lets explicit
@@ -81,6 +95,7 @@ Independent paths, not a required round trip:
 ```text
 observation: Kitsune -> Coven adapter -> sourced observations
 annotation: user-enabled producer -> pane.annotate -> Kitsune terminal border
+integration views: independent configured apps -> per-source frames -> local app selector/rows -> per-source intents
 ```
 
 Kitsune supplies multiplexer evidence; runtimes retain native fact authority.
@@ -123,6 +138,21 @@ shipped. See the optional [Coven guide](../coven/GROUPS_CONTRACT.md); the indepe
 manual build-label example is in [ANNOTATIONS.md](ANNOTATIONS.md).
 
 ## Transition
+
+### Migration scope
+
+| Surface | Current scope / next owner |
+| --- | --- |
+| Desktop persistent lower menu | Generic Integrations block; empty/unavailable states never fall back to agents. |
+| Agent detection, agent APIs, navigator/attention and mobile surfaces | Legacy compatibility remains; move management interpretation/model into Coven and retire matching surfaces incrementally. |
+| Native references, restore/resume and lifecycle hooks | Retained; require runtime adapters and subsystem-specific compatibility/removal gates. |
+| `integration.install` / `integration.uninstall`, fixed `IntegrationTarget`, legacy hook settings | Separate agent-hook installers, not generic provider registration; heading changes do not retire installer logic. |
+
+The generic block is not a broker, plugin or script host. Reorder preserves retained
+providers; removal/close/expiry clears only the affected provider. Producers renew
+their own five-second lease only by successful replace/poll, independently of local
+UI selection. Draw/queue fencing is not physical-pixel acknowledgement. See the
+contract for per-provider quotas and at-most-once selection delivery.
 
 1. Inspect Kitsune's existing agent surfaces and dependencies.
 2. Characterize existing behavior and protected compatibility before extraction.

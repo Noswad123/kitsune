@@ -52,6 +52,12 @@ pub(crate) use self::scrollbar::{
     scrollbar_offset_from_row, scrollbar_thumb_grab_offset, should_show_scrollbar,
 };
 use self::settings::render_settings_overlay;
+pub(crate) use self::sidebar::integrations::IntegrationViewsSnapshot;
+#[cfg(test)]
+pub(crate) use self::sidebar::{
+    agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_for_target,
+    agent_panel_scroll_metrics, agent_panel_toggle_rect, expanded_sidebar_sections,
+};
 use self::sidebar::{render_sidebar, render_sidebar_collapsed};
 use self::status::{
     copy_feedback_rect, render_config_diagnostic, render_copy_feedback, render_toast_notification,
@@ -74,14 +80,12 @@ pub(crate) use self::{
         SETTINGS_POPUP_WIDTH,
     },
     sidebar::{
-        agent_entry_gap, agent_entry_height_in_body, agent_panel_body_rect, agent_panel_entries,
-        agent_panel_scroll_for_target, agent_panel_scroll_metrics, agent_panel_scrollbar_rect,
-        agent_panel_toggle_rect, all_agent_panel_entries, collapsed_sidebar_sections,
-        collapsed_sidebar_toggle_rect, compute_workspace_card_areas, expanded_sidebar_sections,
-        expanded_sidebar_toggle_rect, normalized_workspace_scroll, sidebar_section_divider_rect,
-        workspace_drop_indicator_row, workspace_list_entries, workspace_list_entries_expanded,
-        workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
-        workspace_parent_group_state, AgentPanelEntry, WorkspaceListEntry,
+        all_agent_panel_entries, collapsed_sidebar_sections, collapsed_sidebar_toggle_rect,
+        compute_workspace_card_areas, expanded_sidebar_toggle_rect, normalized_workspace_scroll,
+        sidebar_section_divider_rect, workspace_drop_indicator_row, workspace_list_entries,
+        workspace_list_entries_expanded, workspace_list_rect, workspace_list_scroll_metrics,
+        workspace_list_scrollbar_rect, workspace_parent_group_state, AgentPanelEntry,
+        WorkspaceListEntry,
     },
 };
 pub(crate) use self::{
@@ -232,6 +236,7 @@ fn compute_view_internal(
 ) {
     if is_mobile_width(area, app.mobile_width_threshold) {
         compute_mobile_view(app, terminal_runtimes, area, resize_panes, cell_size);
+        app.compute_integration_views_snapshot(std::time::Instant::now());
         return;
     }
 
@@ -256,9 +261,6 @@ fn compute_view_internal(
 
     if !app.sidebar_collapsed {
         app.workspace_scroll = normalized_workspace_scroll(app, sidebar_area, app.workspace_scroll);
-        let (_, detail_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
-        let max_agent_scroll = agent_panel_scroll_metrics(app, detail_area).max_offset_from_bottom;
-        app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
     } else {
         app.workspace_scroll = app
             .workspace_scroll
@@ -337,6 +339,7 @@ fn compute_view_internal(
         split_borders,
     };
     app.sync_copy_mode_search_geometry();
+    app.compute_integration_views_snapshot(std::time::Instant::now());
 }
 
 fn compute_mobile_view(

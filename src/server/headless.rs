@@ -1000,7 +1000,7 @@ impl HeadlessServer {
             return;
         };
         let Some(client) = self.clients.get(&client_id) else {
-            self.foreground_client_id = None;
+            self.set_foreground_client_id(None);
             self.effective_size = (MIN_COLS, MIN_ROWS);
             self.app.state.outer_terminal_focus = None;
             self.app.state.host_cell_size = crate::kitty_graphics::HostCellSize::default();
@@ -1363,6 +1363,16 @@ impl HeadlessServer {
         )
     }
 
+    fn set_foreground_client_id(&mut self, client_id: Option<u64>) -> bool {
+        let changed = self.foreground_client_id != client_id;
+        if changed {
+            // Equal geometry does not mean this client received the captured frame.
+            self.app.state.integration_views_displayed = None;
+            self.foreground_client_id = client_id;
+        }
+        changed
+    }
+
     fn promote_client_to_foreground(&mut self, client_id: u64) -> bool {
         let stamp = self.allocate_activity_stamp();
         let Some(client) = self.clients.get_mut(&client_id) else {
@@ -1370,16 +1380,14 @@ impl HeadlessServer {
         };
         client.last_activity = stamp;
 
-        let changed = self.foreground_client_id != Some(client_id);
-        self.foreground_client_id = Some(client_id);
+        let changed = self.set_foreground_client_id(Some(client_id));
         self.sync_foreground_client_state();
         changed
     }
 
     fn promote_latest_remaining_client(&mut self) -> bool {
         let next_foreground = latest_app_client(&self.clients);
-        let changed = next_foreground != self.foreground_client_id;
-        self.foreground_client_id = next_foreground;
+        let changed = self.set_foreground_client_id(next_foreground);
         self.sync_foreground_client_state();
         changed
     }
@@ -2426,7 +2434,7 @@ impl HeadlessServer {
             }
             let _ = self.remove_client(client_id);
         }
-        self.foreground_client_id = None;
+        self.set_foreground_client_id(None);
         self.sync_foreground_client_state();
         self.resize_shared_runtime_to_effective_size();
     }
@@ -2664,7 +2672,7 @@ impl HeadlessServer {
                     ),
                 );
                 if !direct_attach_requested {
-                    self.foreground_client_id = Some(client_id);
+                    self.set_foreground_client_id(Some(client_id));
                 }
                 if first_app_client {
                     self.app.mark_git_status_refresh_due(Instant::now());
@@ -3050,10 +3058,7 @@ impl HeadlessServer {
         let mut changed = metadata_expired
             | (pane_graphics_revision_before.is_none() && api::request_changes_ui(&msg.request));
         let skip_default_workspace = skip_default_workspace_for_request
-            || matches!(
-                &msg.request.method,
-                api::schema::Method::ServerStop(_) | api::schema::Method::ServerLiveHandoff(_)
-            );
+            || api::request_skips_default_workspace(&msg.request);
         changed |= self.drain_all_internal_events_with_forwarding();
 
         // Capture toast and effective pane states before the API call so we can
@@ -3603,6 +3608,14 @@ impl HeadlessServer {
             let mut frame = match mode {
                 ClientConnectionMode::App => {
                     let render_started = crate::render_prof::timer();
+                    let integration_views_client_state = (!is_foreground).then(|| {
+                        (
+                            self.app.state.integration_views_computed.clone(),
+                            self.app.state.integration_views_displayed.clone(),
+                            self.app.state.integration_view_scrolls.clone(),
+                            self.app.state.integration_view_selected.clone(),
+                        )
+                    });
                     let render_cell_size = if cell_size.is_known() {
                         cell_size
                     } else {
@@ -3616,6 +3629,14 @@ impl HeadlessServer {
                             is_foreground,
                             render_cell_size,
                         );
+                    if let Some((computed, displayed, scroll, selected)) =
+                        integration_views_client_state
+                    {
+                        self.app.state.integration_views_computed = computed;
+                        self.app.state.integration_views_displayed = displayed;
+                        self.app.state.integration_view_scrolls = scroll;
+                        self.app.state.integration_view_selected = selected;
+                    }
                     crate::render_prof::duration_since(
                         "full_render.render_virtual",
                         render_started,
@@ -3725,6 +3746,9 @@ impl HeadlessServer {
             let has_graphics = !frame.graphics.is_empty();
             let prepare_started = crate::render_prof::timer();
             let Some(mut prepared) = client.render_state.prepare_frame(frame) else {
+                if is_foreground && is_app_client {
+                    self.app.state.commit_integration_views_render();
+                }
                 client.clear_deferred_render();
                 crate::render_prof::event("full_render.skip_identical");
                 crate::render_prof::duration_since("full_render.prepare_frame", prepare_started);
@@ -3812,6 +3836,9 @@ impl HeadlessServer {
                         client.graphics_surface_reset_pending = false;
                     }
                     client.render_state.commit_sent_frame(prepared);
+                    if is_foreground && is_app_client {
+                        self.app.state.commit_integration_views_render();
+                    }
                     crate::render_prof::event("full_render.sent");
                     crate::render_prof::duration_since("full_render.try_send", send_started);
                 }
@@ -4440,6 +4467,10 @@ mod tests {
         app.local_terminal_notifications = false;
         app.local_input_source_switch = false;
 
+        test_headless_server_with_app(app)
+    }
+
+    fn test_headless_server_with_app(app: crate::app::App) -> HeadlessServer {
         let dir = std::env::temp_dir().join(format!(
             "hh-{}-{}",
             std::process::id(),
@@ -4494,6 +4525,244 @@ mod tests {
             should_quit,
             server_event_rx,
             server_event_tx,
+        }
+    }
+
+    mod integration_views {
+        use super::*;
+        use crate::api::schema::{
+            IntegrationViewItem, ViewOpenParams, ViewOwnerParams, ViewReplaceParams,
+        };
+
+        fn server(now: Instant) -> (HeadlessServer, ViewOwnerParams) {
+            let mut state = AppState::test_new();
+            state.mode = crate::app::Mode::Terminal;
+            state.mouse_capture = true;
+            state.integration_views =
+                crate::integration_views::IntegrationViewsState::new(vec!["test.source".into()]);
+            let opened = state
+                .integration_views
+                .open(
+                    &ViewOpenParams {
+                        source: "test.source".into(),
+                        version: 1,
+                    },
+                    now,
+                )
+                .unwrap();
+            let owner = ViewOwnerParams {
+                source: "test.source".into(),
+                lease: opened.lease,
+                epoch: opened.epoch,
+            };
+            let app = crate::app::test_support::app_from_state(state);
+            (test_headless_server_with_app(app), owner)
+        }
+
+        fn replace(
+            server: &mut HeadlessServer,
+            owner: &ViewOwnerParams,
+            revision: u64,
+            now: Instant,
+        ) {
+            server
+                .app
+                .state
+                .integration_views
+                .replace(
+                    &ViewReplaceParams {
+                        source: owner.source.clone(),
+                        lease: owner.lease.clone(),
+                        epoch: owner.epoch.clone(),
+                        revision,
+                        items: vec![IntegrationViewItem {
+                            id: format!("item-{revision}"),
+                            label: format!("revision {revision}"),
+                            detail: String::new(),
+                        }],
+                    },
+                    now,
+                )
+                .unwrap();
+        }
+
+        fn connect(
+            server: &mut HeadlessServer,
+            client_id: u64,
+        ) -> (
+            std::sync::mpsc::Receiver<Vec<u8>>,
+            std::sync::mpsc::Receiver<Vec<u8>>,
+        ) {
+            let (writer, control_rx, render_rx) = test_client_writer();
+            assert!(server.handle_server_event(ServerEvent::ClientConnected {
+                client_id,
+                cols: 106,
+                rows: 30,
+                cell_width_px: 0,
+                cell_height_px: 0,
+                keybindings: None,
+                writer,
+                render_encoding: RenderEncoding::SemanticFrame,
+                direct_attach_requested: false,
+            }));
+            (control_rx, render_rx)
+        }
+
+        fn click(server: &mut HeadlessServer, client_id: u64) {
+            let area = server.app.state.integration_views_area();
+            assert!(server.handle_client_input_events(
+                client_id,
+                vec![crate::raw_input::RawInputEvent::Mouse(
+                    crossterm::event::MouseEvent {
+                        kind: crossterm::event::MouseEventKind::Down(
+                            crossterm::event::MouseButton::Left
+                        ),
+                        column: area.x + 1,
+                        row: area.y + 3,
+                        modifiers: crossterm::event::KeyModifiers::NONE,
+                    },
+                )]
+            ));
+        }
+
+        #[test]
+        fn equal_size_lagging_client_cannot_use_another_clients_capture() {
+            let now = Instant::now();
+            let (mut server, owner) = server(now);
+            replace(&mut server, &owner, 1, now);
+            let (_a_control, a_render) = connect(&mut server, 1);
+            let (_b_control, b_render) = connect(&mut server, 2);
+            assert!(server.promote_client_to_foreground(1));
+            server.render_and_stream();
+            assert!(
+                frame_text(&read_server_frame(a_render.try_recv().unwrap())).contains("revision 1")
+            );
+            assert!(
+                frame_text(&read_server_frame(b_render.try_recv().unwrap())).contains("revision 1")
+            );
+
+            // B keeps its revision-1 baseline while its bounded output queue is blocked.
+            server.clients[&2]
+                .writer
+                .as_ref()
+                .unwrap()
+                .render
+                .try_send(Vec::new())
+                .unwrap();
+            replace(&mut server, &owner, 2, now);
+            server.render_and_stream();
+            assert!(a_render.try_recv().is_ok());
+            assert!(server.app.state.integration_views_displayed.is_some());
+            assert_eq!(server.foreground_client_id, Some(1));
+            click(&mut server, 2);
+            assert_eq!(server.foreground_client_id, Some(2));
+            assert!(server.app.state.integration_views_displayed.is_none());
+            assert!(server
+                .app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents
+                .is_empty());
+
+            // Even a successful virtual draw cannot commit B's capture if enqueue fails.
+            server.render_and_stream();
+            click(&mut server, 2);
+            assert!(server
+                .app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents
+                .is_empty());
+            assert!(b_render.try_recv().unwrap().is_empty());
+            server.render_and_stream();
+            assert!(b_render.try_recv().is_ok());
+            assert!(server.app.state.integration_views_displayed.is_some());
+            click(&mut server, 2);
+            let intents = server
+                .app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents;
+            assert_eq!(intents.len(), 1);
+            assert_eq!(intents[0].item_id, "item-2");
+            assert_eq!(intents[0].revision, 2);
+        }
+
+        #[test]
+        fn new_clients_first_input_cannot_use_the_previous_clients_capture() {
+            let now = Instant::now();
+            let (mut server, owner) = server(now);
+            replace(&mut server, &owner, 1, now);
+            let (_a_control, a_render) = connect(&mut server, 1);
+            server.render_and_stream();
+            assert!(a_render.try_recv().is_ok());
+            assert!(server.app.state.integration_views_displayed.is_some());
+            let (_b_control, b_render) = connect(&mut server, 2);
+            assert!(server.app.state.integration_views_displayed.is_none());
+            assert!(b_render.try_recv().is_err());
+            click(&mut server, 2);
+            assert!(server
+                .app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents
+                .is_empty());
+            server.render_and_stream();
+            assert!(b_render.try_recv().is_ok());
+            click(&mut server, 2);
+            assert_eq!(
+                server
+                    .app
+                    .state
+                    .integration_views
+                    .poll(&owner, now)
+                    .unwrap()
+                    .intents[0]
+                    .item_id,
+                "item-1"
+            );
+        }
+
+        #[test]
+        fn disconnect_fallback_and_missing_client_sync_invalidate_captures() {
+            let now = Instant::now();
+            let (mut server, owner) = server(now);
+            replace(&mut server, &owner, 1, now);
+            let (_a_control, a_render) = connect(&mut server, 1);
+            let (_b_control, b_render) = connect(&mut server, 2);
+            server.render_and_stream();
+            a_render.try_recv().unwrap();
+            b_render.try_recv().unwrap();
+            assert!(server.app.state.integration_views_displayed.is_some());
+            assert!(!server.promote_client_to_foreground(2));
+            assert!(server.app.state.integration_views_displayed.is_some());
+            assert!(server.remove_client(2));
+            assert_eq!(server.foreground_client_id, Some(1));
+            assert!(server.app.state.integration_views_displayed.is_none());
+            click(&mut server, 1);
+            assert!(server
+                .app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents
+                .is_empty());
+            server.render_and_stream();
+            a_render.try_recv().unwrap();
+            assert!(server.app.state.integration_views_displayed.is_some());
+            server.clients.remove(&1);
+            server.sync_foreground_client_state();
+            assert_eq!(server.foreground_client_id, None);
+            assert!(server.app.state.integration_views_displayed.is_none());
         }
     }
 

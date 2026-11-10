@@ -53,11 +53,7 @@ impl App {
         let previous_mode = self.state.mode;
         let mut changed = self.expire_due_metadata(Instant::now());
         changed |= crate::api::request_changes_ui(&msg.request);
-        let skip_default_workspace = matches!(
-            &msg.request.method,
-            crate::api::schema::Method::ServerStop(_)
-                | crate::api::schema::Method::ServerLiveHandoff(_)
-        );
+        let skip_default_workspace = crate::api::request_skips_default_workspace(&msg.request);
         if matches!(
             &msg.request.method,
             crate::api::schema::Method::WorktreeCreate(_)
@@ -213,6 +209,7 @@ impl App {
         };
         if self.last_terminal_size != Some(size) {
             self.last_terminal_size = Some(size);
+            self.state.integration_views_displayed = None;
             return true;
         }
         false
@@ -332,14 +329,19 @@ impl App {
         changed
     }
 
-    /// Consume expired display deadlines without deleting revision watermarks.
+    /// Consume display deadlines; annotation watermarks outlive external leases.
     pub(crate) fn expire_due_annotations(&mut self, now: Instant) -> bool {
         let due = self
             .state
             .next_annotation_deadline
             .is_some_and(|deadline| now >= deadline);
+        let expired_view = self.state.integration_views.expire(now);
+        if expired_view {
+            self.state.integration_views_displayed = None;
+            self.state.integration_views_computed = None;
+        }
         self.state.sync_annotation_deadline(now);
-        due
+        due || expired_view
     }
 
     /// Clears temporary copied-token highlights, such as after double-click copy.
@@ -634,6 +636,204 @@ mod tests {
             is_focused: true,
         });
         (app, pane_id)
+    }
+
+    #[test]
+    fn integration_views_expiring_one_source_preserves_other_selection_scroll_and_deadline() {
+        use crate::api::schema::ViewOpenParams;
+        let now = Instant::now();
+        let mut state = crate::app::AppState::test_new();
+        state
+            .integration_views
+            .reconfigure(vec!["alpha".into(), "beta".into()])
+            .unwrap();
+        for (source, opened_at) in [("alpha", now), ("beta", now + Duration::from_secs(1))] {
+            state
+                .integration_views
+                .open(
+                    &ViewOpenParams {
+                        source: source.into(),
+                        version: 1,
+                    },
+                    opened_at,
+                )
+                .unwrap();
+        }
+        state.integration_view_selected = Some("beta".into());
+        state.integration_view_scrolls.insert("beta".into(), 9);
+        state.sync_annotation_deadline(now);
+        let mut app = crate::app::test_support::app_from_state(state);
+        assert!(app.expire_due_annotations(now + Duration::from_secs(5)));
+        assert_eq!(app.state.integration_view_selected.as_deref(), Some("beta"));
+        assert_eq!(app.state.integration_view_scrolls["beta"], 9);
+        assert_eq!(
+            app.state.next_annotation_deadline,
+            Some(now + Duration::from_secs(6))
+        );
+        let sources = app
+            .state
+            .integration_views
+            .descriptor(now + Duration::from_secs(5))
+            .sources;
+        assert!(sources[0].epoch.is_none());
+        assert!(sources[1].epoch.is_some());
+    }
+
+    #[test]
+    fn integration_views_quiet_expiry_clears_lease_and_consumes_deadline_once() {
+        use crate::api::schema::{IntegrationViewItem, ViewOpenParams, ViewReplaceParams};
+        let mut state = crate::app::AppState::test_new();
+        state
+            .integration_views
+            .reconfigure(vec!["test.source".into()])
+            .unwrap();
+        let now = Instant::now();
+        let owner = state
+            .integration_views
+            .open(
+                &ViewOpenParams {
+                    source: "test.source".into(),
+                    version: 1,
+                },
+                now,
+            )
+            .unwrap();
+        state
+            .integration_views
+            .replace(
+                &ViewReplaceParams {
+                    source: "test.source".into(),
+                    lease: owner.lease,
+                    epoch: owner.epoch,
+                    revision: 1,
+                    items: vec![IntegrationViewItem {
+                        id: "item".into(),
+                        label: "external declaration".into(),
+                        detail: String::new(),
+                    }],
+                },
+                now,
+            )
+            .unwrap();
+        state.sync_annotation_deadline(now);
+        let deadline = now + Duration::from_secs(5);
+        assert_eq!(state.next_annotation_deadline, Some(deadline));
+        let mut app = crate::app::test_support::app_from_state(state);
+        assert!(!app.expire_due_annotations(deadline - Duration::from_nanos(1)));
+        assert!(app.expire_due_annotations(deadline));
+        assert!(app
+            .state
+            .integration_views
+            .project("test.source", deadline)
+            .is_none());
+        assert_eq!(
+            app.state.integration_views.configured_sources(),
+            &["test.source".to_owned()]
+        );
+        assert!(app.state.integration_views.descriptor(deadline).sources[0]
+            .epoch
+            .is_none());
+        assert!(app.state.next_annotation_deadline.is_none());
+        assert!(!app.expire_due_annotations(deadline + Duration::from_secs(1)));
+        assert_eq!(app.terminal_runtimes.len(), 0);
+    }
+
+    #[test]
+    fn integration_views_outer_dispatch_never_bootstraps_a_workspace() {
+        use serde_json::{json, Value};
+        let mut state = crate::app::AppState::test_new();
+        state.mode = crate::app::Mode::Navigate;
+        // Defensive tripwire if the dispatcher exemption ever regresses.
+        state.default_shell = "\0external-view-must-not-spawn".into();
+        state
+            .integration_views
+            .reconfigure(vec!["test.source".into()])
+            .unwrap();
+        let mut app = crate::app::test_support::app_from_state(state);
+        let dispatch = |app: &mut App, method: &str, params: Value| -> Value {
+            let request = serde_json::from_value(json!({
+                "id": "outer-view", "method": method, "params": params
+            }))
+            .unwrap();
+            let (respond_to, response) = std::sync::mpsc::channel();
+            app.handle_api_request_message(crate::api::ApiRequestMessage {
+                request,
+                respond_to,
+                response_write_complete: None,
+            });
+            let result = serde_json::from_str(&response.try_recv().unwrap()).unwrap();
+            assert!(app.state.workspaces.is_empty());
+            assert!(app.state.terminals.is_empty());
+            assert_eq!(app.terminal_runtimes.len(), 0);
+            result
+        };
+        let opened = dispatch(
+            &mut app,
+            "integration.view.open",
+            json!({"source":"test.source","version":1}),
+        );
+        assert_eq!(opened["result"]["type"], "view_opened");
+        let owner = json!({"source":"test.source", "lease":opened["result"]["lease"],
+            "epoch":opened["result"]["epoch"]});
+        let mut frame = owner.clone();
+        frame["revision"] = json!(1);
+        frame["items"] = json!([]);
+        assert_eq!(
+            dispatch(&mut app, "integration.view.replace", frame)["result"]["type"],
+            "view_replaced"
+        );
+        assert_eq!(
+            dispatch(&mut app, "integration.view.poll", owner.clone())["result"]["type"],
+            "view_intents"
+        );
+        assert_eq!(
+            dispatch(&mut app, "integration.view.close", owner.clone())["result"]["type"],
+            "view_closed"
+        );
+        assert_eq!(
+            dispatch(&mut app, "integration.view.poll", owner)["error"]["code"],
+            "integration_view_lease_invalid_or_expired"
+        );
+    }
+
+    #[test]
+    fn integration_views_expiring_poll_requests_repaint_without_creating_workspace() {
+        use crate::api::schema::{Method, Request, ViewOpenParams, ViewOwnerParams};
+        let mut state = crate::app::AppState::test_new();
+        state
+            .integration_views
+            .reconfigure(vec!["test.source".into()])
+            .unwrap();
+        let old = Instant::now() - Duration::from_secs(6);
+        let opened = state
+            .integration_views
+            .open(
+                &ViewOpenParams {
+                    source: "test.source".into(),
+                    version: 1,
+                },
+                old,
+            )
+            .unwrap();
+        let request = Request {
+            id: "expired-poll".into(),
+            method: Method::ViewPoll(ViewOwnerParams {
+                source: "test.source".into(),
+                lease: opened.lease,
+                epoch: opened.epoch,
+            }),
+        };
+        assert!(crate::api::request_changes_ui(&request));
+        let mut app = crate::app::test_support::app_from_state(state);
+        let result: serde_json::Value =
+            serde_json::from_str(&app.handle_api_request(request)).unwrap();
+        assert_eq!(
+            result["error"]["code"],
+            "integration_view_lease_invalid_or_expired"
+        );
+        assert!(app.state.next_annotation_deadline.is_none());
+        assert!(app.state.workspaces.is_empty());
+        assert_eq!(app.terminal_runtimes.len(), 0);
     }
 
     #[test]

@@ -2092,6 +2092,26 @@
           ],
           "type": "object"
         },
+        "IntegrationViewItem": {
+          "additionalProperties": false,
+          "properties": {
+            "detail": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "detail"
+          ],
+          "type": "object"
+        },
         "LayoutApplyParams": {
           "properties": {
             "focus": {
@@ -3725,6 +3745,77 @@
           ],
           "type": "string"
         },
+        "ViewOpenParams": {
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "type": "string"
+            },
+            "version": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "source",
+            "version"
+          ],
+          "type": "object"
+        },
+        "ViewOwnerParams": {
+          "additionalProperties": false,
+          "properties": {
+            "epoch": {
+              "type": "string"
+            },
+            "lease": {
+              "type": "string"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "lease",
+            "epoch"
+          ],
+          "type": "object"
+        },
+        "ViewReplaceParams": {
+          "additionalProperties": false,
+          "properties": {
+            "epoch": {
+              "type": "string"
+            },
+            "items": {
+              "items": {
+                "$ref": "#/schemas/request/$defs/IntegrationViewItem"
+              },
+              "type": "array"
+            },
+            "lease": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "source": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "source",
+            "lease",
+            "epoch",
+            "revision",
+            "items"
+          ],
+          "type": "object"
+        },
         "WorkspaceCreateParams": {
           "properties": {
             "cwd": {
@@ -4112,6 +4203,70 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "integration.view.open",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ViewOpenParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "integration.view.replace",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ViewReplaceParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "integration.view.poll",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ViewOwnerParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "integration.view.close",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/ViewOwnerParams"
             }
           },
           "required": [
@@ -6444,6 +6599,64 @@
           ],
           "type": "object"
         },
+        "IntegrationViewIntent": {
+          "properties": {
+            "epoch": {
+              "type": "string"
+            },
+            "item_id": {
+              "type": "string"
+            },
+            "revision": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "epoch",
+            "revision",
+            "item_id"
+          ],
+          "type": "object"
+        },
+        "IntegrationViewSourceInfo": {
+          "properties": {
+            "epoch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "type": "object"
+        },
+        "IntegrationViewsInfo": {
+          "properties": {
+            "sources": {
+              "items": {
+                "$ref": "#/schemas/success_response/$defs/IntegrationViewSourceInfo"
+              },
+              "type": "array"
+            },
+            "version": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version",
+            "sources"
+          ],
+          "type": "object"
+        },
         "LayoutDescription": {
           "properties": {
             "focused_pane_id": {
@@ -7352,6 +7565,107 @@
               "required": [
                 "type",
                 "snapshot"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "epoch": {
+                  "type": "string"
+                },
+                "lease": {
+                  "type": "string"
+                },
+                "revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "ttl_ms": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "view_opened",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "lease",
+                "epoch",
+                "revision",
+                "ttl_ms"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "epoch": {
+                  "type": "string"
+                },
+                "revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "view_replaced",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "epoch",
+                "revision"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "epoch": {
+                  "type": "string"
+                },
+                "intents": {
+                  "items": {
+                    "$ref": "#/schemas/success_response/$defs/IntegrationViewIntent"
+                  },
+                  "type": "array"
+                },
+                "revision": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "ttl_ms": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "view_intents",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "epoch",
+                "revision",
+                "intents",
+                "ttl_ms"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "type": {
+                  "const": "view_closed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
               ],
               "type": "object"
             },
@@ -8291,6 +8605,16 @@
               "type": [
                 "string",
                 "null"
+              ]
+            },
+            "integration_views": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/IntegrationViewsInfo"
+                },
+                {
+                  "type": "null"
+                }
               ]
             },
             "layouts": {

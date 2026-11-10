@@ -2088,6 +2088,27 @@ mod tests {
             .to_string()
     }
 
+    #[test]
+    fn foreground_owner_confirmation_rejects_unsupported_reference_kind() {
+        let mut terminal = test_terminal();
+        terminal.set_detected_state(Some(Agent::Claude), AgentState::Idle);
+        // This bypasses API conversion with a typed reference: the real Claude
+        // API cannot produce a Path reference. No file access or probing occurs.
+        let path = crate::agent_resume::AgentSessionRef::path(test_session_path(
+            "unused-claude-session.jsonl",
+        ))
+        .unwrap();
+        assert!(crate::agent_resume::plan("kitsune:claude", "claude", &path).is_none());
+        assert!(!terminal.foreground_agent_confirms_session_owner(
+            "kitsune:claude",
+            "claude",
+            &path,
+        ));
+        let id = crate::agent_resume::AgentSessionRef::id("claude-session").unwrap();
+        assert!(crate::agent_resume::plan("kitsune:claude", "claude", &id).is_some());
+        assert!(terminal.foreground_agent_confirms_session_owner("kitsune:claude", "claude", &id,));
+    }
+
     fn anchor_full_lifecycle_session(
         terminal: &mut TerminalState,
         agent: Agent,

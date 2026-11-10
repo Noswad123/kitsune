@@ -1055,6 +1055,153 @@ mod tests {
     }
 
     #[test]
+    fn pane_restore_startup_validates_before_reserving_and_suppresses_duplicate_identity() {
+        use crate::agent_resume::{
+            AgentResumePlan, AgentSessionRef, AgentSessionRefKind, PersistedAgentSession,
+        };
+
+        let valid = PaneAgentSessionSnapshot {
+            source: "kitsune:codex".into(),
+            agent: "codex".into(),
+            kind: AgentSessionRefKind::Id,
+            value: "shared-session".into(),
+        };
+        let history = PaneHistorySnapshot {
+            ansi: "STARTUP_HISTORY_SENTINEL\r\n".into(),
+            lines: 1,
+        };
+        let mut resumed = HashSet::from(["unrelated-reservation".to_string()]);
+        let unchanged = resumed.clone();
+        for (enabled, session) in [
+            (false, valid.clone()),
+            (
+                true,
+                PaneAgentSessionSnapshot {
+                    source: "custom:codex".into(),
+                    ..valid.clone()
+                },
+            ),
+            (
+                true,
+                PaneAgentSessionSnapshot {
+                    agent: "claude".into(),
+                    ..valid.clone()
+                },
+            ),
+            (
+                true,
+                PaneAgentSessionSnapshot {
+                    source: "kitsune:pi".into(),
+                    agent: "pi".into(),
+                    kind: AgentSessionRefKind::Path,
+                    value: "relative-session.jsonl".into(),
+                },
+            ),
+            (
+                true,
+                PaneAgentSessionSnapshot {
+                    source: "kitsune:claude".into(),
+                    agent: "claude".into(),
+                    kind: AgentSessionRefKind::Path,
+                    value: test_session_path("unsupported-session"),
+                },
+            ),
+        ] {
+            let startup = pane_restore_startup(
+                Some(&session),
+                Some(&history),
+                &mut AgentRestoreState {
+                    enabled,
+                    resumed_sessions: &mut resumed,
+                },
+            );
+            assert_eq!(startup.restore_plan, None);
+            assert_eq!(startup.reserved_agent_session, None);
+            assert!(!startup.duplicate_agent_session);
+            assert_eq!(startup.initial_history_ansi, Some(history.ansi.as_str()));
+            let identity =
+                restored_terminal_agent_session(Some(&session), startup.duplicate_agent_session);
+            if !enabled {
+                assert_eq!(
+                    identity,
+                    Some(PersistedAgentSession {
+                        source: valid.source.clone(),
+                        agent: valid.agent.clone(),
+                        session_ref: AgentSessionRef {
+                            kind: valid.kind,
+                            value: valid.value.clone()
+                        },
+                    })
+                );
+            } else {
+                assert_eq!(identity, None);
+            }
+            assert_eq!(resumed, unchanged);
+        }
+
+        for (agent, flag) in [("codex", "resume"), ("claude", "--resume")] {
+            let session = PaneAgentSessionSnapshot {
+                source: format!("kitsune:{agent}"),
+                agent: agent.into(),
+                ..valid.clone()
+            };
+            let key = format!("kitsune:{agent}\0{agent}\0Id\0shared-session");
+            let before = resumed.clone();
+            let first = pane_restore_startup(
+                Some(&session),
+                Some(&history),
+                &mut AgentRestoreState {
+                    enabled: true,
+                    resumed_sessions: &mut resumed,
+                },
+            );
+            assert_eq!(
+                first.restore_plan,
+                Some(AgentResumePlan {
+                    agent: agent.into(),
+                    argv: vec![agent.into(), flag.into(), valid.value.clone()],
+                    dedupe_key: key.clone(),
+                })
+            );
+            assert_eq!(first.reserved_agent_session.as_deref(), Some(key.as_str()));
+            assert!(!first.duplicate_agent_session);
+            assert_eq!(first.initial_history_ansi, None);
+            assert_eq!(
+                restored_terminal_agent_session(Some(&session), first.duplicate_agent_session),
+                Some(PersistedAgentSession {
+                    source: session.source.clone(),
+                    agent: session.agent.clone(),
+                    session_ref: AgentSessionRef {
+                        kind: session.kind,
+                        value: session.value.clone()
+                    },
+                })
+            );
+            let mut expected = before;
+            assert!(expected.insert(key));
+            assert_eq!(resumed, expected);
+
+            let duplicate = pane_restore_startup(
+                Some(&session),
+                Some(&history),
+                &mut AgentRestoreState {
+                    enabled: true,
+                    resumed_sessions: &mut resumed,
+                },
+            );
+            assert_eq!(duplicate.restore_plan, None);
+            assert_eq!(duplicate.reserved_agent_session, None);
+            assert!(duplicate.duplicate_agent_session);
+            assert_eq!(duplicate.initial_history_ansi, None);
+            assert_eq!(
+                restored_terminal_agent_session(Some(&session), duplicate.duplicate_agent_session),
+                None
+            );
+            assert_eq!(resumed, expected);
+        }
+    }
+
+    #[test]
     fn pane_restore_startup_suppresses_history_for_native_agent_resume() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
             source: "kitsune:pi".into(),
@@ -1576,6 +1723,225 @@ mod tests {
             handoff_runtimes.is_empty(),
             "handoff restore should not replace pending native agent resume with a shell runtime"
         );
+    }
+
+    #[tokio::test]
+    async fn native_agent_restore_preserves_metadata_across_workspaces_and_tabs_without_runtimes() {
+        use crate::agent_resume::{
+            AgentResumePlan, AgentSessionRef, AgentSessionRefKind, PersistedAgentSession,
+        };
+
+        struct OwnedTestCwd(PathBuf);
+
+        impl Drop for OwnedTestCwd {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_dir_all(&self.0);
+            }
+        }
+
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let owned_cwd = (0..100)
+            .find_map(|attempt| {
+                let path = std::env::temp_dir().join(format!(
+                    "kitsune-native-restore-{}-{nonce}-{attempt}",
+                    std::process::id()
+                ));
+                match std::fs::create_dir(&path) {
+                    Ok(()) => Some(OwnedTestCwd(path)),
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,
+                    Err(error) => panic!("failed to create test cwd: {error}"),
+                }
+            })
+            .expect("could not allocate a unique test cwd");
+        // Own an empty test cwd; TMPDIR may be inside a repo, so metadata reads remain possible.
+        let cwd = owned_cwd.0.clone();
+        let (mut snapshot, mut history) = snapshot_with_saved_pane_history();
+        snapshot.workspaces.clear();
+        history.workspaces.clear();
+        for ws_index in 0..2 {
+            let (mut fixture, mut saved_history) = snapshot_with_saved_pane_history();
+            let mut workspace = fixture.workspaces.remove(0);
+            workspace.id = Some(format!("native-restore-w{ws_index}"));
+            workspace.custom_name = Some(format!("workspace-{ws_index}"));
+            workspace.identity_cwd = cwd.clone();
+            workspace.tabs.clear();
+            workspace.public_pane_numbers.clear();
+            workspace.public_tab_numbers = vec![3, 7];
+            workspace.next_public_tab_number = 12;
+            workspace.next_public_pane_number = 30;
+            workspace.active_tab = 1;
+            let mut workspace_history = saved_history.workspaces.remove(0);
+            workspace_history.tabs.clear();
+            for tab_index in 0..2 {
+                let (mut fixture, mut saved_history) = snapshot_with_saved_pane_history();
+                let mut tab = fixture.workspaces.remove(0).tabs.remove(0);
+                let mut tab_history = saved_history.workspaces.remove(0).tabs.remove(0);
+                let first = 100 + ws_index * 40 + tab_index * 10;
+                let second = first + 4;
+                tab.custom_name = Some(format!("tab-{ws_index}-{tab_index}"));
+                tab.zoomed = tab_index == 1;
+                tab.focused = Some(second);
+                tab.root_pane = Some(first);
+                tab.layout = LayoutSnapshot::Split {
+                    direction: if tab_index == 0 {
+                        DirectionSnapshot::Horizontal
+                    } else {
+                        DirectionSnapshot::Vertical
+                    },
+                    ratio: 0.35,
+                    first: Box::new(LayoutSnapshot::Pane(first)),
+                    second: Box::new(LayoutSnapshot::Pane(second)),
+                };
+                let template = tab.panes.remove(&0).unwrap();
+                tab_history.panes.clear();
+                for (leaf_index, old_id) in [first, second].into_iter().enumerate() {
+                    let value = format!("native-session-{old_id}");
+                    tab.panes.insert(
+                        old_id,
+                        super::super::snapshot::PaneSnapshot {
+                            cwd: cwd.clone(),
+                            label: Some(format!("manual-{old_id}")),
+                            agent_name: Some(format!("managed-{old_id}")),
+                            managed_agent_kind: Some("codex".into()),
+                            agent_session: Some(PaneAgentSessionSnapshot {
+                                source: "kitsune:codex".into(),
+                                agent: "codex".into(),
+                                kind: AgentSessionRefKind::Id,
+                                value,
+                            }),
+                            launch_argv: template.launch_argv.clone(),
+                        },
+                    );
+                    workspace
+                        .public_pane_numbers
+                        .insert(old_id, 2 + tab_index as usize * 10 + leaf_index * 4);
+                    tab_history.panes.insert(
+                        old_id,
+                        PaneHistorySnapshot {
+                            ansi: format!("HISTORY_SENTINEL_{old_id}\r\n"),
+                            lines: 1,
+                        },
+                    );
+                }
+                workspace.tabs.push(tab);
+                workspace_history.tabs.push(tab_history);
+            }
+            snapshot.workspaces.push(workspace);
+            history.workspaces.push(workspace_history);
+        }
+        let unusable_shell = cwd.join("native-restore-shell-must-not-run");
+        assert!(!unusable_shell.exists());
+        let (events, _events_rx) = mpsc::channel(8);
+        let (workspaces, terminals, runtimes) = restore(
+            &snapshot,
+            Some(&history),
+            24,
+            80,
+            4096,
+            unusable_shell.to_str().unwrap(),
+            crate::config::ShellModeConfig::NonLogin,
+            true,
+            events,
+            Arc::new(Notify::new()),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        // Complete survival plus exact pending plans and no runtimes verifies the
+        // deferred branch, not merely a shell spawn failure. No history replay claim.
+        assert_eq!(workspaces.len(), 2);
+        assert_eq!(terminals.len(), 8);
+        assert!(runtimes.is_empty());
+        let mut seen_panes = HashSet::new();
+        let mut seen_terminals = HashSet::new();
+        for (workspace, saved) in workspaces.iter().zip(&snapshot.workspaces) {
+            workspace.assert_invariants_for_test();
+            assert_eq!(Some(&workspace.id), saved.id.as_ref());
+            assert_eq!(workspace.custom_name, saved.custom_name);
+            assert_eq!(workspace.identity_cwd, cwd);
+            assert_eq!(workspace.active_tab, 1);
+            assert_eq!(workspace.tabs.len(), 2);
+            assert_eq!(workspace.next_public_tab_number, 12);
+            assert_eq!(workspace.next_public_pane_number, 30);
+            assert_eq!(workspace.public_pane_numbers.len(), 4);
+            for (tab_index, (tab, saved_tab)) in workspace.tabs.iter().zip(&saved.tabs).enumerate()
+            {
+                assert_eq!(tab.number, saved.public_tab_numbers[tab_index]);
+                assert_eq!(tab.custom_name, saved_tab.custom_name);
+                assert_eq!(tab.zoomed, saved_tab.zoomed);
+                let ids = tab.layout.pane_ids();
+                let mut old_ids = Vec::new();
+                collect_layout_snapshot_pane_ids(&saved_tab.layout, &mut old_ids);
+                assert_eq!(ids.len(), 2);
+                assert_eq!(tab.panes.len(), 2);
+                assert_eq!(tab.root_pane, ids[0]);
+                assert_eq!(tab.layout.focused(), ids[1]);
+                match tab.layout.root() {
+                    Node::Split {
+                        direction,
+                        ratio,
+                        first,
+                        second,
+                    } => {
+                        assert_eq!(
+                            *direction,
+                            if tab_index == 0 {
+                                Direction::Horizontal
+                            } else {
+                                Direction::Vertical
+                            }
+                        );
+                        assert_eq!(*ratio, 0.35);
+                        assert!(matches!(first.as_ref(), Node::Pane(id) if *id == ids[0]));
+                        assert!(matches!(second.as_ref(), Node::Pane(id) if *id == ids[1]));
+                    }
+                    Node::Pane(_) => panic!("split layout must survive restore"),
+                }
+                for (id, old_id) in ids.into_iter().zip(old_ids) {
+                    assert!(seen_panes.insert(id));
+                    assert_eq!(
+                        workspace.public_pane_numbers[&id],
+                        saved.public_pane_numbers[&old_id]
+                    );
+                    let terminal_id = tab.terminal_id(id).unwrap();
+                    assert!(seen_terminals.insert(terminal_id.clone()));
+                    let terminal = &terminals[terminal_id];
+                    let pane = &saved_tab.panes[&old_id];
+                    let session = pane.agent_session.as_ref().unwrap();
+                    assert_eq!(terminal.cwd, cwd);
+                    assert_eq!(terminal.manual_label, pane.label);
+                    assert_eq!(terminal.agent_name, pane.agent_name);
+                    assert_eq!(
+                        terminal.managed_agent_kind(),
+                        Some(crate::detect::Agent::Codex)
+                    );
+                    assert!(!terminal.respawn_shell_on_exit);
+                    assert_eq!(
+                        terminal.pending_agent_resume_plan,
+                        Some(AgentResumePlan {
+                            agent: "codex".into(),
+                            argv: vec!["codex".into(), "resume".into(), session.value.clone()],
+                            dedupe_key: format!("kitsune:codex\0codex\0Id\0{}", session.value),
+                        })
+                    );
+                    assert_eq!(
+                        terminal.persisted_agent_session,
+                        Some(PersistedAgentSession {
+                            source: "kitsune:codex".into(),
+                            agent: "codex".into(),
+                            session_ref: AgentSessionRef {
+                                kind: AgentSessionRefKind::Id,
+                                value: session.value.clone()
+                            },
+                        })
+                    );
+                }
+            }
+        }
+        assert_eq!(seen_panes.len(), 8);
+        assert_eq!(seen_terminals, terminals.keys().cloned().collect());
     }
 
     #[tokio::test]

@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(test)]
 use crate::detect::Agent;
 
 const MAX_SIDEBAR_ROWS: usize = 16;
@@ -379,6 +380,8 @@ pub struct AgentsSidebarConfig {
     pub row_gap: u16,
 }
 
+// Keep legacy config parsing/selection tests without a desktop agent renderer.
+#[cfg(test)]
 impl AgentsSidebarConfig {
     pub(crate) fn rows_for_agent(&self, agent: Option<Agent>) -> &AgentSidebarRows {
         agent

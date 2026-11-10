@@ -13,6 +13,7 @@ impl AppState {
         crate::ui::workspace_list_rect(sidebar, self.sidebar_section_split)
     }
 
+    #[cfg(test)]
     pub(super) fn agent_panel_rect(&self) -> Rect {
         let sidebar = self.view.sidebar_rect;
         if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
@@ -104,66 +105,21 @@ impl AppState {
 
     pub(super) fn agent_panel_scrollbar_target_at(
         &self,
-        col: u16,
-        row: u16,
+        _col: u16,
+        _row: u16,
     ) -> Option<ScrollbarClickTarget> {
-        let area = self.agent_panel_rect();
-        let metrics = crate::ui::agent_panel_scroll_metrics(self, area);
-        let track = crate::ui::agent_panel_scrollbar_rect(self, area)?;
-        if col < track.x
-            || col >= track.x + track.width
-            || row < track.y
-            || row >= track.y + track.height
-        {
-            return None;
-        }
-        if let Some(grab_row_offset) = crate::ui::scrollbar_thumb_grab_offset(metrics, track, row) {
-            Some(ScrollbarClickTarget::Thumb { grab_row_offset })
-        } else {
-            Some(ScrollbarClickTarget::Track {
-                offset_from_bottom: crate::ui::scrollbar_offset_from_row(metrics, track, row),
-            })
-        }
+        None
     }
 
     pub(super) fn agent_panel_offset_for_drag_row(
         &self,
-        row: u16,
-        grab_row_offset: u16,
+        _row: u16,
+        _grab_row_offset: u16,
     ) -> Option<usize> {
-        let area = self.agent_panel_rect();
-        let metrics = crate::ui::agent_panel_scroll_metrics(self, area);
-        let track = crate::ui::agent_panel_scrollbar_rect(self, area)?;
-        Some(crate::ui::scrollbar_offset_from_drag_row(
-            metrics,
-            track,
-            row,
-            grab_row_offset,
-        ))
+        None
     }
 
-    pub(super) fn set_agent_panel_offset_from_bottom(&mut self, offset_from_bottom: usize) {
-        let area = self.agent_panel_rect();
-        let metrics = crate::ui::agent_panel_scroll_metrics(self, area);
-        self.agent_panel_scroll = metrics
-            .max_offset_from_bottom
-            .saturating_sub(offset_from_bottom);
-    }
-
-    pub(super) fn scroll_agent_panel(&mut self, delta: i16) {
-        let area = self.agent_panel_rect();
-        let max_scroll = crate::ui::agent_panel_scroll_metrics(self, area).max_offset_from_bottom;
-        if delta.is_negative() {
-            self.agent_panel_scroll = self
-                .agent_panel_scroll
-                .saturating_sub(delta.unsigned_abs() as usize);
-        } else {
-            self.agent_panel_scroll = self
-                .agent_panel_scroll
-                .saturating_add(delta as usize)
-                .min(max_scroll);
-        }
-    }
+    pub(super) fn set_agent_panel_offset_from_bottom(&mut self, _offset_from_bottom: usize) {}
 
     pub(crate) fn sidebar_footer_rect(&self) -> Rect {
         let ws_area = self.workspace_list_rect();
@@ -280,6 +236,7 @@ impl AppState {
     }
 
     pub(super) fn set_manual_sidebar_width(&mut self, divider_col: u16) {
+        self.integration_views_displayed = None;
         let sidebar = self.view.sidebar_rect;
         let width = divider_col.saturating_sub(sidebar.x).saturating_add(1);
         self.sidebar_width = width.clamp(self.sidebar_min_width, self.sidebar_max_width);
@@ -303,6 +260,7 @@ impl AppState {
     }
 
     pub(super) fn set_sidebar_section_split(&mut self, row: u16) {
+        self.integration_views_displayed = None;
         let sidebar = self.view.sidebar_rect;
         let content_height = sidebar.height;
         if content_height < 6 {
@@ -347,30 +305,9 @@ impl AppState {
 
     pub(super) fn collapsed_agent_detail_target_at(
         &self,
-        row: u16,
+        _row: u16,
     ) -> Option<(usize, usize, crate::layout::PaneId)> {
-        if !self.sidebar_collapsed {
-            return None;
-        }
-
-        let (_, _, detail_area) = crate::ui::collapsed_sidebar_sections(self.view.sidebar_rect);
-        let detail_content_area = Rect::new(
-            detail_area.x,
-            detail_area.y,
-            detail_area.width,
-            detail_area.height.saturating_sub(1),
-        );
-        if detail_content_area == Rect::default()
-            || row < detail_content_area.y
-            || row >= detail_content_area.y + detail_content_area.height
-        {
-            return None;
-        }
-
-        let detail_idx = (row - detail_content_area.y) as usize;
-        let details = crate::ui::agent_panel_entries(self);
-        let detail = details.get(detail_idx)?;
-        Some((detail.ws_idx, detail.tab_idx, detail.pane_id))
+        None
     }
 
     pub(super) fn workspace_drop_index_at_row(&self, row: u16) -> Option<usize> {
@@ -427,59 +364,518 @@ impl AppState {
         best.map(|(insert_idx, _)| insert_idx)
     }
 
-    pub(super) fn on_agent_panel_sort_toggle(&self, col: u16, row: u16) -> bool {
-        if self.sidebar_collapsed || self.agent_view_override.is_some() {
-            return false;
-        }
-
-        let (_, detail_area) = crate::ui::expanded_sidebar_sections(
-            self.view.sidebar_rect,
-            self.sidebar_section_split,
-        );
-        let rect = crate::ui::agent_panel_toggle_rect(detail_area, self.agent_panel_sort);
-        rect.width > 0
-            && col >= rect.x
-            && col < rect.x + rect.width
-            && row >= rect.y
-            && row < rect.y + rect.height
+    pub(super) fn on_agent_panel_sort_toggle(&self, _col: u16, _row: u16) -> bool {
+        false
     }
 
     pub(super) fn agent_detail_target_at(
         &self,
-        row: u16,
+        _row: u16,
     ) -> Option<(usize, usize, crate::layout::PaneId)> {
-        if self.sidebar_collapsed {
-            return None;
-        }
-
-        let detail_area = self.agent_panel_rect();
-        let metrics = crate::ui::agent_panel_scroll_metrics(self, detail_area);
-        let body = crate::ui::agent_panel_body_rect(
-            detail_area,
-            crate::ui::should_show_scrollbar(metrics),
-        );
-        if body.height == 0 || row < body.y || row >= body.y + body.height {
-            return None;
-        }
-
-        let mut row_y = body.y;
-        let body_bottom = body.y + body.height;
-        let entries = crate::ui::agent_panel_entries(self);
-        let scroll = self.agent_panel_scroll.min(metrics.max_offset_from_bottom);
-        for (index, detail) in entries.iter().enumerate().skip(scroll) {
-            let height = crate::ui::agent_entry_height_in_body(self, detail, body.height);
-            if row_y.saturating_add(height) > body_bottom {
-                break;
-            }
-            if row >= row_y && row < row_y.saturating_add(height) {
-                return Some((detail.ws_idx, detail.tab_idx, detail.pane_id));
-            }
-            row_y = row_y
-                .saturating_add(height)
-                .saturating_add(crate::ui::agent_entry_gap(self, index, entries.len()))
-                .min(body_bottom);
-        }
         None
+    }
+}
+
+#[cfg(test)]
+mod integration_views_sidebar {
+    use crate::{
+        api::schema::{IntegrationViewItem, ViewOpenParams, ViewOwnerParams, ViewReplaceParams},
+        app::{AppState, Mode},
+        workspace::Workspace,
+    };
+    use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
+    use std::time::Instant;
+
+    fn fixture(now: Instant) -> (crate::app::App, ViewOwnerParams) {
+        let mut state = AppState::test_new();
+        state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
+        state.ensure_test_terminals();
+        for terminal in state.terminals.values_mut() {
+            terminal.detected_agent = Some(crate::detect::Agent::Pi);
+        }
+        state.active = Some(0);
+        state.mode = Mode::Terminal;
+        state.mouse_capture = true;
+        state.integration_views =
+            crate::integration_views::IntegrationViewsState::new(vec!["test.source".into()]);
+        let opened = state
+            .integration_views
+            .open(
+                &ViewOpenParams {
+                    source: "test.source".into(),
+                    version: 1,
+                },
+                now,
+            )
+            .unwrap();
+        let owner = ViewOwnerParams {
+            source: "test.source".into(),
+            lease: opened.lease,
+            epoch: opened.epoch,
+        };
+        state
+            .integration_views
+            .replace(
+                &ViewReplaceParams {
+                    source: owner.source.clone(),
+                    lease: owner.lease.clone(),
+                    epoch: owner.epoch.clone(),
+                    revision: 1,
+                    items: (0..128)
+                        .map(|i| IntegrationViewItem {
+                            id: format!("opaque-{i}"),
+                            label: format!("label {i}"),
+                            detail: "detail".into(),
+                        })
+                        .collect(),
+                },
+                now,
+            )
+            .unwrap();
+        let mut app = crate::app::test_support::app_from_state(state);
+        draw(&mut app, now);
+        (app, owner)
+    }
+
+    fn draw(app: &mut crate::app::App, now: Instant) {
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 30));
+        app.state.compute_integration_views_snapshot(now);
+        let mut terminal = Terminal::new(TestBackend::new(106, 30)).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry(&app.state, &app.terminal_runtimes, frame)
+            })
+            .unwrap();
+        app.state.commit_integration_views_render();
+    }
+
+    fn mouse(kind: MouseEventKind, col: u16, row: u16) -> MouseEvent {
+        MouseEvent {
+            kind,
+            column: col,
+            row,
+            modifiers: KeyModifiers::NONE,
+        }
+    }
+
+    #[test]
+    fn integration_views_sidebar_short_panel_mouse_reaches_only_eighth_provider() {
+        for height in [6, 8, 10, 12] {
+            let now = Instant::now();
+            let (mut app, _) = fixture(now);
+            app.state.sidebar_section_split = 0.5;
+            let sources = (0..8).map(|i| format!("source{i}")).collect::<Vec<_>>();
+            app.state
+                .integration_views
+                .reconfigure(sources.clone())
+                .unwrap();
+            let owners = sources
+                .iter()
+                .map(|source| {
+                    let opened = app
+                        .state
+                        .integration_views
+                        .open(
+                            &ViewOpenParams {
+                                source: source.clone(),
+                                version: 1,
+                            },
+                            now,
+                        )
+                        .unwrap();
+                    let owner = ViewOwnerParams {
+                        source: source.clone(),
+                        lease: opened.lease,
+                        epoch: opened.epoch,
+                    };
+                    app.state
+                        .integration_views
+                        .replace(
+                            &ViewReplaceParams {
+                                source: source.clone(),
+                                lease: owner.lease.clone(),
+                                epoch: owner.epoch.clone(),
+                                revision: 1,
+                                items: vec![IntegrationViewItem {
+                                    id: "same-id".into(),
+                                    label: format!("{source} label"),
+                                    detail: format!("{source} detail"),
+                                }],
+                            },
+                            now,
+                        )
+                        .unwrap();
+                    owner
+                })
+                .collect::<Vec<_>>();
+            let draw = |app: &mut crate::app::App| {
+                crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, height * 2));
+                app.state.compute_integration_views_snapshot(now);
+                let mut terminal = Terminal::new(TestBackend::new(106, height * 2)).unwrap();
+                terminal
+                    .draw(|frame| {
+                        crate::ui::render_with_runtime_registry(
+                            &app.state,
+                            &app.terminal_runtimes,
+                            frame,
+                        )
+                    })
+                    .unwrap();
+                app.state.commit_integration_views_render();
+                terminal.backend().buffer().clone()
+            };
+            draw(&mut app);
+            for source in sources.iter().skip(1) {
+                let area = app.state.integration_views_area();
+                assert_eq!(area.height, height);
+                app.handle_mouse(mouse(MouseEventKind::ScrollDown, area.x, area.y + 1));
+                assert_eq!(app.state.integration_view_selected.as_ref(), Some(source));
+                assert!(app.state.integration_views_displayed.is_none());
+                draw(&mut app);
+            }
+            let buffer = draw(&mut app);
+            let area = app.state.integration_views_area();
+            let label = (area.x..area.right())
+                .map(|x| buffer[(x, area.bottom() - 2)].symbol())
+                .collect::<String>();
+            assert!(
+                label.contains("source7 label"),
+                "height {height}: {label:?}"
+            );
+            app.handle_mouse(mouse(
+                MouseEventKind::Down(MouseButton::Left),
+                area.x,
+                area.bottom() - 1,
+            ));
+            for (index, owner) in owners.iter().enumerate() {
+                let intents = app
+                    .state
+                    .integration_views
+                    .poll(owner, now)
+                    .unwrap()
+                    .intents;
+                assert_eq!(
+                    intents.len(),
+                    usize::from(index == 7),
+                    "height {height}, source {index}"
+                );
+                if index == 7 {
+                    assert_eq!(intents[0].item_id, "same-id");
+                    assert_eq!(intents[0].epoch, owner.epoch);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn integration_views_sidebar_mouse_selects_source_locally_then_routes_rows_and_scrolls() {
+        let now = Instant::now();
+        let (mut app, alpha) = fixture(now);
+        app.state
+            .integration_views
+            .reconfigure(vec!["test.source".into(), "second".into()])
+            .unwrap();
+        let opened = app
+            .state
+            .integration_views
+            .open(
+                &ViewOpenParams {
+                    source: "second".into(),
+                    version: 1,
+                },
+                now,
+            )
+            .unwrap();
+        let beta = ViewOwnerParams {
+            source: "second".into(),
+            lease: opened.lease,
+            epoch: opened.epoch,
+        };
+        app.state
+            .integration_views
+            .replace(
+                &ViewReplaceParams {
+                    source: beta.source.clone(),
+                    lease: beta.lease.clone(),
+                    epoch: beta.epoch.clone(),
+                    revision: 4,
+                    items: (0..128)
+                        .map(|i| IntegrationViewItem {
+                            id: format!("opaque-{i}"),
+                            label: format!("second {i}"),
+                            detail: String::new(),
+                        })
+                        .collect(),
+                },
+                now,
+            )
+            .unwrap();
+        draw(&mut app, now);
+        let area = app.state.integration_views_area();
+        let native = (
+            app.state.active,
+            app.state.selected,
+            app.state.workspaces[0].focused_pane_id(),
+        );
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            area.x,
+            area.y + 2,
+        ));
+        assert_eq!(
+            app.state.integration_view_selected.as_deref(),
+            Some("second")
+        );
+        assert!(app.state.integration_views_displayed.is_none());
+        assert!(app
+            .state
+            .integration_views
+            .poll(&alpha, now)
+            .unwrap()
+            .intents
+            .is_empty());
+        assert!(app
+            .state
+            .integration_views
+            .poll(&beta, now)
+            .unwrap()
+            .intents
+            .is_empty());
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            area.x,
+            area.y + 4,
+        ));
+        assert!(app
+            .state
+            .integration_views
+            .poll(&beta, now)
+            .unwrap()
+            .intents
+            .is_empty());
+        draw(&mut app, now);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            area.x,
+            area.y + 4,
+        ));
+        let intents = app
+            .state
+            .integration_views
+            .poll(&beta, now)
+            .unwrap()
+            .intents;
+        assert_eq!(intents.len(), 1);
+        assert_eq!(intents[0].item_id, "opaque-0");
+        assert_eq!(intents[0].revision, 4);
+        assert!(app
+            .state
+            .integration_views
+            .poll(&alpha, now)
+            .unwrap()
+            .intents
+            .is_empty());
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, area.x, area.y + 4));
+        assert_eq!(app.state.integration_view_scrolls["second"], 1);
+        assert_eq!(app.state.integration_view_scrolls["test.source"], 0);
+        draw(&mut app, now);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            area.x,
+            area.y + 1,
+        ));
+        assert_eq!(
+            app.state.integration_view_selected.as_deref(),
+            Some("test.source")
+        );
+        assert_eq!(
+            native,
+            (
+                app.state.active,
+                app.state.selected,
+                app.state.workspaces[0].focused_pane_id()
+            )
+        );
+    }
+
+    #[test]
+    fn integration_views_sidebar_mouse_click_queues_intent_without_native_target_changes() {
+        let now = Instant::now();
+        let (mut app, owner) = fixture(now);
+        let area = app.state.integration_views_area();
+        let before = (
+            app.state.active,
+            app.state.selected,
+            app.state.mode,
+            app.state.workspaces[0].focused_pane_id(),
+        );
+        assert!(app
+            .state
+            .handle_mouse(
+                &mut app.terminal_runtimes,
+                mouse(
+                    MouseEventKind::Down(MouseButton::Left),
+                    area.x + 1,
+                    area.y + 3
+                )
+            )
+            .is_none());
+        assert_eq!(
+            before,
+            (
+                app.state.active,
+                app.state.selected,
+                app.state.mode,
+                app.state.workspaces[0].focused_pane_id()
+            )
+        );
+        let intents = app
+            .state
+            .integration_views
+            .poll(&owner, now)
+            .unwrap()
+            .intents;
+        assert_eq!(intents.len(), 1);
+        assert_eq!(intents[0].item_id, "opaque-0");
+        assert!(app.state.drag.is_none());
+        assert!(!app.state.request_new_workspace);
+        assert!(!app.state.request_new_tab);
+    }
+
+    #[test]
+    fn integration_views_sidebar_legacy_lower_targets_sort_scroll_and_drag_are_gated() {
+        let now = Instant::now();
+        let (mut app, _) = fixture(now);
+        let area = app.state.integration_views_area();
+        assert!(app.state.agent_detail_target_at(area.y + 3).is_none());
+        assert!(app
+            .state
+            .agent_panel_scrollbar_target_at(area.right() - 1, area.y + 3)
+            .is_none());
+        assert!(app
+            .state
+            .agent_panel_offset_for_drag_row(area.y + 3, 0)
+            .is_none());
+        let toggle = crate::ui::agent_panel_toggle_rect(area, app.state.agent_panel_sort);
+        assert!(!app.state.on_agent_panel_sort_toggle(toggle.x, toggle.y));
+        let sort = app.state.agent_panel_sort;
+        app.state.set_agent_panel_offset_from_bottom(10);
+        assert_eq!(app.state.agent_panel_scroll, 0);
+        assert_eq!(app.state.agent_panel_sort, sort);
+        assert!(app
+            .state
+            .handle_mouse(
+                &mut app.terminal_runtimes,
+                mouse(MouseEventKind::ScrollDown, area.x + 1, area.y + 3)
+            )
+            .is_none());
+        assert_eq!(app.state.integration_view_scrolls["test.source"], 1);
+        assert_eq!(app.state.selected, 0);
+        assert!(app.state.integration_views_displayed.is_none());
+        app.state.drag = Some(crate::app::state::DragState {
+            target: crate::app::state::DragTarget::AgentPanelScrollbar { grab_row_offset: 0 },
+        });
+        assert!(app
+            .state
+            .handle_mouse(
+                &mut app.terminal_runtimes,
+                mouse(
+                    MouseEventKind::Drag(MouseButton::Left),
+                    area.right() - 1,
+                    area.bottom() - 1
+                )
+            )
+            .is_none());
+        assert_eq!(app.state.agent_panel_scroll, 0);
+        app.state.drag = None;
+        app.state.sidebar_collapsed = true;
+        assert!(app
+            .state
+            .collapsed_agent_detail_target_at(area.y + 3)
+            .is_none());
+    }
+
+    #[test]
+    fn integration_views_sidebar_collapsed_rows_and_wheel_never_select_native_agents() {
+        let now = Instant::now();
+        let (mut app, owner) = fixture(now);
+        app.state.sidebar_collapsed = true;
+        draw(&mut app, now);
+        let area = app.state.integration_views_area();
+        assert!(app
+            .state
+            .handle_mouse(
+                &mut app.terminal_runtimes,
+                mouse(MouseEventKind::Down(MouseButton::Left), area.x, area.y + 3)
+            )
+            .is_none());
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.mode, Mode::Terminal);
+        assert_eq!(
+            app.state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents[0]
+                .item_id,
+            "opaque-0"
+        );
+        assert!(app
+            .state
+            .handle_mouse(
+                &mut app.terminal_runtimes,
+                mouse(MouseEventKind::ScrollDown, area.x, area.y + 3)
+            )
+            .is_none());
+        assert_eq!(app.state.integration_view_scrolls["test.source"], 1);
+        assert_eq!(app.state.selected, 0);
+    }
+
+    #[test]
+    fn integration_views_sidebar_builtin_keyboard_agent_actions_are_noops() {
+        use super::super::navigate::{ActionContext, NavigateAction};
+        let now = Instant::now();
+        let (mut app, owner) = fixture(now);
+        let before = (
+            app.state.active,
+            app.state.selected,
+            app.state.mode,
+            app.state.workspaces[0].focused_pane_id(),
+        );
+        for action in [
+            NavigateAction::FocusAgent(1),
+            NavigateAction::NextAgent,
+            NavigateAction::PreviousAgent,
+        ] {
+            app.execute_tui_navigate_action(action, ActionContext::Prefix);
+            assert_eq!(
+                before,
+                (
+                    app.state.active,
+                    app.state.selected,
+                    app.state.mode,
+                    app.state.workspaces[0].focused_pane_id()
+                )
+            );
+            super::super::navigate::execute_navigate_action(&mut app.state, action);
+            assert_eq!(
+                before,
+                (
+                    app.state.active,
+                    app.state.selected,
+                    app.state.mode,
+                    app.state.workspaces[0].focused_pane_id()
+                )
+            );
+        }
+        assert!(app
+            .state
+            .integration_views
+            .poll(&owner, now)
+            .unwrap()
+            .intents
+            .is_empty());
     }
 }
 
@@ -661,7 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_agent_detail_row_switches_to_correct_tab_and_pane() {
+    fn unconfigured_lower_panel_click_does_not_activate_native_tab_or_pane() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
         ws.tabs[0].set_custom_name("main".into());
@@ -692,14 +1088,11 @@ mod tests {
 
         app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, 16));
 
-        assert_eq!(app.state.workspaces[0].active_tab, 1);
-        assert_eq!(
-            app.state.workspaces[0].tabs[1].layout.focused(),
-            second_pane
-        );
+        assert_eq!(app.state.workspaces[0].active_tab, 0);
+        assert_eq!(app.state.workspaces[0].tabs[0].layout.focused(), first_pane);
         assert_eq!(app.state.mode, Mode::Terminal);
         let snapshot = capture_snapshot(&app.state);
-        assert_eq!(snapshot.workspaces[0].active_tab, first_tab);
+        assert_eq!(snapshot.workspaces[0].active_tab, 0);
         assert_eq!(
             snapshot.workspaces[0].tabs[first_tab].focused,
             Some(second_pane.raw())
@@ -707,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn per_agent_row_heights_preserve_card_gaps_and_trailing_mouse_targets() {
+    fn legacy_agent_row_heights_do_not_create_native_mouse_targets() {
         let mut app = app_for_mouse_test();
         let first = Workspace::test_new("one");
         let first_pane = first.tabs[0].root_pane;
@@ -743,25 +1136,16 @@ mod tests {
             crate::ui::should_show_scrollbar(metrics),
         );
 
-        assert_eq!(
-            app.state.agent_detail_target_at(body.y),
-            Some((0, 0, first_pane))
-        );
+        assert_eq!(app.state.agent_detail_target_at(body.y), None);
         assert_eq!(app.state.agent_detail_target_at(body.y + 1), None);
-        assert_eq!(
-            app.state.agent_detail_target_at(body.y + 3),
-            Some((1, 0, second_pane))
-        );
+        assert_eq!(app.state.agent_detail_target_at(body.y + 3), None);
 
         app.state.sidebar_agents.row_gap = 0;
-        assert_eq!(
-            app.state.agent_detail_target_at(body.y + 1),
-            Some((1, 0, second_pane))
-        );
+        assert_eq!(app.state.agent_detail_target_at(body.y + 1), None);
     }
 
     #[test]
-    fn agent_hit_testing_clamps_scroll_after_dynamic_filter_shrink() {
+    fn legacy_agent_filter_and_scroll_do_not_create_native_mouse_targets() {
         let mut app = app_for_mouse_test();
         let first = Workspace::test_new("one");
         let first_pane = first.tabs[0].root_pane;
@@ -798,14 +1182,11 @@ mod tests {
         let detail_area = app.state.agent_panel_rect();
         let body = crate::ui::agent_panel_body_rect(detail_area, false);
 
-        assert_eq!(
-            app.state.agent_detail_target_at(body.y),
-            Some((0, 0, first_pane))
-        );
+        assert_eq!(app.state.agent_detail_target_at(body.y), None);
     }
 
     #[test]
-    fn clicking_agent_panel_toggle_switches_sort() {
+    fn unconfigured_lower_panel_click_does_not_toggle_native_sort() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![Workspace::test_new("test")];
         app.state.active = Some(0);
@@ -824,12 +1205,12 @@ mod tests {
             toggle.y,
         ));
 
-        assert_eq!(app.state.agent_panel_sort, AgentPanelSort::Priority);
-        assert_eq!(app.state.agent_panel_scroll, 0);
+        assert_eq!(app.state.agent_panel_sort, AgentPanelSort::Spaces);
+        assert_eq!(app.state.agent_panel_scroll, 3);
     }
 
     #[test]
-    fn clicking_all_workspaces_agent_row_switches_to_correct_workspace() {
+    fn unconfigured_lower_panel_click_does_not_switch_native_workspace() {
         let mut app = app_for_mouse_test();
         let first = Workspace::test_new("one");
         let first_pane = first.tabs[0].root_pane;
@@ -869,8 +1250,8 @@ mod tests {
             detail_area.y + 6,
         ));
 
-        assert_eq!(app.state.active, Some(1));
-        assert_eq!(app.state.selected, 1);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
         assert_eq!(app.state.workspaces[1].active_tab, 0);
         assert_eq!(
             app.state.workspaces[1].tabs[0].layout.focused(),
@@ -879,7 +1260,7 @@ mod tests {
     }
 
     #[test]
-    fn scrolling_agent_panel_with_wheel_updates_agent_panel_scroll() {
+    fn unconfigured_lower_panel_wheel_does_not_scroll_native_agents() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
         let first_pane = ws.tabs[0].root_pane;
@@ -930,12 +1311,13 @@ mod tests {
             detail_area.y + 4,
         ));
 
-        assert_eq!(app.state.agent_panel_scroll, 1);
+        assert_eq!(app.state.agent_panel_scroll, 0);
+        assert!(app.state.integration_view_scrolls.is_empty());
         assert_eq!(app.state.selected, 0);
     }
 
     #[test]
-    fn clicking_scrolled_agent_detail_row_switches_to_correct_tab_and_pane() {
+    fn legacy_scroll_does_not_allow_lower_panel_to_activate_native_tab() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
         let first_pane = ws.tabs[0].root_pane;
@@ -997,7 +1379,7 @@ mod tests {
             body.y + 1,
         ));
 
-        assert_eq!(app.state.workspaces[0].active_tab, second_tab);
+        assert_eq!(app.state.workspaces[0].active_tab, 0);
         assert_eq!(
             app.state.workspaces[0].tabs[second_tab].layout.focused(),
             second_pane
@@ -1006,7 +1388,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_collapsed_agent_row_switches_to_correct_tab_and_pane() {
+    fn unconfigured_collapsed_lower_panel_does_not_activate_native_tab() {
         let mut app = app_for_mouse_test();
         let mut ws = Workspace::test_new("test");
         let first_pane = ws.tabs[0].root_pane;
@@ -1045,7 +1427,7 @@ mod tests {
             detail_area.y + 1,
         ));
 
-        assert_eq!(app.state.workspaces[0].active_tab, 1);
+        assert_eq!(app.state.workspaces[0].active_tab, 0);
         assert_eq!(
             app.state.workspaces[0].tabs[1].layout.focused(),
             second_pane
@@ -1054,7 +1436,7 @@ mod tests {
     }
 
     #[test]
-    fn clicking_collapsed_priority_agent_row_switches_to_matching_workspace() {
+    fn unconfigured_collapsed_lower_panel_does_not_activate_native_workspace() {
         let mut app = app_for_mouse_test();
         let first = Workspace::test_new("one");
         let first_pane = first.tabs[0].root_pane;
@@ -1090,8 +1472,8 @@ mod tests {
             detail_area.y,
         ));
 
-        assert_eq!(app.state.active, Some(1));
-        assert_eq!(app.state.selected, 1);
+        assert_eq!(app.state.active, Some(0));
+        assert_eq!(app.state.selected, 0);
         assert_eq!(
             app.state.workspaces[1].tabs[0].layout.focused(),
             second_pane

@@ -4,13 +4,14 @@ use tracing::warn;
 
 use super::{
     model::{AnnotationsConfig, LoadedConfig},
-    Config, CONFIG_PATH_ENV_VAR,
+    Config, IntegrationsConfig, CONFIG_PATH_ENV_VAR,
 };
 
 const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "advanced",
     "agent_detection",
     "annotations",
+    "integrations",
     "experimental",
     "keys",
     "onboarding",
@@ -160,7 +161,7 @@ impl Config {
             }
         };
 
-        let mut annotation_parse_error = None;
+        let mut optional_section_errors = Vec::new();
         let parsed = deserialize_with_ignored::<Config, _>(toml::Deserializer::new(&content))
             .or_else(|err| {
                 let Ok(mut value) = content.parse::<toml::Value>() else {
@@ -169,22 +170,31 @@ impl Config {
                 let Some(table) = value.as_table_mut() else {
                     return Err(err);
                 };
-                let Some(annotations) = table.get("annotations") else {
+                if let Some(annotations) = table.get("annotations") {
+                    if let Err(section_err) =
+                        deserialize_with_ignored::<AnnotationsConfig, _>(annotations.clone())
+                    {
+                        optional_section_errors.push(("annotations", section_err.to_string()));
+                        table.remove("annotations");
+                    }
+                }
+                if let Some(integrations) = table.get("integrations") {
+                    if let Err(section_err) =
+                        deserialize_with_ignored::<IntegrationsConfig, _>(integrations.clone())
+                    {
+                        optional_section_errors.push(("integrations", section_err.to_string()));
+                        table.remove("integrations");
+                    }
+                }
+                if optional_section_errors.is_empty() {
                     return Err(err);
-                };
-                let Err(annotation_err) =
-                    deserialize_with_ignored::<AnnotationsConfig, _>(annotations.clone())
-                else {
-                    return Err(err);
-                };
-                // Recover only this optional section; other startup errors still use defaults.
-                table.remove("annotations");
+                }
+                // Isolate optional IPC sections; unrelated startup errors still use defaults.
                 let parsed = deserialize_with_ignored::<Config, _>(value).map_err(|_| err)?;
-                annotation_parse_error = Some(annotation_err.to_string());
                 Ok(parsed)
             });
         match parsed {
-            Ok((config, ignored_keys)) => {
+            Ok((mut config, ignored_keys)) => {
                 let (unknown_sections, mut diagnostics) =
                     unknown_top_level_sections_from_str(&content);
                 diagnostics.extend(unknown_config_key_diagnostics(
@@ -198,12 +208,21 @@ impl Config {
                 ));
                 diagnostics.extend(config.collect_diagnostics());
                 let mut invalid_sections = Vec::new();
-                if let Some(err) = annotation_parse_error {
-                    warn!(err = %err, "invalid annotations config; annotations disabled");
+                for (section, err) in optional_section_errors {
+                    let feature = if section == "integrations" {
+                        "integrations"
+                    } else {
+                        "annotations"
+                    };
+                    warn!(section, err = %err, "invalid optional config section; feature disabled");
                     diagnostics.push(format!(
-                        "invalid annotations config: {err}; annotations disabled"
+                        "invalid {section} config: {err}; {feature} disabled"
                     ));
-                    invalid_sections.push("annotations".into());
+                    invalid_sections.push(section.into());
+                }
+                if config.invalid_integrations_diagnostic().is_some() {
+                    config.integrations.sources.clear();
+                    invalid_sections.push("integrations".into());
                 }
                 LoadedConfig {
                     config,
@@ -332,6 +351,20 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         diagnostics
             .push("invalid annotations.sources; keeping previous [annotations] settings".into());
         invalid_sections.push("annotations".into());
+    }
+
+    load_live_section(
+        table,
+        "integrations",
+        "integrations config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.integrations = section,
+    );
+    if config.invalid_integrations_diagnostic().is_some() {
+        diagnostics
+            .push("invalid integrations.sources; keeping previous [integrations] settings".into());
+        invalid_sections.push("integrations".into());
     }
 
     if let Some(value) = table.get("onboarding") {
@@ -471,6 +504,9 @@ fn unknown_top_level_section_diagnostics(
 }
 
 fn unknown_top_level_section_diagnostic(key: &str, value: &toml::Value) -> Option<String> {
+    if key == "external_view" {
+        return Some("obsolete [external_view] config; use integrations.sources in [integrations]; ignoring section".into());
+    }
     if KNOWN_TOP_LEVEL_CONFIG_KEYS.contains(&key) {
         return None;
     }
@@ -843,6 +879,221 @@ mod tests {
                 std::env::remove_var(CONFIG_PATH_ENV_VAR);
             }
             let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    #[test]
+    fn integration_views_config_defaults_empty_and_accepts_ordered_sources() {
+        assert!(Config::default().integrations.sources.is_empty());
+        for content in ["", "[integrations]\n"] {
+            let config: Config = toml::from_str(content).unwrap();
+            assert!(config.integrations.sources.is_empty());
+            assert!(config.invalid_integrations_diagnostic().is_none());
+            let loaded = load_live_config_from_str(content).unwrap();
+            assert!(loaded.config.integrations.sources.is_empty());
+            assert!(loaded.invalid_sections.is_empty());
+            assert!(loaded.diagnostics.is_empty());
+        }
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        fixture.write("[integrations]\nsources = ['coven', 'build']");
+        for loaded in [Config::load(), load_live_config().unwrap()] {
+            assert_eq!(loaded.config.integrations.sources, ["coven", "build"]);
+            assert!(loaded.invalid_sections.is_empty());
+            assert!(loaded.diagnostics.is_empty());
+        }
+    }
+
+    #[test]
+    fn integration_views_structural_startup_errors_are_isolated_from_other_settings() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for section in [
+            "integrations = false",
+            "[integrations]\nsources = 1",
+            "[integrations]\nsources = ['one', 2]",
+            "[integrations]\nsources = { name = 'one' }",
+        ] {
+            fixture.write(section);
+            let loaded = Config::load();
+            assert_eq!(loaded.config.keys.prefix, "ctrl+space", "{section}");
+            assert!(loaded.config.ui.sidebar_start_collapsed);
+            assert!(loaded.config.integrations.sources.is_empty());
+            assert_eq!(loaded.invalid_sections, ["integrations"]);
+            assert_eq!(loaded.diagnostics.len(), 1);
+            assert!(loaded.diagnostics[0].contains("invalid integrations config"));
+            assert!(loaded.diagnostics[0].contains("integrations disabled"));
+        }
+        fixture.write("[annotations]\nsources = 1\n[integrations]\nsources = false");
+        let loaded = Config::load();
+        assert_eq!(loaded.config.keys.prefix, "ctrl+space");
+        assert_eq!(loaded.invalid_sections, ["annotations", "integrations"]);
+        assert_eq!(loaded.diagnostics.len(), 2);
+    }
+
+    #[test]
+    fn integration_views_obsolete_section_is_diagnosed_without_alias_or_rewrite() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for section in [
+            "[external_view]\nsource = 'legacy'",
+            "external_view = false",
+        ] {
+            fixture.write(section);
+            let original = std::fs::read_to_string(&fixture.path).unwrap();
+            for loaded in [Config::load(), load_live_config().unwrap()] {
+                assert!(loaded.config.integrations.sources.is_empty());
+                assert!(loaded.invalid_sections.is_empty());
+                assert_eq!(loaded.diagnostics.len(), 1);
+                assert!(loaded.diagnostics[0].contains("obsolete [external_view]"));
+                assert!(loaded.diagnostics[0].contains("integrations.sources"));
+            }
+            assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), original);
+        }
+        fixture.write(
+            "[external_view]\nsource = 'legacy'\n[integrations]\nsources = ['coven', 'build']",
+        );
+        for loaded in [Config::load(), load_live_config().unwrap()] {
+            assert_eq!(loaded.config.integrations.sources, ["coven", "build"]);
+            assert_eq!(loaded.diagnostics.len(), 1);
+        }
+    }
+
+    #[test]
+    fn integration_views_duplicate_and_oversized_lists_disable_only_integrations() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for sources in ["['a', 'a']", "['0','1','2','3','4','5','6','7','8']"] {
+            fixture.write(&format!("[integrations]\nsources = {sources}"));
+            let loaded = Config::load();
+            assert!(loaded.config.integrations.sources.is_empty());
+            assert_eq!(loaded.config.keys.prefix, "ctrl+space");
+            assert!(loaded.config.ui.sidebar_start_collapsed);
+            assert_eq!(loaded.invalid_sections, ["integrations"]);
+            assert_eq!(loaded.diagnostics.len(), 1);
+            let reload = load_live_config().unwrap();
+            assert_eq!(reload.invalid_sections, ["integrations"]);
+        }
+    }
+
+    #[test]
+    fn integration_views_invalid_startup_sources_are_diagnosed_and_disabled() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for source in ["", "bad source", "path/name", "\u{e9}", &"a".repeat(65)] {
+            fixture.write(&format!("[integrations]\nsources = ['valid', '{source}']"));
+            let loaded = Config::load();
+            assert_eq!(loaded.config.keys.prefix, "ctrl+space");
+            assert!(loaded.config.ui.sidebar_start_collapsed);
+            assert!(loaded.config.integrations.sources.is_empty());
+            assert_eq!(loaded.invalid_sections, ["integrations"]);
+            assert_eq!(loaded.diagnostics.len(), 1);
+            assert!(loaded.diagnostics[0].contains("invalid integrations.sources"));
+            assert!(loaded.diagnostics[0].contains("integrations disabled"));
+            let config: Config =
+                toml::from_str(&format!("[integrations]\nsources = ['{source}']")).unwrap();
+            assert!(config
+                .collect_diagnostics()
+                .iter()
+                .any(|message| message.contains("invalid integrations.sources")));
+        }
+    }
+
+    #[test]
+    fn integration_views_startup_recovery_preserves_warnings_but_not_unrelated_errors() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        fixture.write("[integrations]\nsources = 1\n[advanced]\nscrollback_limt = 1");
+        let loaded = Config::load();
+        assert_eq!(loaded.config.keys.prefix, "ctrl+space");
+        assert_eq!(loaded.diagnostics.len(), 2);
+        assert_eq!(
+            loaded.diagnostics[0],
+            "unknown config key advanced.scrollback_limt; ignoring key"
+        );
+        assert!(loaded.diagnostics[1].contains("integrations disabled"));
+        std::fs::write(
+            &fixture.path,
+            "[integrations]\nsources = 1\n[ui]\nsidebar_start_collapsed = 'yes'",
+        )
+        .unwrap();
+        let loaded = Config::load();
+        assert!(loaded.invalid_sections.is_empty());
+        assert_eq!(loaded.diagnostics.len(), 1);
+        assert!(loaded.diagnostics[0].starts_with("config parse error:"));
+    }
+
+    #[test]
+    fn integration_views_unknown_keys_warn_at_startup_and_reload() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        fixture.write("[integrations]\nsources = ['example']\nsoruce = 'bad'");
+        for loaded in [Config::load(), load_live_config().unwrap()] {
+            assert_eq!(loaded.config.integrations.sources, ["example"]);
+            assert!(loaded.invalid_sections.is_empty());
+            assert_eq!(
+                loaded.diagnostics,
+                ["unknown config key integrations.soruce; ignoring key"]
+            );
+        }
+    }
+
+    #[test]
+    fn integration_views_invalid_reload_keeps_previous_sources_and_leases_and_applies_keys() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        let mut config = Config::default();
+        config.integrations.sources = vec!["previous".into()];
+        let mut app = crate::app::App::new(
+            &config,
+            true,
+            None,
+            tokio::sync::mpsc::unbounded_channel().1,
+            crate::api::EventHub::default(),
+        );
+        let opened = app
+            .state
+            .integration_views
+            .open(
+                &crate::api::schema::ViewOpenParams {
+                    source: "previous".into(),
+                    version: 1,
+                },
+                std::time::Instant::now(),
+            )
+            .unwrap();
+        for section in [
+            "integrations = false",
+            "[integrations]\nsources = 1",
+            "[integrations]\nsources = ['']",
+            "[integrations]\nsources = ['bad source']",
+            "[integrations]\nsources = ['duplicate', 'duplicate']",
+        ] {
+            fixture.write(section);
+            let loaded = load_live_config().unwrap();
+            assert_eq!(loaded.invalid_sections, ["integrations"]);
+            assert_eq!(loaded.config.keys.prefix, "ctrl+space");
+            assert_eq!(loaded.diagnostics.len(), 1);
+            let report = app.reload_config();
+            assert_eq!(report.status, crate::config::ConfigReloadStatus::Partial);
+            assert_eq!(
+                app.state.integration_views.configured_sources(),
+                ["previous"]
+            );
+            assert_eq!(
+                app.state
+                    .integration_views
+                    .descriptor(std::time::Instant::now())
+                    .sources[0]
+                    .epoch
+                    .as_deref(),
+                Some(opened.epoch.as_str())
+            );
+            assert_eq!(app.state.prefix_code, crossterm::event::KeyCode::Char(' '));
+            assert_eq!(
+                app.state.prefix_mods,
+                crossterm::event::KeyModifiers::CONTROL
+            );
         }
     }
 

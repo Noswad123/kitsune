@@ -47,6 +47,27 @@ pub enum ResponseResult {
     SessionSnapshot {
         snapshot: Box<SessionSnapshot>,
     },
+    #[serde(rename = "view_opened")]
+    ViewOpened {
+        lease: String,
+        epoch: String,
+        revision: u64,
+        ttl_ms: u64,
+    },
+    #[serde(rename = "view_replaced")]
+    ViewReplaced {
+        epoch: String,
+        revision: u64,
+    },
+    #[serde(rename = "view_intents")]
+    ViewIntents {
+        epoch: String,
+        revision: u64,
+        intents: Vec<super::IntegrationViewIntent>,
+        ttl_ms: u64,
+    },
+    #[serde(rename = "view_closed")]
+    ViewClosed {},
     WorkspaceInfo {
         workspace: WorkspaceInfo,
     },

@@ -1,3 +1,4 @@
+pub(crate) mod integrations;
 mod tokens;
 
 use ratatui::{
@@ -10,14 +11,19 @@ use ratatui::{
 
 use self::tokens::{ResolvedToken, ResolvedTokenKind, SpaceTokenContext};
 use super::scrollbar::{render_scrollbar, should_show_scrollbar};
-use super::status::{agent_icon, state_dot, state_label, state_label_color};
-use super::text::{display_width, display_width_u16, truncate_end};
-use crate::app::state::{AgentPanelSort, Palette};
+use super::status::{state_dot, state_label, state_label_color};
+#[cfg(test)]
+use super::text::display_width_u16;
+use super::text::{display_width, truncate_end};
+#[cfg(test)]
+use crate::app::state::AgentPanelSort;
+use crate::app::state::Palette;
 use crate::app::{AppState, Mode};
 use crate::detect::AgentState;
 use crate::terminal::TerminalRuntimeRegistry;
 
 const WORKSPACE_SECTION_HEADER_ROWS: u16 = 4;
+#[cfg(test)]
 const AGENT_PANEL_HEADER_ROWS: u16 = 3;
 
 pub(crate) struct AgentPanelEntry {
@@ -26,11 +32,16 @@ pub(crate) struct AgentPanelEntry {
     pub pane_id: crate::layout::PaneId,
     pub primary_label: String,
     pub primary_tab_label: Option<String>,
+    // Retained only for legacy desktop token/parser characterization tests.
+    #[cfg(test)]
     pub pane_label: Option<String>,
+    #[cfg(test)]
     pub terminal_title: Option<String>,
+    #[cfg(test)]
     pub terminal_title_stripped: Option<String>,
     pub agent_label: Option<String>,
     pub agent_kind_label: Option<String>,
+    #[cfg(test)]
     pub agent: Option<crate::detect::Agent>,
     pub state: AgentState,
     pub seen: bool,
@@ -78,6 +89,7 @@ pub(crate) fn sidebar_section_divider_rect(area: Rect, split_ratio: f32) -> Rect
     Rect::new(content.x, content.y + ws_h, content.width, 1)
 }
 
+#[cfg(test)]
 fn agent_panel_sort_label(sort: AgentPanelSort) -> &'static str {
     match sort {
         AgentPanelSort::Spaces => "grouped",
@@ -85,10 +97,12 @@ fn agent_panel_sort_label(sort: AgentPanelSort) -> &'static str {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn agent_panel_toggle_rect(area: Rect, sort: AgentPanelSort) -> Rect {
     agent_panel_header_label_rect(area, agent_panel_sort_label(sort))
 }
 
+#[cfg(test)]
 fn agent_panel_header_label_rect(area: Rect, label: &str) -> Rect {
     if area.width == 0 || area.height < 2 {
         return Rect::default();
@@ -101,12 +115,6 @@ fn agent_panel_header_label_rect(area: Rect, label: &str) -> Rect {
         width,
         1,
     )
-}
-
-fn active_agent_view_label(app: &AppState) -> Option<&str> {
-    app.agent_view_override
-        .as_ref()
-        .map(|view| view.label.as_deref().unwrap_or("filtered"))
 }
 
 pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
@@ -166,11 +174,15 @@ fn collect_agent_panel_entries_with_runtimes(
                         pane_id: detail.pane_id,
                         primary_label: workspace_label.clone(),
                         primary_tab_label: show_tab.then_some(detail.tab_label),
+                        #[cfg(test)]
                         pane_label: detail.pane_label,
+                        #[cfg(test)]
                         terminal_title: detail.terminal_title,
+                        #[cfg(test)]
                         terminal_title_stripped: detail.terminal_title_stripped,
                         agent_label: Some(detail.agent_label),
                         agent_kind_label: detail.agent_kind_label,
+                        #[cfg(test)]
                         agent: detail.agent,
                         state: detail.state,
                         seen: detail.seen,
@@ -538,6 +550,7 @@ pub(crate) fn workspace_list_scrollbar_rect(app: &AppState, area: Rect) -> Optio
     ))
 }
 
+#[cfg(test)]
 pub(crate) fn agent_panel_body_rect(area: Rect, has_scrollbar: bool) -> Rect {
     if area.width == 0 || area.height <= AGENT_PANEL_HEADER_ROWS {
         return Rect::default();
@@ -549,6 +562,7 @@ pub(crate) fn agent_panel_body_rect(area: Rect, has_scrollbar: bool) -> Rect {
     Rect::new(area.x, body_y, body_width, body_height)
 }
 
+#[cfg(test)]
 fn resolved_agent_rows(app: &AppState, entry: &AgentPanelEntry) -> Vec<Vec<ResolvedToken>> {
     let label = entry
         .state_labels
@@ -558,6 +572,7 @@ fn resolved_agent_rows(app: &AppState, entry: &AgentPanelEntry) -> Vec<Vec<Resol
     tokens::agent_rows(&app.sidebar_agents, entry, label)
 }
 
+#[cfg(test)]
 pub(crate) fn agent_entry_height_in_body(
     app: &AppState,
     entry: &AgentPanelEntry,
@@ -570,6 +585,7 @@ pub(crate) fn agent_entry_height_in_body(
         .min(body_height)
 }
 
+#[cfg(test)]
 pub(crate) fn agent_entry_gap(app: &AppState, entry_idx: usize, entry_count: usize) -> u16 {
     if entry_idx + 1 < entry_count {
         app.sidebar_agents.row_gap
@@ -578,6 +594,7 @@ pub(crate) fn agent_entry_gap(app: &AppState, entry_idx: usize, entry_count: usi
     }
 }
 
+#[cfg(test)]
 fn agent_panel_visible_count_from(app: &AppState, area: Rect, scroll: usize) -> usize {
     let body = agent_panel_body_rect(area, false);
     if body.width == 0 || body.height == 0 {
@@ -601,6 +618,7 @@ fn agent_panel_visible_count_from(app: &AppState, area: Rect, scroll: usize) -> 
     visible
 }
 
+#[cfg(test)]
 fn agent_panel_bottom_start(app: &AppState, area: Rect) -> usize {
     let body = agent_panel_body_rect(area, false);
     let entries = agent_panel_entries(app);
@@ -618,6 +636,7 @@ fn agent_panel_bottom_start(app: &AppState, area: Rect) -> usize {
     start.min(entries.len().saturating_sub(1))
 }
 
+#[cfg(test)]
 pub(crate) fn agent_panel_scroll_for_target(
     app: &AppState,
     area: Rect,
@@ -639,6 +658,7 @@ pub(crate) fn agent_panel_scroll_for_target(
     scroll.min(max_scroll)
 }
 
+#[cfg(test)]
 pub(crate) fn agent_panel_scroll_metrics(app: &AppState, area: Rect) -> crate::pane::ScrollMetrics {
     let max_scroll = agent_panel_bottom_start(app, area);
     let scroll = app.agent_panel_scroll.min(max_scroll);
@@ -649,17 +669,6 @@ pub(crate) fn agent_panel_scroll_metrics(app: &AppState, area: Rect) -> crate::p
         max_offset_from_bottom: max_scroll,
         viewport_rows,
     }
-}
-
-pub(crate) fn agent_panel_scrollbar_rect(app: &AppState, area: Rect) -> Option<Rect> {
-    let metrics = agent_panel_scroll_metrics(app, area);
-    let body = agent_panel_body_rect(area, true);
-    (should_show_scrollbar(metrics) && body.width > 0 && body.height > 0).then_some(Rect::new(
-        area.x + area.width.saturating_sub(1),
-        body.y,
-        1,
-        body.height,
-    ))
 }
 
 pub(crate) fn compute_workspace_list_areas(
@@ -742,7 +751,7 @@ pub(crate) fn collapsed_sidebar_sections(area: Rect) -> (Rect, Option<u16>, Rect
     (ws_area, Some(divider_y), detail_area)
 }
 
-/// Collapsed sidebar: workspace glance on top, compact agent list below.
+/// Collapsed sidebar: workspace glance on top, clipped Integrations below.
 pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
@@ -812,11 +821,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
 
     if let Some(divider_y) = divider_y {
         let buf = frame.buffer_mut();
-        let divider_color = if app.agent_view_override.is_some() {
-            p.accent
-        } else {
-            p.surface_dim
-        };
+        let divider_color = p.surface_dim;
         for x in ws_area.x..ws_area.x + ws_area.width {
             buf[(x, divider_y)].set_symbol("─");
             buf[(x, divider_y)].set_style(Style::default().fg(divider_color));
@@ -829,24 +834,7 @@ pub(super) fn render_sidebar_collapsed(app: &AppState, frame: &mut Frame, area: 
         detail_area.width,
         detail_area.height.saturating_sub(1),
     );
-    if detail_content_area != Rect::default() {
-        for (detail_idx, detail) in agent_panel_entries(app).iter().enumerate() {
-            let y = detail_content_area.y + detail_idx as u16;
-            if y >= detail_content_area.y + detail_content_area.height {
-                break;
-            }
-            let position = detail_idx + 1;
-            let position_style = Style::default().fg(p.overlay0);
-            let (icon, icon_style) = agent_icon(detail.state, detail.seen, app.spinner_tick, p);
-            frame.render_widget(
-                Paragraph::new(Line::from(vec![
-                    Span::styled(format!("{position:<2}"), position_style),
-                    Span::styled(icon, icon_style),
-                ])),
-                Rect::new(detail_content_area.x, y, detail_content_area.width, 1),
-            );
-        }
-    }
+    integrations::render(app, frame, detail_content_area);
 
     render_sidebar_toggle(app, frame, area, true, p);
 }
@@ -888,6 +876,9 @@ pub(super) fn render_sidebar(
     frame: &mut Frame,
     area: Rect,
 ) {
+    if area.width == 0 || area.height == 0 {
+        return;
+    }
     let p = &app.palette;
     let is_navigating = matches!(app.mode, Mode::Navigate);
     let sep_style = if is_navigating {
@@ -906,7 +897,7 @@ pub(super) fn render_sidebar(
     let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
 
     render_workspace_list(app, terminal_runtimes, frame, ws_area, is_navigating);
-    render_agent_detail(app, terminal_runtimes, frame, detail_area);
+    integrations::render(app, frame, detail_area);
     render_sidebar_toggle(app, frame, area, false, p);
 }
 
@@ -937,12 +928,13 @@ fn resolved_token_spans(
         .map(|token| match &token.kind {
             ResolvedTokenKind::StateText(text)
             | ResolvedTokenKind::Workspace(text)
-            | ResolvedTokenKind::Tab(text)
-            | ResolvedTokenKind::Pane(text)
-            | ResolvedTokenKind::Agent(text)
-            | ResolvedTokenKind::TerminalTitle(text)
             | ResolvedTokenKind::Branch(text)
             | ResolvedTokenKind::Custom(text) => display_width(text),
+            #[cfg(test)]
+            ResolvedTokenKind::Tab(text)
+            | ResolvedTokenKind::Pane(text)
+            | ResolvedTokenKind::Agent(text)
+            | ResolvedTokenKind::TerminalTitle(text) => display_width(text),
             _ => 0,
         })
         .collect::<Vec<_>>();
@@ -1040,15 +1032,13 @@ fn resolved_token_spans(
                     apply_token_style(state_text_style, token.style),
                 ));
             }
-            ResolvedTokenKind::Workspace(text) | ResolvedTokenKind::Pane(text) => {
+            ResolvedTokenKind::Workspace(text) => {
                 spans.push(Span::styled(
                     truncate_end(text, budgets[index]),
                     apply_token_style(workspace_style, token.style),
                 ));
             }
-            ResolvedTokenKind::Tab(text)
-            | ResolvedTokenKind::Agent(text)
-            | ResolvedTokenKind::Branch(text) => {
+            ResolvedTokenKind::Branch(text) => {
                 spans.push(Span::styled(
                     truncate_end(text, budgets[index]),
                     apply_token_style(secondary_style, token.style),
@@ -1074,7 +1064,28 @@ fn resolved_token_spans(
                     ));
                 }
             }
-            ResolvedTokenKind::TerminalTitle(text) | ResolvedTokenKind::Custom(text) => {
+            ResolvedTokenKind::Custom(text) => {
+                spans.push(Span::styled(
+                    truncate_end(text, budgets[index]),
+                    apply_token_style(custom_style, token.style),
+                ));
+            }
+            #[cfg(test)]
+            ResolvedTokenKind::Pane(text) => {
+                spans.push(Span::styled(
+                    truncate_end(text, budgets[index]),
+                    apply_token_style(workspace_style, token.style),
+                ));
+            }
+            #[cfg(test)]
+            ResolvedTokenKind::Tab(text) | ResolvedTokenKind::Agent(text) => {
+                spans.push(Span::styled(
+                    truncate_end(text, budgets[index]),
+                    apply_token_style(secondary_style, token.style),
+                ));
+            }
+            #[cfg(test)]
+            ResolvedTokenKind::TerminalTitle(text) => {
                 spans.push(Span::styled(
                     truncate_end(text, budgets[index]),
                     apply_token_style(custom_style, token.style),
@@ -1308,125 +1319,6 @@ fn render_workspace_list(
     }
 }
 
-fn render_agent_detail(
-    app: &AppState,
-    terminal_runtimes: &TerminalRuntimeRegistry,
-    frame: &mut Frame,
-    area: Rect,
-) {
-    let p = &app.palette;
-
-    if area.height < 3 {
-        return;
-    }
-
-    let sep_line = "─".repeat(area.width as usize);
-    frame.render_widget(
-        Paragraph::new(Span::styled(&sep_line, Style::default().fg(p.surface_dim))),
-        Rect::new(area.x, area.y, area.width, 1),
-    );
-
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![Span::styled(
-            " agents",
-            Style::default().fg(p.overlay0).add_modifier(Modifier::BOLD),
-        )])),
-        Rect::new(area.x, area.y + 1, area.width, 1),
-    );
-    let control_label = active_agent_view_label(app)
-        .unwrap_or_else(|| agent_panel_sort_label(app.agent_panel_sort));
-    let toggle_rect = agent_panel_header_label_rect(area, control_label);
-    if toggle_rect != Rect::default() {
-        let color = if app.agent_view_override.is_some() {
-            p.accent
-        } else {
-            p.overlay0
-        };
-        frame.render_widget(
-            Paragraph::new(Span::styled(
-                control_label,
-                Style::default().fg(color).add_modifier(Modifier::BOLD),
-            ))
-            .alignment(Alignment::Right),
-            toggle_rect,
-        );
-    }
-
-    let details = agent_panel_entries_from(app, terminal_runtimes);
-    let metrics = agent_panel_scroll_metrics(app, area);
-    let scrollbar_rect = agent_panel_scrollbar_rect(app, area);
-    let body = agent_panel_body_rect(area, should_show_scrollbar(metrics));
-    if body == Rect::default() {
-        return;
-    }
-    if details.is_empty() && app.agent_view_override.is_some() {
-        frame.render_widget(
-            Paragraph::new(" no matching agents")
-                .style(Style::default().fg(p.overlay0).add_modifier(Modifier::DIM)),
-            Rect::new(body.x, body.y, body.width, 1),
-        );
-        return;
-    }
-
-    let scroll = app.agent_panel_scroll.min(metrics.max_offset_from_bottom);
-    let mut row_y = body.y;
-    let body_bottom = body.y + body.height;
-    for (index, detail) in details.iter().enumerate().skip(scroll) {
-        let label_color = state_label_color(detail.state, detail.seen, p);
-        let rows = resolved_agent_rows(app, detail);
-        let height = (rows.len().max(1) as u16).min(body.height);
-        if row_y.saturating_add(height) > body_bottom {
-            break;
-        }
-
-        let is_active = app.is_active_pane(detail.ws_idx, detail.tab_idx, detail.pane_id);
-        let row_style = if is_active {
-            Style::default().bg(p.surface_dim)
-        } else {
-            Style::default()
-        };
-        let name_style = if is_active {
-            Style::default().fg(p.text).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(p.subtext0).add_modifier(Modifier::BOLD)
-        };
-        let status_style = if is_active {
-            Style::default().fg(label_color)
-        } else {
-            Style::default().fg(label_color).add_modifier(Modifier::DIM)
-        };
-        let agent_style = Style::default().fg(p.overlay0).add_modifier(Modifier::DIM);
-        let state_icon = agent_icon(detail.state, detail.seen, app.spinner_tick, p);
-
-        for (row_index, resolved) in rows.iter().take(height as usize).enumerate() {
-            let mut spans = vec![Span::raw(if row_index == 0 { " " } else { "   " })];
-            spans.extend(resolved_token_spans(
-                resolved,
-                state_icon,
-                status_style,
-                name_style,
-                agent_style,
-                agent_style,
-                p,
-                body.width
-                    .saturating_sub(if row_index == 0 { 1 } else { 3 }) as usize,
-            ));
-            frame.render_widget(
-                Paragraph::new(Line::from(spans)).style(row_style),
-                Rect::new(body.x, row_y + row_index as u16, body.width, 1),
-            );
-        }
-        row_y = row_y
-            .saturating_add(height)
-            .saturating_add(agent_entry_gap(app, index, details.len()))
-            .min(body_bottom);
-    }
-
-    if let Some(track) = scrollbar_rect {
-        render_scrollbar(frame, metrics, track, p.surface_dim, p.overlay0, "▕");
-    }
-}
-
 pub(crate) fn collapsed_sidebar_toggle_rect(area: Rect) -> Rect {
     let bottom_y = area.y + area.height.saturating_sub(1);
     let content_w = area.width.saturating_sub(1);
@@ -1479,6 +1371,36 @@ mod tests {
     use crate::{detect::Agent, workspace::Workspace};
     use ratatui::{backend::TestBackend, Terminal};
 
+    fn assert_generic_empty_lower_panel(app: &mut AppState, area: Rect) {
+        app.view.sidebar_rect = area;
+        app.compute_integration_views_snapshot(std::time::Instant::now());
+        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height)).unwrap();
+        terminal
+            .draw(|frame| {
+                if app.sidebar_collapsed {
+                    render_sidebar_collapsed(app, frame, area);
+                } else {
+                    render_sidebar(app, &TerminalRuntimeRegistry::new(), frame, area);
+                }
+            })
+            .unwrap();
+        let lower = app.integration_views_area();
+        let text = (lower.y..lower.bottom())
+            .map(|y| row_text(terminal.backend().buffer(), y, lower.width))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.starts_with(&crate::annotations::render_text(
+            "Integrations",
+            usize::from(lower.width),
+        )));
+        assert!(!text.contains("agents"));
+        assert!(!text.contains("pi"));
+        assert!(!text.contains("claude"));
+        if lower.width >= 26 && lower.height >= 2 {
+            assert!(text.contains("No integrations configured"));
+        }
+    }
+
     fn row_text(buffer: &ratatui::buffer::Buffer, row: u16, width: u16) -> String {
         (0..width)
             .map(|x| buffer[(x, row)].symbol())
@@ -1523,7 +1445,7 @@ mod tests {
     }
 
     #[test]
-    fn default_agent_rows_remove_redundant_state_text() {
+    fn detected_working_agent_does_not_populate_integrations() {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("one");
         let pane_id = workspace.tabs[0].root_pane;
@@ -1537,39 +1459,11 @@ mod tests {
         terminal_state.detected_agent = Some(Agent::Pi);
         terminal_state.state = AgentState::Working;
 
-        let area = Rect::new(0, 0, 26, 20);
-        let mut terminal = Terminal::new(TestBackend::new(26, 20)).unwrap();
-        terminal
-            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
-        let body = agent_panel_body_rect(agent_area, false);
-
-        let first = row_text(buffer, body.y, 25);
-        let second = row_text(buffer, body.y + 1, 25);
-        assert!(first.contains("pane "));
-        assert_eq!(second, "   pi");
-        assert!(!first.contains("working"));
-        assert!(!second.contains("working"));
-
-        let pane_x = find_symbol_x(buffer, body.y, body.width, "a");
-        let pane_style = buffer[(pane_x, body.y)].style();
-        assert_eq!(pane_style.fg, Some(app.palette.text));
-        assert!(pane_style.add_modifier.contains(Modifier::BOLD));
-        assert!(!pane_style.add_modifier.contains(Modifier::DIM));
-        assert_eq!(pane_style.bg, Some(app.palette.surface_dim));
-
-        let agent_x = find_symbol_x(buffer, body.y + 1, body.width, "p");
-        let agent_style = buffer[(agent_x, body.y + 1)].style();
-        assert_eq!(agent_style.fg, Some(app.palette.overlay0));
-        assert!(agent_style.add_modifier.contains(Modifier::DIM));
-        assert!(!agent_style.add_modifier.contains(Modifier::BOLD));
-        assert_eq!(agent_style.bg, Some(app.palette.surface_dim));
+        assert_generic_empty_lower_panel(&mut app, Rect::new(0, 0, 26, 20));
     }
 
     #[test]
-    fn occurrence_false_removes_default_workspace_bold_and_agent_dim() {
+    fn legacy_agent_occurrence_styles_do_not_populate_integrations() {
         let config: crate::config::Config = toml::from_str(
             r##"
 [ui.sidebar.agents]
@@ -1589,21 +1483,7 @@ rows = [[{ token = "workspace", bold = false }, { token = "agent", dim = false }
             .clone();
         app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
 
-        let area = Rect::new(0, 0, 26, 20);
-        let mut terminal = Terminal::new(TestBackend::new(26, 20)).unwrap();
-        terminal
-            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
-            .unwrap();
-        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
-        let body = agent_panel_body_rect(agent_area, false);
-        let buffer = terminal.backend().buffer();
-        let workspace = buffer[(find_symbol_x(buffer, body.y, body.width, "o"), body.y)].style();
-        let agent = buffer[(find_symbol_x(buffer, body.y, body.width, "p"), body.y)].style();
-
-        assert_eq!(workspace.fg, Some(app.palette.text));
-        assert!(!workspace.add_modifier.contains(Modifier::BOLD));
-        assert_eq!(agent.fg, Some(app.palette.overlay0));
-        assert!(!agent.add_modifier.contains(Modifier::DIM));
+        assert_generic_empty_lower_panel(&mut app, Rect::new(0, 0, 26, 20));
     }
 
     #[test]
@@ -1718,7 +1598,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
     }
 
     #[test]
-    fn default_agent_row_gap_packs_rendering_and_scroll_geometry() {
+    fn legacy_agent_row_gap_does_not_populate_integrations() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.ensure_test_terminals();
@@ -1732,23 +1612,11 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         app.sidebar_agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent]];
         assert_eq!(app.sidebar_agents.row_gap, 0);
 
-        let area = Rect::new(0, 0, 20, 5);
-        let metrics = agent_panel_scroll_metrics(&app, area);
-        let body = agent_panel_body_rect(area, false);
-        let mut terminal = Terminal::new(TestBackend::new(20, 5)).unwrap();
-        terminal
-            .draw(|frame| render_agent_detail(&app, &TerminalRuntimeRegistry::new(), frame, area))
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-
-        assert_eq!(metrics.viewport_rows, 2);
-        assert_eq!(metrics.max_offset_from_bottom, 0);
-        assert_eq!(row_text(buffer, body.y, body.width), " pi");
-        assert_eq!(row_text(buffer, body.y + 1, body.width), " claude");
+        assert_generic_empty_lower_panel(&mut app, Rect::new(0, 0, 26, 20));
     }
 
     #[test]
-    fn narrow_agent_rows_preserve_later_tab_tokens() {
+    fn legacy_agent_tab_tokens_do_not_populate_integrations() {
         let mut app = crate::app::state::AppState::test_new();
         let mut workspace = Workspace::test_new("very-long-workspace-name");
         let tab_idx = workspace.test_add_tab(Some("logs"));
@@ -1765,22 +1633,11 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             crate::config::AgentSidebarToken::Tab,
         ]];
 
-        let area = Rect::new(0, 0, 18, 20);
-        let mut terminal = Terminal::new(TestBackend::new(18, 20)).unwrap();
-        terminal
-            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
-            .unwrap();
-        let buffer = terminal.backend().buffer();
-        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
-        let body = agent_panel_body_rect(agent_area, false);
-        let first = row_text(buffer, body.y, 17);
-
-        assert!(first.contains("logs"), "rendered row: {first:?}");
-        assert!(first.contains('·'), "rendered row: {first:?}");
+        assert_generic_empty_lower_panel(&mut app, Rect::new(0, 0, 26, 20));
     }
 
     #[test]
-    fn default_agent_rows_prefer_pane_label_over_workspace() {
+    fn native_pane_labels_do_not_populate_integrations() {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("workspace-name");
         let pane_id = workspace.tabs[0].root_pane;
@@ -1793,17 +1650,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         terminal.detected_agent = Some(Agent::Claude);
         terminal.set_manual_label("reviewer".into());
 
-        let area = Rect::new(0, 0, 24, 12);
-        let mut terminal = Terminal::new(TestBackend::new(24, 12)).unwrap();
-        terminal
-            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
-            .unwrap();
-        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
-        let body = agent_panel_body_rect(agent_area, false);
-        let first = row_text(terminal.backend().buffer(), body.y, 23);
-
-        assert!(first.contains("reviewer"), "rendered row: {first:?}");
-        assert!(!first.contains("workspace-name"), "rendered row: {first:?}");
+        assert_generic_empty_lower_panel(&mut app, Rect::new(0, 0, 26, 20));
     }
 
     #[test]
@@ -1836,7 +1683,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
     }
 
     #[test]
-    fn stripped_terminal_title_renders_with_unicode_width_truncation() {
+    fn native_title_stays_out_of_integrations_and_token_truncation_is_bounded() {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("one");
         let pane_id = workspace.tabs[0].root_pane;
@@ -1852,17 +1699,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             crate::config::AgentSidebarToken::TerminalTitleStripped,
         ]];
 
-        let area = Rect::new(0, 0, 10, 12);
-        let mut renderer = Terminal::new(TestBackend::new(10, 12)).unwrap();
-        renderer
-            .draw(|frame| render_sidebar(&app, &TerminalRuntimeRegistry::new(), frame, area))
-            .unwrap();
-        let (_, agent_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
-        let body = agent_panel_body_rect(agent_area, false);
-        let rendered = row_text(renderer.backend().buffer(), body.y, 9);
-
-        assert!(!rendered.contains('⠋'));
-        assert!(rendered.contains('修') && rendered.contains('复'));
+        assert_generic_empty_lower_panel(&mut app, Rect::new(0, 0, 10, 12));
 
         let spans = resolved_token_spans(
             &[ResolvedToken::unstyled(ResolvedTokenKind::TerminalTitle(
@@ -2090,7 +1927,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
     }
 
     #[test]
-    fn collapsed_sidebar_numbers_grouped_agents_by_list_position() {
+    fn collapsed_sidebar_does_not_number_native_agents() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         app.ensure_test_terminals();
@@ -2104,21 +1941,12 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         }
 
         let area = Rect::new(0, 0, 4, 12);
-        let (_, _, detail_area) = collapsed_sidebar_sections(area);
-        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height))
-            .expect("test terminal should initialize");
-
-        terminal
-            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
-            .expect("collapsed sidebar should render");
-
-        let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(detail_area.x, detail_area.y)].symbol(), "1");
-        assert_eq!(buffer[(detail_area.x, detail_area.y + 1)].symbol(), "2");
+        app.sidebar_collapsed = true;
+        assert_generic_empty_lower_panel(&mut app, area);
     }
 
     #[test]
-    fn collapsed_sidebar_keeps_status_visible_for_two_digit_positions() {
+    fn collapsed_sidebar_does_not_show_native_status_for_ten_agents() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = (1..=10)
             .map(|idx| Workspace::test_new(&format!("workspace-{idx}")))
@@ -2134,23 +1962,12 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         }
 
         let area = Rect::new(0, 0, 4, 25);
-        let (_, _, detail_area) = collapsed_sidebar_sections(area);
-        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height))
-            .expect("test terminal should initialize");
-
-        terminal
-            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
-            .expect("collapsed sidebar should render");
-
-        let tenth_row = detail_area.y + 9;
-        let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(detail_area.x, tenth_row)].symbol(), "1");
-        assert_eq!(buffer[(detail_area.x + 1, tenth_row)].symbol(), "0");
-        assert_eq!(buffer[(detail_area.x + 2, tenth_row)].symbol(), "○");
+        app.sidebar_collapsed = true;
+        assert_generic_empty_lower_panel(&mut app, area);
     }
 
     #[test]
-    fn collapsed_sidebar_numbers_priority_agents_by_list_position() {
+    fn collapsed_sidebar_does_not_show_native_priority_agents() {
         let first = Workspace::test_new("one");
         let first_pane = first.tabs[0].root_pane;
         let mut second = Workspace::test_new("two");
@@ -2178,23 +1995,8 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         assert_eq!(agent_panel_entries(&app)[0].pane_id, urgent_pane);
 
         let area = Rect::new(0, 0, 4, 16);
-        let (_, _, detail_area) = collapsed_sidebar_sections(area);
-        let mut terminal = Terminal::new(TestBackend::new(area.width, area.height))
-            .expect("test terminal should initialize");
-
-        terminal
-            .draw(|frame| render_sidebar_collapsed(&app, frame, area))
-            .expect("collapsed sidebar should render");
-
-        let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(detail_area.x, detail_area.y)].symbol(), "1");
-        assert_eq!(buffer[(detail_area.x, detail_area.y + 1)].symbol(), "2");
-        assert_eq!(buffer[(detail_area.x, detail_area.y + 2)].symbol(), "3");
-        assert_eq!(buffer[(detail_area.x + 2, detail_area.y)].symbol(), "◉");
-        assert_eq!(
-            buffer[(detail_area.x + 2, detail_area.y)].style().fg,
-            Some(app.palette.red)
-        );
+        app.sidebar_collapsed = true;
+        assert_generic_empty_lower_panel(&mut app, area);
     }
 
     #[cfg(unix)]

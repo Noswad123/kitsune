@@ -1,22 +1,28 @@
 use std::collections::HashMap;
 
-use crate::detect::{Agent, AgentState};
+#[cfg(test)]
+use crate::detect::Agent;
+use crate::detect::AgentState;
 use crate::layout::PaneId;
 use crate::terminal::{TerminalId, TerminalState};
 
 use super::{Tab, Workspace};
 
-/// Detail info for a single pane, used by the agent detail panel.
+/// Legacy summaries retained for mobile and agent-API compatibility, not Integrations.
 pub struct PaneDetail {
     pub pane_id: PaneId,
     pub tab_idx: usize,
     pub tab_label: String,
     pub label: String,
+    #[cfg(test)]
     pub pane_label: Option<String>,
+    #[cfg(test)]
     pub terminal_title: Option<String>,
+    #[cfg(test)]
     pub terminal_title_stripped: Option<String>,
     pub agent_label: String,
     pub agent_kind_label: Option<String>,
+    #[cfg(test)]
     pub agent: Option<Agent>,
     pub state: AgentState,
     pub seen: bool,
@@ -61,13 +67,17 @@ impl Tab {
                     tab_idx,
                     tab_label: tab_label.to_string(),
                     label: agent_label.clone(),
+                    #[cfg(test)]
                     pane_label: terminal
                         .effective_title()
                         .or_else(|| terminal.manual_label.clone()),
+                    #[cfg(test)]
                     terminal_title: terminal.terminal_title.clone(),
+                    #[cfg(test)]
                     terminal_title_stripped: terminal.terminal_title_stripped(),
                     agent_label,
                     agent_kind_label,
+                    #[cfg(test)]
                     agent: terminal.effective_known_agent(),
                     state: terminal.state,
                     seen: pane.seen,

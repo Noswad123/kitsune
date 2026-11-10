@@ -257,8 +257,23 @@ pub struct AnnotationsConfig {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default)]
+pub struct IntegrationsConfig {
+    pub sources: Vec<String>,
+}
+
+impl Config {
+    pub fn invalid_integrations_diagnostic(&self) -> Option<String> {
+        crate::integration_views::validate_sources(&self.integrations.sources)
+            .err()
+            .map(|_| "invalid integrations.sources: select at most 8 unique ASCII IDs (1-64 bytes, letters, digits, -_.); integrations disabled".to_string())
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
 pub struct Config {
     pub annotations: AnnotationsConfig,
+    pub integrations: IntegrationsConfig,
     pub onboarding: Option<bool>,
     pub theme: ThemeConfig,
     pub terminal: TerminalConfig,

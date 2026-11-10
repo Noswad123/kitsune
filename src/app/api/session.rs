@@ -51,6 +51,11 @@ impl App {
                 valid_until_unix_ms: true,
             }),
             command_submission: Some(CommandSubmissionInfo { version: 1 }),
+            integration_views: Some(
+                self.state
+                    .integration_views
+                    .descriptor(std::time::Instant::now()),
+            ),
             focused_workspace_id,
             focused_tab_id,
             focused_pane_id,
@@ -98,6 +103,13 @@ mod tests {
             panic!("expected session snapshot response");
         };
         assert_eq!(success.id, "req_snapshot");
+        assert_eq!(
+            snapshot.integration_views,
+            Some(crate::api::schema::IntegrationViewsInfo {
+                version: 1,
+                sources: Vec::new(),
+            })
+        );
         assert_eq!(
             snapshot.command_submission,
             Some(crate::api::schema::CommandSubmissionInfo { version: 1 })

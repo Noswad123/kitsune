@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 pub mod agents;
 pub mod common;
 pub mod events;
+pub mod integration_views;
 pub mod integrations;
 pub mod panes;
 pub mod response;
@@ -15,6 +16,7 @@ pub mod worktrees;
 pub use agents::*;
 pub use common::*;
 pub use events::*;
+pub use integration_views::*;
 pub use integrations::*;
 pub use panes::*;
 pub use response::*;
@@ -61,6 +63,14 @@ pub enum Method {
     ClientWindowTitleClear(EmptyParams),
     #[serde(rename = "session.snapshot")]
     SessionSnapshot(EmptyParams),
+    #[serde(rename = "integration.view.open")]
+    ViewOpen(ViewOpenParams),
+    #[serde(rename = "integration.view.replace")]
+    ViewReplace(ViewReplaceParams),
+    #[serde(rename = "integration.view.poll")]
+    ViewPoll(ViewOwnerParams),
+    #[serde(rename = "integration.view.close")]
+    ViewClose(ViewOwnerParams),
     #[serde(rename = "workspace.create")]
     WorkspaceCreate(WorkspaceCreateParams),
     #[serde(rename = "workspace.list")]

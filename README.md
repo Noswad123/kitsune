@@ -22,9 +22,28 @@ opt-in path: enable a source in config, read snapshot identities/epoch, and use
 `kitsune pane annotate` to append bounded, expiring plain text in spare existing
 top-border cells. Single-pane layouts have no border; labels need an existing
 split layout with borders enabled. Manual titles and terminal space are untouched.
-Sources are logical labels, not authentication. No Coven publisher, workspace
-annotations, grouping, widgets, new panels, or agent-feature extraction is included.
+Sources are logical labels, not authentication. Coven's separate foreground
+publisher supplies group/role text; Kitsune annotations add no workspace annotations,
+group model, widgets, new panels or agent-feature extraction.
 The [prototype notes](ANNOTATION_MODEL_PROTOTYPE.md) remain historical context.
+
+## Integrations: generic presentation and messaging
+
+The desktop lower side menu is a generic [Integrations block](INTEGRATION_VIEWS.md),
+not an agent panel. With no providers it shows `No integrations configured` and
+never falls back to detected agents. Manually configure `[integrations]` with
+`sources = ["coven", "build"]` (up to eight ordered unique ASCII source IDs), then
+select an app locally from its vertical list to see its label/detail rows.
+Independent producers use `integration.view.open/replace/poll/close` with per-source
+five-second leases, frames and selection queues. Missing/expired apps show
+`Unavailable`; other producers and terminals keep working.
+
+Coven's `group present` supplies its own group/participant model without Kitsune
+interpreting agents or roles. This changes only default desktop lower-menu
+presentation, not all legacy detection, APIs, mobile UI, hooks or restore behavior.
+The obsolete `[external_view]` config is diagnosed/ignored, not automatically
+rewritten. See the contract for discovery, bounds and at-most-once, non-authorizing
+selection messaging.
 
 ## Runtime identity
 
@@ -85,9 +104,9 @@ Kitsune includes a session navigator and an agents-only selector:
 - `Tab` toggles the navigator between full tree and agents-only scope.
 - In agents-only scope, `r` renames the selected agent pane's pane label.
 
-## Agent integrations
+## Legacy agent hooks
 
-Supported integration targets are `pi`, `opencode`, `claude`, `codex`, `copilot`, and `djinn`. Djinn support is built in as a first-class agent kind for process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, and authoritative lifecycle reports from source `kitsune:djinn`.
+Legacy agent-hook installer targets are `pi`, `opencode`, `claude`, `codex`, `copilot`, and `djinn`. These fixed targets and `integration.install` / `integration.uninstall` are separate from generic `integrations.sources`, not its provider registry. Installer logic remains during transition. Djinn support remains a built-in agent kind for process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, and authoritative lifecycle reports from source `kitsune:djinn`.
 
 Kitsune does not resolve or install Djinn versions itself. Install or update the managed Jamal Arcana tool suite with `arcana update` to keep Kitsune and Djinn on compatible builds.
 

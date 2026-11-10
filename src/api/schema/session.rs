@@ -28,6 +28,8 @@ pub struct SessionSnapshot {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command_submission: Option<CommandSubmissionInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub integration_views: Option<super::IntegrationViewsInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused_workspace_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub focused_tab_id: Option<String>,
