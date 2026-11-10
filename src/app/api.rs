@@ -8,6 +8,8 @@ mod command_submission;
 mod env;
 mod integrations;
 mod layouts;
+#[cfg(test)]
+mod ownership_tests;
 mod pane_graphics;
 mod panes;
 mod responses;

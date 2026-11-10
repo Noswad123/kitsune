@@ -61,9 +61,9 @@ until a bounded capability spike is complete.
 
 ### 0. Unblock and establish the existing baseline
 
-- [ ] Obtain the project-compatible Zig toolchain from a trusted distribution and
+- [x] Obtain the project-compatible Zig toolchain from a trusted distribution and
   verify its checksum; use an explicit path if a global installation is unwanted.
-- [ ] Build and run narrow application tests first, recording actual prerequisites
+- [x] Build and run narrow application tests first, recording actual prerequisites
   and failures. Request approval before the resource-heavy full `just check` gate.
 - [ ] Record engine version, patches, target/toolchain configuration and current
   terminal compatibility/performance tests. Real Windows/macOS validation remains
@@ -71,6 +71,11 @@ until a bounded capability spike is complete.
 
 **Exit:** the existing engine can be built and assessed on each intended target.
 Finishing this phase does not authorize or require a replacement.
+
+Local progress: checksum-verified Zig 0.15.2 and pinned Rust 1.96.1 now build the
+real Linux application; focused application tests and strict lint pass. This does
+not close the cross-platform baseline or full-suite gate. The default installed
+Zig 0.17.1 remains untouched and is incompatible with this vendored engine.
 
 ### 1. Define the backend contract and compatibility inventory
 

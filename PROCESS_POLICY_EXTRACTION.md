@@ -84,28 +84,72 @@ On Linux, source-subset validation passed:
   style; this is not a full-application lint result.
 - Independent post-edit review found no blocking findings.
 
-**Full application validation is blocked, not passed.** Before and after edits,
-`CARGO_NET_OFFLINE=true just test-one identify_agent_in_job` / focused resolver
-and selector filters fail in `build.rs` because Zig is absent. Likewise,
-`CARGO_NET_OFFLINE=true just lint` passes formatting but cannot reach application
-Clippy past the vendored libghostty build. Only the Linux Rust target is installed;
-the Windows module as a whole has not been compiled or executed here. No build
-script bypass, substitute library, toolchain installation, app restart, live
-provider or live API was used.
+### Real Linux application validation
 
-Remaining gates, with prerequisites supplied:
+The earlier missing-Zig blocker is resolved. The installed default Zig reports
+**0.17.1**, which the vendored build rejects; a separately downloaded official
+**0.15.2** compiler was checksum-verified and extracted under `/tmp/opencode`.
+It was selected through `ZIG`, without replacing the installed compiler.
+
+The shell also selects Homebrew Rust **1.99.1** ahead of the project toolchain.
+`rustup run ... just ...` alone does not correct that nested command lookup.
+Prepending the **1.96.1** toolchain's `bin` directory selects matching Cargo,
+rustc, rustfmt and Clippy for the recipes. Unrelated newer-Clippy diagnostics
+were not fixed or suppressed to make this refactor pass.
+
+With those explicit toolchains, the real application builds and passes:
+
+- **136 focused application tests**: 44 resolver/classifier/selector tests, 44
+  pane-probing/detection tests, 43 state/snapshot/restore-planning tests, and five
+  API/action ownership-release tests (including three new handler-boundary tests).
+- **`just lint`**, including strict all-target application Clippy and formatting.
+- Independently, all 209 replay cases and 26 source-subset tests still pass;
+  reference pins and fixture bytes are unchanged.
+
+Reproduce the recipe environment from this checkout, substituting an explicit
+compatible compiler path. The toolchain lookup honors `rust-toolchain.toml`:
 
 ```sh
-just test-one identify_agent_in_job
-just test-one resolver_tests
-just test-one platform::process_selection
-just check
+PATH="$(dirname "$(rustup which rustc)"):$PATH" ZIG=/absolute/path/to/zig-0.15.2/zig just test-one resolver_tests
+PATH="$(dirname "$(rustup which rustc)"):$PATH" ZIG=/absolute/path/to/zig-0.15.2/zig just test-one identify_agent_in_job
+PATH="$(dirname "$(rustup which rustc)"):$PATH" ZIG=/absolute/path/to/zig-0.15.2/zig just test-one platform::process_selection
+PATH="$(dirname "$(rustup which rustc)"):$PATH" ZIG=/absolute/path/to/zig-0.15.2/zig just test-one ownership_tests
+PATH="$(dirname "$(rustup which rustc)"):$PATH" ZIG=/absolute/path/to/zig-0.15.2/zig just lint
 ```
 
-Also run the Windows application build/Clippy and retained cache, availability,
+The resource-heavy full `just check` was **not run**; it requires explicit approval
+under the validation-hygiene policy. Only the Linux target is installed. Also run
+the Windows application build/Clippy and retained cache, availability,
 session enumeration and resolver/selector tests in a real supported Windows
-toolchain environment. Linux source-subset success cannot certify OS acquisition,
-platform imports, native linking or installed-provider behavior.
+toolchain environment. Linux results cannot certify Windows acquisition/imports,
+native linking, macOS, or installed-provider behavior. No build-script bypass,
+substitute engine library, global compiler replacement, app restart, live provider,
+hook installation or live API was used.
+
+## Handler-boundary characterization
+
+Three new tests in `src/app/api/ownership_tests.rs` call actual pane handlers,
+event/action dispatch and `TerminalState` methods. They distinguish successful API
+responses from accepted identity mutations, and assert dirty state, authority,
+persisted reference, detected state, pending plan and application invariants:
+
+| Test | Preserved behavior |
+| --- | --- |
+| `api_restored_session_release_checks_reference_before_consuming_sequence` | Stale scoped release does not consume the sequence; matching release at that same sequence clears the reference. |
+| `api_invalid_report_reference_is_ignored_but_invalid_release_is_unscoped` | Invalid/missing Codex references are ignored by both report handlers without consuming sequence; release with the same invalid/missing selector follows the existing unscoped path. |
+| `api_rejected_identity_update_consumes_sequence_before_foreground_confirmation` | A rejected foreign-owner update consumes its source sequence; later foreground confirmation still requires a fresh sequence. |
+
+Clearing/replacing the persisted reference leaves the existing pending resume plan
+unchanged **at immediate handler return**. These tests do not establish what a
+later resume scheduler will do. The invalid-selector release behavior is recorded,
+not hardened or endorsed as an external-integration contract.
+
+Fixtures bypass `App::new`, application config loading and terminal runtimes;
+they do not launch providers or PTYs. Existing workspace test helpers can read
+cwd/Git metadata, so this is not a zero-filesystem-IO proof. These are direct
+handler tests, not wire/async-queue, detector or outbound-event tests. Live
+hook-authority release, unsupported-reference owner confirmation, imported runtime
+restore and deferred launch/failure remain separate coverage gaps.
 
 ## Next boundary
 
