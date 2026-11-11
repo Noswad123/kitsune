@@ -1190,7 +1190,7 @@ mod tests {
                 .attached_terminal_id
                 .clone();
             let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-            terminal.detected_agent = Some(crate::detect::Agent::Claude);
+            terminal.set_fallback_agent_for_test(Some(crate::detect::Agent::Claude));
             terminal.state = state;
         }
         app.agent_view_override = Some(crate::api::schema::AgentViewSetParams {

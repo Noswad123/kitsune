@@ -19,6 +19,16 @@ pub struct CommandSubmissionInfo {
     pub version: u32,
 }
 
+/// Acquisition semantics of pane.process_info, not a new process provider.
+/// This does not promise a complete process tree or stable process generations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ProcessObservationInfo {
+    pub version: u32,
+    pub platform: String,
+    pub scope: String,
+    pub selection: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SessionSnapshot {
     pub version: String,
@@ -27,6 +37,8 @@ pub struct SessionSnapshot {
     pub annotations: Option<AnnotationInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub command_submission: Option<CommandSubmissionInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_observation: Option<ProcessObservationInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub integration_views: Option<super::IntegrationViewsInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

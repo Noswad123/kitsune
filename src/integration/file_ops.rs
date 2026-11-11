@@ -37,6 +37,8 @@ pub(crate) fn remove_legacy_bash_hook_file(_hook_path: &Path) -> io::Result<bool
     Ok(false)
 }
 
+// Only retained legacy installers need executable hook assets.
+#[cfg(any(test, not(target_os = "linux")))]
 pub(crate) fn make_executable(_path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {

@@ -28,12 +28,13 @@ fn is_background_completion_transition(prev_state: AgentState, new_state: AgentS
 }
 
 fn is_completion_transition(change: &EffectiveStateChange) -> bool {
-    is_completion_transition_parts(
-        change.previous_state,
-        change.state,
-        change.previous_agent_label.as_deref(),
-        change.agent_label.as_deref(),
-    )
+    !change.projection_reconfirmed
+        && is_completion_transition_parts(
+            change.previous_state,
+            change.state,
+            change.previous_agent_label.as_deref(),
+            change.agent_label.as_deref(),
+        )
 }
 
 fn public_tab_id_for_index(ws: &crate::workspace::Workspace, tab_idx: usize) -> Option<String> {
@@ -177,7 +178,10 @@ pub fn notification_toast_for_pane_state_update(
     suppress_active_tab_notifications: bool,
     update: &PaneStateUpdate,
 ) -> Option<ToastKind> {
-    if suppress_active_tab_notifications || update.state == update.previous_state {
+    if suppress_active_tab_notifications
+        || update.state == update.previous_state
+        || (update.projection_reconfirmed && update.state == AgentState::Idle)
+    {
         return None;
     }
 
@@ -234,6 +238,7 @@ pub fn notification_context(
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PaneStateUpdate {
+    pub projection_reconfirmed: bool,
     pub pane_id: PaneId,
     pub ws_idx: usize,
     pub previous_agent_label: Option<String>,
@@ -1178,6 +1183,7 @@ impl AppState {
                 let change = mutation.effective_state_change?;
                 let seen = self.apply_pane_state_change(ws_idx, pane_id, &change)?;
                 let update = PaneStateUpdate {
+                    projection_reconfirmed: change.projection_reconfirmed,
                     pane_id,
                     ws_idx,
                     previous_agent_label: change.previous_agent_label.clone(),
@@ -2828,6 +2834,18 @@ impl AppState {
                 }
                 Vec::new()
             }
+            AppEvent::DetectorUpdate {
+                pane_id,
+                epoch,
+                foreground,
+                fallback,
+                observed_at,
+            } => self
+                .update_terminal_state(pane_id, |terminal| {
+                    Some(terminal.apply_detector_update(epoch, foreground, fallback, observed_at))
+                })
+                .into_iter()
+                .collect(),
             AppEvent::StateChanged {
                 pane_id,
                 agent,
@@ -2838,15 +2856,19 @@ impl AppState {
                 observed_at,
             } => self
                 .update_terminal_state(pane_id, |terminal| {
-                    Some(terminal.set_detected_state_with_screen_signals_at(
-                        agent,
-                        state,
-                        visible_blocker,
-                        false,
-                        visible_working,
-                        process_exited,
-                        observed_at,
-                    ))
+                    Some(if process_exited {
+                        terminal.record_process_exit(agent, observed_at)
+                    } else {
+                        terminal.publish_fallback_observation(
+                            crate::terminal::evidence::FallbackObservation {
+                                agent,
+                                state,
+                                visible_blocker,
+                                visible_working,
+                            },
+                            observed_at,
+                        )
+                    })
                 })
                 .into_iter()
                 .collect(),
@@ -2940,24 +2962,9 @@ impl AppState {
                 })
                 .into_iter()
                 .collect(),
-            AppEvent::HookAgentReleased {
-                pane_id,
-                source,
-                agent_label,
-                seq,
-                session_ref,
-                ..
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    terminal.release_agent_with_mutation(
-                        &source,
-                        &agent_label,
-                        seq,
-                        session_ref.as_ref(),
-                    )
-                })
-                .into_iter()
-                .collect(),
+            event @ AppEvent::HookAgentReleased { .. } => {
+                self.handle_app_event_with_release_outcome(event).0
+            }
             // Both intercepted before this dispatch — in App::handle_internal_event (monolithic)
             // or via HeadlessServer forwarding to the foreground client (server); never touch
             // AppState. Kept for AppEvent exhaustiveness.
@@ -2993,6 +3000,46 @@ impl AppState {
             AppEvent::WorktreeAddFinished(_) => Vec::new(),
             AppEvent::WorktreeRemoveFinished(_) => Vec::new(),
         }
+    }
+
+    pub(crate) fn handle_app_event_with_release_outcome(
+        &mut self,
+        event: AppEvent,
+    ) -> (Vec<PaneStateUpdate>, bool) {
+        let AppEvent::HookAgentReleased {
+            pane_id,
+            source,
+            agent_label,
+            seq,
+            session_ref,
+            ..
+        } = event
+        else {
+            return (self.handle_app_event(event), false);
+        };
+        let mut accepted = false;
+        let update = self.update_terminal_state(pane_id, |terminal| {
+            let mutation = terminal.release_agent_with_mutation(
+                &source,
+                &agent_label,
+                seq,
+                session_ref.as_ref(),
+            );
+            accepted = mutation.is_some();
+            mutation
+        });
+        (update.into_iter().collect(), accepted)
+    }
+
+    pub(crate) fn synchronize_pane_detector_epoch(
+        &mut self,
+        pane_id: PaneId,
+        epoch: Option<crate::terminal::evidence::DetectorEpoch>,
+        now: Instant,
+    ) -> Option<PaneStateUpdate> {
+        self.update_terminal_state(pane_id, |terminal| {
+            Some(terminal.synchronize_detector_epoch(epoch, now))
+        })
     }
 
     fn update_terminal_state<F>(&mut self, pane_id: PaneId, update: F) -> Option<PaneStateUpdate>
@@ -3037,6 +3084,7 @@ impl AppState {
         }
         let seen = self.apply_pane_state_change(ws_idx, pane_id, &change)?;
         let update = PaneStateUpdate {
+            projection_reconfirmed: change.projection_reconfirmed,
             pane_id,
             ws_idx,
             previous_agent_label: change.previous_agent_label.clone(),
@@ -3104,19 +3152,13 @@ impl AppState {
     ) -> Option<PaneStateUpdate> {
         let observed_at = std::time::Instant::now();
         let update = self.update_terminal_state(pane_id, |terminal| {
-            let agent = terminal.effective_known_agent().or(terminal.detected_agent);
+            let agent = terminal
+                .effective_known_agent()
+                .or(terminal.detected_agent());
             if agent.is_none() && !terminal.full_lifecycle_hook_authority_active() {
                 return None;
             }
-            Some(terminal.set_detected_state_with_screen_signals_at(
-                agent,
-                AgentState::Idle,
-                false,
-                true,
-                false,
-                true,
-                observed_at,
-            ))
+            Some(terminal.record_process_exit(agent, observed_at))
         })?;
         update.agent_released.then_some(update)
     }
@@ -4760,7 +4802,7 @@ mod tests {
             .clone();
         let terminal = state.terminals.get(&terminal_id).unwrap();
         assert_eq!(terminal.state, AgentState::Working);
-        assert_eq!(terminal.detected_agent, Some(Agent::Pi));
+        assert_eq!(terminal.detected_agent(), Some(Agent::Pi));
     }
 
     #[test]
@@ -5164,6 +5206,21 @@ mod tests {
             process_exited: false,
             observed_at: std::time::Instant::now(),
         });
+        let epoch = crate::terminal::evidence::DetectorEpoch::new();
+        let observed_at = Instant::now();
+        state.synchronize_pane_detector_epoch(pane_id, Some(epoch), observed_at);
+        state.handle_app_event(AppEvent::DetectorUpdate {
+            pane_id,
+            epoch,
+            foreground: Some(
+                crate::terminal::evidence::ForegroundObservation::Confirmed {
+                    agent: Agent::Claude,
+                    process_group_id: None,
+                },
+            ),
+            fallback: None,
+            observed_at,
+        });
         state.handle_app_event(AppEvent::HookStateReported {
             pane_id,
             source: "kitsune:claude".into(),
@@ -5213,6 +5270,21 @@ mod tests {
             process_exited: false,
             observed_at: std::time::Instant::now(),
         });
+        let epoch = crate::terminal::evidence::DetectorEpoch::new();
+        let observed_at = Instant::now();
+        state.synchronize_pane_detector_epoch(pane_id, Some(epoch), epoch.started_at());
+        state.handle_app_event(AppEvent::DetectorUpdate {
+            pane_id,
+            epoch,
+            foreground: Some(
+                crate::terminal::evidence::ForegroundObservation::Confirmed {
+                    agent: Agent::Pi,
+                    process_group_id: None,
+                },
+            ),
+            fallback: None,
+            observed_at,
+        });
         let terminal = state.terminals.get_mut(&terminal_id).unwrap();
         terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
             source: "kitsune:pi".into(),
@@ -5248,7 +5320,7 @@ mod tests {
         assert!(updates.is_empty());
         let terminal = &state.terminals[&terminal_id];
         assert_eq!(terminal.state, AgentState::Working);
-        assert_eq!(terminal.detected_agent, Some(Agent::Pi));
+        assert_eq!(terminal.detected_agent(), Some(Agent::Pi));
         assert_eq!(terminal.agent_name.as_deref(), Some("reviewer"));
         assert!(terminal.hook_authority.is_none());
         assert!(!state.session_dirty);
@@ -5354,6 +5426,21 @@ mod tests {
             visible_working: false,
             process_exited: false,
             observed_at: std::time::Instant::now(),
+        });
+        let epoch = crate::terminal::evidence::DetectorEpoch::new();
+        let observed_at = Instant::now();
+        state.synchronize_pane_detector_epoch(pane_id, Some(epoch), observed_at);
+        state.handle_app_event(AppEvent::DetectorUpdate {
+            pane_id,
+            epoch,
+            foreground: Some(
+                crate::terminal::evidence::ForegroundObservation::Confirmed {
+                    agent: Agent::Devin,
+                    process_group_id: None,
+                },
+            ),
+            fallback: None,
+            observed_at,
         });
         state.handle_app_event(AppEvent::HookStateReported {
             pane_id,

@@ -7,7 +7,6 @@ use ratatui::layout::Direction;
 use tokio::sync::{mpsc, Notify};
 use tracing::{error, warn};
 
-use crate::detect::AgentState;
 use crate::events::AppEvent;
 use crate::layout::{Node, PaneId, TileLayout};
 use crate::pane::{PaneLaunchEnv, PaneState};
@@ -551,15 +550,7 @@ fn restore_tab(
                 (None, _) => {}
             }
             if let Some(agent) = initial_restore_agent {
-                let _ = terminal.set_detected_state_with_screen_signals_at(
-                    Some(agent),
-                    AgentState::Idle,
-                    false,
-                    false,
-                    false,
-                    false,
-                    std::time::Instant::now(),
-                );
+                let _ = terminal.seed_restored_agent_identity(agent);
             }
             panes.insert(*id, PaneState::new(terminal_id));
             terminals.push(terminal);
@@ -647,15 +638,7 @@ fn restore_tab(
                     (None, _) => {}
                 }
                 if let Some(agent) = initial_restore_agent {
-                    let _ = terminal.set_detected_state_with_screen_signals_at(
-                        Some(agent),
-                        AgentState::Idle,
-                        false,
-                        false,
-                        false,
-                        false,
-                        std::time::Instant::now(),
-                    );
+                    let _ = terminal.seed_restored_agent_identity(agent);
                 }
                 panes.insert(*id, PaneState::new(terminal_id.clone()));
                 terminal_runtimes.insert(terminal_id, runtime);
@@ -1913,6 +1896,14 @@ mod tests {
                     assert_eq!(terminal.cwd, cwd);
                     assert_eq!(terminal.manual_label, pane.label);
                     assert_eq!(terminal.agent_name, pane.agent_name);
+                    assert_eq!(terminal.detected_agent(), Some(crate::detect::Agent::Codex));
+                    assert_eq!(
+                        terminal.historical_agent_identity(),
+                        Some(crate::detect::Agent::Codex)
+                    );
+                    assert_eq!(terminal.foreground_agent_evidence(), None);
+                    assert_eq!(terminal.state, crate::detect::AgentState::Idle);
+                    assert!(terminal.hook_authority.is_none());
                     assert_eq!(
                         terminal.managed_agent_kind(),
                         Some(crate::detect::Agent::Codex)
@@ -1942,6 +1933,95 @@ mod tests {
         }
         assert_eq!(seen_panes.len(), 8);
         assert_eq!(seen_terminals, terminals.keys().cloned().collect());
+        let mut state = crate::app::AppState::test_new();
+        state.workspaces = workspaces;
+        state.terminals = terminals;
+        state.active = Some(0);
+        state.assert_invariants_for_test();
+    }
+
+    #[tokio::test]
+    async fn historical_restore_keeps_all_provider_identities_without_foreground_evidence() {
+        for label in [
+            "claude",
+            "codex",
+            "copilot",
+            "devin",
+            "djinn",
+            "droid",
+            "kimi",
+            "omp",
+            "mastracode",
+            "pi",
+            "hermes",
+            "opencode",
+            "qodercli",
+            "kilo",
+            "cursor",
+            "grok",
+        ] {
+            let agent = crate::detect::parse_canonical_agent_label(label).unwrap();
+            let mut state = crate::app::AppState::test_with_adversarial_identity_state();
+            state.assert_invariants_for_test();
+            for (index, terminal) in state.terminals.values_mut().enumerate() {
+                terminal.cwd = std::env::current_dir().unwrap();
+                terminal.restore_managed_agent(format!("managed-{index}"), agent);
+                terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+                    source: format!("kitsune:{label}"),
+                    agent: label.into(),
+                    session_ref: crate::agent_resume::AgentSessionRef::id(format!(
+                        "historical-{label}-{index}"
+                    ))
+                    .unwrap(),
+                });
+            }
+            let snapshot = super::super::snapshot::capture(
+                &state.workspaces,
+                &state.terminals,
+                &crate::terminal::TerminalRuntimeRegistry::new(),
+                state.active,
+                state.selected,
+                state.sidebar_width,
+                state.sidebar_section_split,
+                state.collapsed_space_keys.clone(),
+            );
+            let (workspaces, terminals, runtimes) = restore(
+                &snapshot,
+                None,
+                24,
+                80,
+                4096,
+                "/shell-must-not-run-for-historical-restore",
+                crate::config::ShellModeConfig::NonLogin,
+                true,
+                mpsc::channel(8).0,
+                Arc::new(Notify::new()),
+                Arc::new(AtomicBool::new(false)),
+            );
+            assert!(runtimes.is_empty(), "{label}");
+            assert_eq!(terminals.len(), state.terminals.len(), "{label}");
+            for terminal in terminals.values() {
+                assert_eq!(terminal.detected_agent(), Some(agent));
+                assert_eq!(terminal.historical_agent_identity(), Some(agent));
+                assert_eq!(terminal.foreground_agent_evidence(), None);
+                assert_eq!(terminal.state, crate::detect::AgentState::Idle);
+                assert!(terminal.hook_authority.is_none());
+                assert_eq!(terminal.managed_agent_kind(), Some(agent));
+                assert!(terminal.agent_name.is_some());
+                let session = terminal.persisted_agent_session.as_ref().unwrap();
+                assert_eq!(
+                    terminal.pending_agent_resume_plan,
+                    crate::agent_resume::plan(
+                        &session.source,
+                        &session.agent,
+                        &session.session_ref
+                    )
+                );
+            }
+            state.workspaces = workspaces;
+            state.terminals = terminals;
+            state.assert_invariants_for_test();
+        }
     }
 
     #[tokio::test]

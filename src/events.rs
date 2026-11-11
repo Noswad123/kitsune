@@ -54,9 +54,19 @@ pub struct WorktreeRemoveResult {
 /// An event from a background task to the main loop.
 #[derive(Debug)]
 pub enum AppEvent {
+    /// Runtime-scoped detector evidence, separate from presentation fallback.
+    DetectorUpdate {
+        pane_id: PaneId,
+        epoch: crate::terminal::evidence::DetectorEpoch,
+        foreground: Option<crate::terminal::evidence::ForegroundObservation>,
+        fallback: Option<crate::terminal::evidence::FallbackObservation>,
+        observed_at: Instant,
+    },
     /// A pane's child process exited.
     PaneDied { pane_id: PaneId },
-    /// Fallback detector state changed in a pane.
+    /// Legacy fallback-only internal input. Runtime detectors use DetectorUpdate.
+    #[allow(dead_code)]
+    // Retained for internal compatibility fixtures; never foreground proof.
     StateChanged {
         pane_id: PaneId,
         agent: Option<Agent>,

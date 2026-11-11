@@ -237,7 +237,7 @@ fn integration_views_real_coven_roundtrip() {
     state.ensure_test_terminals();
     for terminal in state.terminals.values_mut() {
         terminal.cwd = root.0.clone();
-        assert!(terminal.detected_agent.is_none());
+        assert!(terminal.detected_agent().is_none());
         assert!(terminal.hook_authority.is_none());
         assert_eq!(terminal.state, crate::detect::AgentState::Unknown);
     }
@@ -543,7 +543,7 @@ fn integration_views_real_coven_roundtrip() {
         .terminals
         .iter()
         .map(|(id, t)| {
-            assert!(t.detected_agent.is_none() && t.hook_authority.is_none());
+            assert!(t.detected_agent().is_none() && t.hook_authority.is_none());
             assert!(t.agent_metadata.is_empty() && t.persisted_agent_session.is_none());
             assert_eq!(t.state, crate::detect::AgentState::Unknown);
             (

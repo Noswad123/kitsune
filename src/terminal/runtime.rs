@@ -15,6 +15,10 @@ use crate::layout::PaneId;
 pub struct TerminalRuntime(crate::pane::PaneRuntime);
 
 impl TerminalRuntime {
+    pub(crate) fn detector_epoch(&self) -> super::evidence::DetectorEpoch {
+        self.0.detector_epoch()
+    }
+
     pub fn shutdown(self) {
         self.0.shutdown();
     }
@@ -222,6 +226,11 @@ impl TerminalRuntime {
         &self,
     ) -> std::sync::Arc<tokio::sync::Notify> {
         self.0.agent_detection_reset_notify_for_test()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn agent_detection_wake_notify_for_test(&self) -> Arc<Notify> {
+        self.0.agent_detection_wake_notify_for_test()
     }
 
     #[cfg(test)]

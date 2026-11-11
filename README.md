@@ -7,7 +7,10 @@ This fork is branded around the `kitsune` command and local Kitsune runtime stat
 
 [APP_BOUNDARIES.md](APP_BOUNDARIES.md) records the 2026-10-22 target: a general
 multiplexer, with agent-aware behavior moving to optional Coven integration.
-Built-in agent features described below still exist; extraction is not shipped.
+Built-in management remains during transition, except new Claude/Codex/Copilot hook and Pi/OpenCode reference-extension installation
+on Linux is now retired here and owned by Coven. macOS/Windows installation and
+recommendation/update paths remain until matching Coven adapters. Complete
+all-platform extraction is not shipped.
 
 Initial opt-in observation is implemented in Coven only, using one explicitly
 selected existing `session.snapshot` API socket (protocol 18). See the
@@ -26,6 +29,30 @@ Sources are logical labels, not authentication. Coven's separate foreground
 publisher supplies group/role text; Kitsune annotations add no workspace annotations,
 group model, widgets, new panels or agent-feature extraction.
 The [prototype notes](ANNOTATION_MODEL_PROTOTYPE.md) remain historical context.
+
+Optional generic `snapshot.process_observation` v1 now reports Linux
+`pane_foreground_cohort`/`unclassified` with binary protocol 18 unchanged.
+Coven's production [discovery/watch](../coven/AGENT_DISCOVERY_CONTRACT.md) uses it
+for all-22-literal-family hints, not Kit agent APIs/hints or native status/identity.
+Coven rejects Windows `selected_process`/`legacy_agent_aware` and macOS first cut;
+metadata is not authenticated platform/live attestation or a full process catalog.
+No matching detector retirement. The internal [typed evidence seam](DETECTOR_EVIDENCE_SEPARATION.md)
+now separates foreground-owner evidence, fallback and historical identity. Restore
+history/screen-only data cannot grant native ownership; restored readiness needs a
+matching probe or accepted fallback. This is deliberate readiness/authority hardening,
+not blanket behavioral compatibility. No external mode, new Config, wire/API/snapshot
+field changes or toggle/kill/hide controls ship. Temporary duplicate legacy policy is not sole
+ownership/full status. Five prior Linux configuration retirements and pending
+non-Linux adapters stand. [Scoped validation](../coven/AGENT_MANAGEMENT_MIGRATION.md#discovery-validation-table)
+records 201 focused Coven checks, 249 Kit API checks and lint/MSRV/release/package
+validation, not added to historical OpenCode results. Read housekeeping may create
+a default workspace/shell; no live installed Kit configuration was changed. These
+discovery counts are historical, not added to **1,318 distinct Kit seam checks**
+and separate **50 Coven cross-compatibility checks**. The evidence guide records
+completed scoped validation, strict all-target lint and final confirmation reruns,
+plus ENOSPC-aborted workspace CLI selection, a zero-match filter and reproduced
+stale golden/test-only corrections. No full-suite or new production UI behavior
+is claimed beyond intended evidence hardening.
 
 ## Integrations: generic presentation and messaging
 
@@ -106,7 +133,118 @@ Kitsune includes a session navigator and an agents-only selector:
 
 ## Legacy agent hooks
 
-Legacy agent-hook installer targets are `pi`, `opencode`, `claude`, `codex`, `copilot`, and `djinn`. These fixed targets and `integration.install` / `integration.uninstall` are separate from generic `integrations.sources`, not its provider registry. Installer logic remains during transition. Djinn support remains a built-in agent kind for process detection, integration status, interactive startup through `kitsune agent start --kind djinn`, and authoritative lifecycle reports from source `kitsune:djinn`.
+New **OpenCode** plugin install/recommend/update/bulk paths retire **on Linux only**,
+before discovery and without running Coven. See [migration guide](OPENCODE_EXTENSION_MIGRATION.md)
+and optional sibling [contract](../coven/OPENCODE_EXTENSION_CONTRACT.md). Coven owns
+explicit existing absolute `plugin` or `plugins` root placement, not JSON settings,
+directory/package creation, probes or autodiscovery. Both roots are native-supported;
+do not double-install, since no across-root dedupe/authority exists. Full v9 asset,
+legacy CLI/status/uninstall/all six targets/old ingress and non-Linux legacy
+new-install paths remain. **Migration drops working/blocked/idle to references
+only**, unknown even fresh, not full OpenCode management completion.
+
+Authoritative canonical anomalyco/opencode release: **v1.19.5**, commit
+`810c0eba1a7348036f8bdf61e6632d0c36c6876c`; changed dev `611cee9` unsupported.
+The named async plugin's event/dispose hooks run in the native server's exact
+directory instance, not whole-project or selected TUI/pane/attach scope. Remote
+servers need executable/socket there. Full root DTO info.id/sessionID equality and
+undefined/omitted parentID are required, with no cache/SDK reads/enumeration; quiet
+resumed sessions need not emit created/updated events. Conservative DTO validation
+caps summary.diffs and permission at 256; capacity precedes DTO work. FIFO 32 pending
+plus one active, incoming-full drop, no persistent queue/deduplication/retry.
+Strict three-string `coven.opencode-extension.v1` envelopes require matching request/
+payload event; provider/event maps interpretation, not authenticated origin.
+Native `agent report` remains Claude/Codex/Copilot only; Pi's envelope is separate.
+
+Exact full-v9 bytes/SHA and consent are required. Shared private two-leaf v1
+journaling preserves immutable originals and rollback after uninstall, with separate
+OpenCode namespaces and [Pi 887451b frozen compatibility](../coven/tests/pi_extension_frozen_compatibility.rs).
+**Stop native servers/watchers before apply; restart the native server after manual
+apply**, not just TUI attach. No automatic restart or in-memory authority release.
+Five providers retain store-v1's same five fields/aggregate 128 cap; upgrade receiver
+first, since older binaries reject new providers and stored records limit downgrade.
+Linux apply only; Unix preview/receiver is macOS-unvalidated, Windows-unsupported.
+The [historical OpenCode scoped table](../coven/AGENT_MANAGEMENT_MIGRATION.md#opencode-validation-table)
+records Kit **111 integration/10 OpenCode checks** (overlapping), plus **six legacy-asset
+harness checks**; Coven shared 20/workflows 14/Node 12 with Bun harness coverage.
+The historical OpenCode Coven scope passed 236 focused Rust checks and lint/MSRV/build/package
+checks, with receipt-timing limits recorded. Historical Pi totals are not additive;
+no installed-native operational or cross-platform certification is claimed.
+
+New **Pi** extension install/recommend/update/bulk paths are retired **on Linux
+only**, before discovery and without auto-running Coven. Coven owns explicit
+existing-root reference-extension placement; see [PI_EXTENSION_MIGRATION.md](PI_EXTENSION_MIGRATION.md)
+and optional sibling [contract](../coven/PI_EXTENSION_CONTRACT.md). **Migration
+drops working/blocked/idle reporting to references only**, always unknown. It is
+not full Pi management or native activation proof. Non-Linux full-v7 paths and
+all-platform status/uninstall/old ingress/lifecycle remain until explicit migration.
+All six targets remain. Pi discovery/lifecycle/start/resume/restore remain pending.
+
+Pi reports a strict Coven three-field envelope through `report-extension`, not
+native hook JSON. hasUI includes TUI/RPC, not root/TUI proof or headless capture;
+the pinned source declares 1.5.2 on main, not a release tag. Exact-v7 bytes/consent
+are required. Coven's separate journal retains originals and rollback after
+uninstall; normal uninstall never revives Kit. Stop providers/watchers before
+mutation: no approval changes, atomic activation, autoload or live authority
+release. Upgrade receiver first because older binaries reject Pi records despite
+schema 1. The historical [Pi validation record](../coven/AGENT_MANAGEMENT_MIGRATION.md#pi-validation-table)
+covers 107 integration and 9 Pi checks here (overlapping filters), plus Coven
+fixture checks, not native operational or cross-platform acceptance.
+
+New **Copilot** hook installation/recommendation/update/bulk paths are retired
+**on Linux only**, with immediate Coven guidance before discovery or mutation.
+Non-Linux paths, status inspection, explicit legacy uninstall and old ingress
+remain. Coven manages one explicit `settings.json` using direct SessionStart
+handlers and strict JSON (native JSONC is refused). Capture is reference-only,
+always unknown, not native delivery, approval or activity proof. See
+[COPILOT_HOOK_MIGRATION.md](COPILOT_HOOK_MIGRATION.md) for explicit preview/apply,
+verified opt-in migration and guarded byte/mode-exact rollback.
+
+New **Codex** hook installation/recommendation/update/bulk paths are also retired
+**on Linux only**, before provider/config discovery and without auto-running Coven.
+Non-Linux legacy installer/assets/result type remain until matching Coven adapters.
+Read-only status, uninstall and old ingress stay compatible. See
+[CODEX_HOOK_MIGRATION.md](CODEX_HOOK_MIGRATION.md) for explicit two-file
+hooks.json/config.toml previews, global hook enablement consent (not native trust),
+SessionStart-only reference capture and guarded two-file rollback/recovery.
+Codex never reports working/idle: even fresh records are unknown. Normal Coven
+uninstall leaves the shared global hook feature enabled and never revives Kit
+commands; native approval remains user-controlled. A config write is not native
+operational certification. The shared filesystem extraction preserves Claude
+behavior/v2 receipts/errors/statuses; Codex has a distinct v1 journal.
+
+New Claude hook installation **on Linux is Coven-owned**: Linux Kitsune refuses
+`integration install claude` immediately with Coven guidance, before provider or
+configuration discovery. API callers receive `integration_install_failed` with the
+same Linux-qualified guidance; Claude is excluded from startup recommendations
+and update/bulk candidates **on Linux only**. Non-Linux production
+`legacy_install_claude`, assets/result type and recommendation/update/bulk paths
+remain until matching Coven adapters are ready. Coven hook apply is Linux-only;
+Unix preview is not a replacement mutator, its receiver is Windows-unsupported,
+and macOS capture has not been validated. See
+[CLAUDE_HOOK_MIGRATION.md](CLAUDE_HOOK_MIGRATION.md) for explicit
+preview/apply migration, private receiver/inventory, rollback and recovery limits.
+
+All six `IntegrationTarget::ALL` entries, Claude/Codex/Copilot/Pi/OpenCode status inspection, uninstall and old
+hook ingress remain on all platforms. Legacy UI settings remain for other
+providers/platforms. Claude process/screen fallback, start/resume and agent restore
+are **still Kitsune**, as are Codex/Copilot/Pi/OpenCode discovery/status/start/resume/restore,
+not transferred by retiring installers. Separate built-in `djinn` handling and
+other applicable transfers remain pending. Fixed targets and `integration.install/uninstall` are
+separate from generic `integrations.sources`, not its provider registry.
+
+The confirmed target includes **all** discovery/status interpretation, hooks,
+start/resume and agent restore in Coven on all platforms, not just Claude/Linux;
+retained compatibility is transitional, not permanent ownership. The authoritative
+[Coven ownership matrix](../coven/AGENT_MANAGEMENT_MIGRATION.md) is optional sibling
+navigation, not an install/startup dependency. No user configurations or running
+sessions are automatically migrated. Coven's optional inventory view uses generic
+snapshot/`integration.view.*` only; failed presentation does not stop its capture,
+and selecting a last-reported row grants no launch/adoption/resume authority.
+
+Djinn support remains a built-in agent kind for process detection, integration
+status, interactive startup through `kitsune agent start --kind djinn`, and
+authoritative lifecycle reports from source `kitsune:djinn`.
 
 Kitsune does not resolve or install Djinn versions itself. Install or update the managed Jamal Arcana tool suite with `arcana update` to keep Kitsune and Djinn on compatible builds.
 

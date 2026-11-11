@@ -392,7 +392,7 @@ mod integration_views_sidebar {
         state.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
         state.ensure_test_terminals();
         for terminal in state.terminals.values_mut() {
-            terminal.detected_agent = Some(crate::detect::Agent::Pi);
+            terminal.set_fallback_agent_for_test(Some(crate::detect::Agent::Pi));
         }
         state.active = Some(0);
         state.mode = Mode::Terminal;
@@ -1073,7 +1073,7 @@ mod tests {
             .terminals
             .get_mut(&first_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Pi);
+            .set_fallback_agent_for_test(Some(Agent::Pi));
         let second_terminal_id = app.state.workspaces[0].tabs[first_tab].panes[&second_pane]
             .attached_terminal_id
             .clone();
@@ -1081,7 +1081,7 @@ mod tests {
             .terminals
             .get_mut(&second_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Claude);
+            .set_fallback_agent_for_test(Some(Agent::Claude));
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
@@ -1118,7 +1118,7 @@ mod tests {
                 .terminals
                 .get_mut(&terminal_id)
                 .unwrap()
-                .detected_agent = Some(agent);
+                .set_fallback_agent_for_test(Some(agent));
         }
         app.state.sidebar_agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent]];
         app.state.sidebar_agents.rows_by_agent.insert(
@@ -1163,7 +1163,7 @@ mod tests {
                 .terminals
                 .get_mut(&terminal_id)
                 .unwrap()
-                .detected_agent = Some(Agent::Claude);
+                .set_fallback_agent_for_test(Some(Agent::Claude));
         }
         app.state.agent_view_override = Some(crate::api::schema::AgentViewSetParams {
             source: "example.views".to_string(),
@@ -1227,7 +1227,7 @@ mod tests {
             .terminals
             .get_mut(&first_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Pi);
+            .set_fallback_agent_for_test(Some(Agent::Pi));
         let second_terminal_id = app.state.workspaces[1].tabs[0].panes[&second_pane]
             .attached_terminal_id
             .clone();
@@ -1235,7 +1235,7 @@ mod tests {
             .terminals
             .get_mut(&second_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Claude);
+            .set_fallback_agent_for_test(Some(Agent::Claude));
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
@@ -1285,7 +1285,7 @@ mod tests {
             .terminals
             .get_mut(&first_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Pi);
+            .set_fallback_agent_for_test(Some(Agent::Pi));
         for (tab_idx, pane_id, agent) in tabs {
             let terminal_id = app.state.workspaces[0].tabs[tab_idx].panes[&pane_id]
                 .attached_terminal_id
@@ -1294,7 +1294,7 @@ mod tests {
                 .terminals
                 .get_mut(&terminal_id)
                 .unwrap()
-                .detected_agent = Some(agent);
+                .set_fallback_agent_for_test(Some(agent));
         }
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -1339,7 +1339,7 @@ mod tests {
             .terminals
             .get_mut(&first_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Pi);
+            .set_fallback_agent_for_test(Some(Agent::Pi));
         let second_terminal_id = app.state.workspaces[0].tabs[second_tab].panes[&second_pane]
             .attached_terminal_id
             .clone();
@@ -1347,7 +1347,7 @@ mod tests {
             .terminals
             .get_mut(&second_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Claude);
+            .set_fallback_agent_for_test(Some(Agent::Claude));
         for (tab_idx, pane_id, agent) in extra_tabs {
             let terminal_id = app.state.workspaces[0].tabs[tab_idx].panes[&pane_id]
                 .attached_terminal_id
@@ -1356,7 +1356,7 @@ mod tests {
                 .terminals
                 .get_mut(&terminal_id)
                 .unwrap()
-                .detected_agent = Some(agent);
+                .set_fallback_agent_for_test(Some(agent));
         }
         app.state.active = Some(0);
         app.state.selected = 0;
@@ -1403,7 +1403,7 @@ mod tests {
             .terminals
             .get_mut(&first_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Pi);
+            .set_fallback_agent_for_test(Some(Agent::Pi));
         let second_terminal_id = app.state.workspaces[0].tabs[second_tab].panes[&second_pane]
             .attached_terminal_id
             .clone();
@@ -1411,7 +1411,7 @@ mod tests {
             .terminals
             .get_mut(&second_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Claude);
+            .set_fallback_agent_for_test(Some(Agent::Claude));
         app.state.active = Some(0);
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
@@ -1458,7 +1458,7 @@ mod tests {
                 .attached_terminal_id
                 .clone();
             let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-            terminal.detected_agent = Some(Agent::Claude);
+            terminal.set_fallback_agent_for_test(Some(Agent::Claude));
             terminal.state = state;
         };
         set_state(&mut app, 0, first_pane, AgentState::Working);

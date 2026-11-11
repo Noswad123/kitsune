@@ -1778,7 +1778,9 @@ impl HeadlessServer {
         let suppress_active_tab_notifications =
             self.active_tab_suppresses_notifications(is_active_tab);
 
-        if self.app.state.sound.allows(update.known_agent) {
+        if self.app.state.sound.allows(update.known_agent)
+            && !(update.projection_reconfirmed && update.state == crate::detect::AgentState::Idle)
+        {
             if let Some(sound) =
                 crate::app::actions::notification_sound_for_state_change_with_agent_labels(
                     suppress_active_tab_notifications,
@@ -2029,11 +2031,17 @@ impl HeadlessServer {
                 });
                 true
             }
-            AppEvent::StateChanged { pane_id, agent, .. } => {
+            AppEvent::StateChanged { pane_id, .. } | AppEvent::DetectorUpdate { pane_id, .. } => {
                 // Capture toast before handling.
                 let toast_before = self.app.state.toast.clone();
                 let pane_id_val = *pane_id;
-                let agent_val = *agent;
+                let detector_update = matches!(&ev, AppEvent::DetectorUpdate { .. });
+                let detector_observation = match &ev {
+                    AppEvent::DetectorUpdate {
+                        epoch, observed_at, ..
+                    } => Some((*epoch, *observed_at)),
+                    _ => None,
+                };
 
                 // Find the previous effective state of this pane before the event
                 // is processed. Notifications must follow effective state changes,
@@ -2044,8 +2052,10 @@ impl HeadlessServer {
                 // Handle the state change (updates pane state, sets toast on AppState).
                 // Headless mode disables local sound playback separately from the
                 // sound policy so reloads can keep server-side notification policy live.
-                self.sync_foreground_client_state();
-                self.app.handle_internal_event(ev);
+                if !detector_update {
+                    self.sync_foreground_client_state();
+                }
+                let changed = self.app.handle_internal_event_with_render_impact(ev);
 
                 // Forward sound notification to clients when server-side sound policy allows it.
                 let is_active_tab = self
@@ -2063,9 +2073,24 @@ impl HeadlessServer {
 
                 let next_state = self.pane_effective_state(pane_id_val);
                 let next_agent_label = self.pane_effective_agent_label(pane_id_val);
+                let projection_reconfirmed_idle = next_state == crate::detect::AgentState::Idle
+                    && detector_observation.is_some_and(|(epoch, observed_at)| {
+                        self.app
+                            .find_pane(pane_id_val)
+                            .and_then(|(_, pane)| {
+                                self.app.state.terminals.get(&pane.attached_terminal_id)
+                            })
+                            .is_some_and(|terminal| {
+                                terminal.detector_projection_reconfirmed(epoch, observed_at)
+                            })
+                    });
+                let agent_val = next_agent_label
+                    .as_deref()
+                    .and_then(crate::detect::parse_agent_label);
 
                 if self.app.state.toast_config.delay_seconds == 0
                     && self.app.state.sound.allows(agent_val)
+                    && !projection_reconfirmed_idle
                 {
                     if let Some(sound) =
                         crate::app::actions::notification_sound_for_state_change_with_agent_labels(
@@ -2086,6 +2111,7 @@ impl HeadlessServer {
 
                 let toast_msg = if self.app.state.toast_config.delay_seconds == 0
                     && should_forward_toast_to_clients(self.app.state.toast_config.delivery)
+                    && !projection_reconfirmed_idle
                 {
                     if self.app.state.toast.is_some() && self.app.state.toast != toast_before {
                         self.app
@@ -2116,7 +2142,7 @@ impl HeadlessServer {
                     );
                 }
 
-                true
+                changed
             }
             AppEvent::HookStateReported {
                 pane_id,
@@ -4813,6 +4839,8 @@ mod tests {
         server.app.state.active = Some(0);
         server.app.state.selected = 0;
         server.app.state.mode = crate::app::Mode::Terminal;
+        server.app.state.sidebar_width = 36;
+        // Legacy native-agent tokens do not populate the generic Integrations block.
         server.app.state.sidebar_agents.rows = vec![vec![
             crate::config::AgentSidebarToken::TerminalTitleStripped,
         ]];
@@ -4826,7 +4854,7 @@ mod tests {
             .terminals
             .get_mut(&terminal_id)
             .unwrap()
-            .detected_agent = Some(crate::detect::Agent::Claude);
+            .set_fallback_agent_for_test(Some(crate::detect::Agent::Claude));
         let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
         runtime.test_process_pty_bytes(b"\x1b]0;\xe2\xa0\x8b task\x07");
         server
@@ -4850,7 +4878,24 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol())
             .collect::<String>();
-        assert!(rendered.contains("task"), "rendered frame: {rendered:?}");
+        assert!(server
+            .app
+            .state
+            .integration_views
+            .configured_sources()
+            .is_empty());
+        assert!(
+            rendered.contains("Integrations"),
+            "rendered frame: {rendered:?}"
+        );
+        assert!(
+            rendered.contains("No integrations configured"),
+            "rendered frame: {rendered:?}"
+        );
+        assert!(
+            !rendered.contains("task"),
+            "native title leaked into frame: {rendered:?}"
+        );
 
         server
             .app
@@ -6155,6 +6200,345 @@ next_tab = ""
         assert_eq!(server.app.state.annotations.project(&id, deadline), None);
         assert_eq!(server.app.state.next_annotation_deadline, None);
         assert!(!server.app.expire_due_annotations(deadline));
+        server.app.state.assert_invariants_for_test();
+    }
+
+    #[tokio::test]
+    async fn detector_evidence_only_forwarding_is_quiet_and_preserves_unseen() {
+        use crate::terminal::evidence::{FallbackObservation, ForegroundObservation};
+        let mut server = test_headless_server();
+        server.app.state = crate::app::state::AppState::test_with_adversarial_identity_state();
+        server.app.state.local_sound_playback = false;
+        let pane_id = server.app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = server.app.state.terminal_id_for_pane(0, pane_id).unwrap();
+        let old_runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+        let stale_epoch = old_runtime.detector_epoch();
+        server
+            .app
+            .terminal_runtimes
+            .insert(terminal_id.clone(), old_runtime);
+        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+        let epoch = runtime.detector_epoch();
+        server
+            .app
+            .terminal_runtimes
+            .insert(terminal_id.clone(), runtime);
+        let (client_tx, control_rx, _frame_rx) = test_client_writer();
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (80, 24),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                Some(true),
+                1,
+                RenderEncoding::SemanticFrame,
+                Some(client_tx),
+            ),
+        );
+        server.foreground_client_id = Some(1);
+        server.handle_internal_event_with_forwarding(AppEvent::DetectorUpdate {
+            pane_id,
+            epoch,
+            foreground: None,
+            fallback: Some(FallbackObservation {
+                agent: Some(crate::detect::Agent::Djinn),
+                state: crate::detect::AgentState::Idle,
+                visible_blocker: false,
+                visible_working: false,
+            }),
+            observed_at: Instant::now(),
+        });
+        for tab in &mut server.app.state.workspaces[0].tabs {
+            if let Some(pane) = tab.panes.get_mut(&pane_id) {
+                pane.seen = false;
+            }
+        }
+        let event_count = server.app.event_hub.events_after(0).len();
+        let toast = server.app.state.toast.clone();
+        let state_seq = server.app.state.terminals[&terminal_id].last_agent_state_change_seq;
+        assert!(
+            !server.handle_internal_event_with_forwarding(AppEvent::DetectorUpdate {
+                pane_id,
+                epoch: stale_epoch,
+                foreground: Some(ForegroundObservation::Confirmed {
+                    agent: crate::detect::Agent::Djinn,
+                    process_group_id: Some(99),
+                }),
+                fallback: Some(FallbackObservation {
+                    agent: Some(crate::detect::Agent::Djinn),
+                    state: crate::detect::AgentState::Working,
+                    visible_blocker: false,
+                    visible_working: true,
+                }),
+                observed_at: Instant::now(),
+            })
+        );
+        assert!(
+            !server.handle_internal_event_with_forwarding(AppEvent::DetectorUpdate {
+                pane_id,
+                epoch,
+                foreground: Some(ForegroundObservation::Confirmed {
+                    agent: crate::detect::Agent::Djinn,
+                    process_group_id: Some(42),
+                }),
+                fallback: None,
+                observed_at: Instant::now(),
+            })
+        );
+        assert!(
+            !server.app.state.workspaces[0]
+                .pane_state(pane_id)
+                .unwrap()
+                .seen
+        );
+        assert_eq!(server.app.event_hub.events_after(0).len(), event_count);
+        assert_eq!(server.app.state.toast, toast);
+        assert_eq!(
+            server.app.state.terminals[&terminal_id].last_agent_state_change_seq,
+            state_seq
+        );
+        assert!(control_rx.try_recv().is_err());
+        assert!(server.app.state.terminals[&terminal_id]
+            .foreground_agent_evidence()
+            .is_some());
+        server.app.state.assert_invariants_for_test();
+    }
+
+    #[tokio::test]
+    async fn detector_reset_reconfirmation_is_quiet_but_buffered_completion_notifies_once() {
+        use crate::detect::{Agent, AgentState};
+        use crate::terminal::evidence::{FallbackObservation, ForegroundObservation};
+        for initial in [AgentState::Idle, AgentState::Working] {
+            let mut server = test_headless_server();
+            server.app.state = crate::app::state::AppState::test_with_adversarial_identity_state();
+            server.app.state.local_sound_playback = false;
+            server.app.state.sound.enabled = true;
+            server.app.state.toast_config.delivery = crate::config::ToastDelivery::System;
+            server.app.state.toast_config.delay_seconds = 0;
+            let pane_id = server.app.state.workspaces[0].tabs[0].root_pane;
+            let terminal_id = server.app.state.terminal_id_for_pane(0, pane_id).unwrap();
+            let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+            let epoch = runtime.detector_epoch();
+            server
+                .app
+                .terminal_runtimes
+                .insert(terminal_id.clone(), runtime);
+            server
+                .app
+                .state
+                .handle_app_event(AppEvent::AgentSessionReported {
+                    pane_id,
+                    source: "kitsune:djinn".into(),
+                    agent_label: "djinn".into(),
+                    seq: Some(0),
+                    session_ref: crate::agent_resume::AgentSessionRef::id("reset-session"),
+                    session_start_source: Some("new".into()),
+                });
+            server.handle_internal_event_with_forwarding(AppEvent::HookStateReported {
+                pane_id,
+                source: "kitsune:djinn".into(),
+                agent_label: "djinn".into(),
+                state: initial,
+                message: None,
+                seq: Some(1),
+                session_ref: crate::agent_resume::AgentSessionRef::id("reset-session"),
+            });
+            server.handle_internal_event_with_forwarding(AppEvent::DetectorUpdate {
+                pane_id,
+                epoch,
+                foreground: Some(ForegroundObservation::Confirmed {
+                    agent: Agent::Djinn,
+                    process_group_id: Some(42),
+                }),
+                fallback: Some(FallbackObservation {
+                    agent: Some(Agent::Djinn),
+                    state: AgentState::Idle,
+                    visible_blocker: false,
+                    visible_working: false,
+                }),
+                observed_at: Instant::now(),
+            });
+            assert_eq!(server.app.state.terminals[&terminal_id].state, initial);
+            assert!(
+                server.app.state.workspaces[0]
+                    .pane_state(pane_id)
+                    .unwrap()
+                    .seen
+            );
+            let (client_tx, control_rx, _frame_rx) = test_client_writer();
+            server.clients.insert(
+                1,
+                ClientConnection::new(
+                    (80, 24),
+                    crate::kitty_graphics::HostCellSize::default(),
+                    crate::terminal_theme::TerminalTheme::default(),
+                    Some(false),
+                    1,
+                    RenderEncoding::SemanticFrame,
+                    Some(client_tx),
+                ),
+            );
+            server.foreground_client_id = Some(1);
+            server.sync_foreground_client_state();
+            server.handle_internal_event_with_forwarding(AppEvent::DetectorUpdate {
+                pane_id,
+                epoch,
+                foreground: Some(ForegroundObservation::Reset),
+                fallback: None,
+                observed_at: Instant::now(),
+            });
+            assert_eq!(
+                server.app.state.terminals[&terminal_id].state,
+                AgentState::Unknown
+            );
+            if initial == AgentState::Working {
+                // The only Idle hook report arrives while suspended, before proof.
+                server.handle_internal_event_with_forwarding(AppEvent::HookStateReported {
+                    pane_id,
+                    source: "kitsune:djinn".into(),
+                    agent_label: "djinn".into(),
+                    state: AgentState::Idle,
+                    message: None,
+                    seq: Some(2),
+                    session_ref: crate::agent_resume::AgentSessionRef::id("reset-session"),
+                });
+                assert_eq!(
+                    server.app.state.terminals[&terminal_id].state,
+                    AgentState::Unknown
+                );
+            }
+            assert!(control_rx.try_recv().is_err());
+            let observed_at = Instant::now();
+            server.handle_internal_event_with_forwarding(AppEvent::DetectorUpdate {
+                pane_id,
+                epoch,
+                foreground: Some(ForegroundObservation::Confirmed {
+                    agent: Agent::Djinn,
+                    process_group_id: Some(42),
+                }),
+                fallback: None,
+                observed_at,
+            });
+            assert_eq!(
+                server.app.state.terminals[&terminal_id].state,
+                AgentState::Idle
+            );
+            assert!(server.app.state.terminals[&terminal_id].full_lifecycle_hook_authority_active());
+            assert_eq!(
+                server.app.state.terminals[&terminal_id]
+                    .detector_projection_reconfirmed(epoch, observed_at),
+                initial == AgentState::Idle
+            );
+            assert_eq!(
+                server.app.state.workspaces[0]
+                    .pane_state(pane_id)
+                    .unwrap()
+                    .seen,
+                initial == AgentState::Idle
+            );
+            assert!(server.app.state.toast.is_none());
+            assert!(server.app.state.pending_agent_notifications.is_empty());
+            let messages: Vec<_> = control_rx.try_iter().map(read_server_message).collect();
+            let completions = usize::from(initial == AgentState::Working);
+            assert_eq!(messages.iter().filter(|message| matches!(message, ServerMessage::Notify { kind: protocol::NotifyKind::Sound, message, .. } if message == "agent done")).count(), completions);
+            assert_eq!(
+                messages
+                    .iter()
+                    .filter(|message| matches!(
+                        message,
+                        ServerMessage::Notify {
+                            kind: protocol::NotifyKind::SystemToast,
+                            ..
+                        }
+                    ))
+                    .count(),
+                completions
+            );
+            assert_eq!(messages.len(), completions * 2);
+            server.handle_internal_event_with_forwarding(AppEvent::DetectorUpdate {
+                pane_id,
+                epoch,
+                foreground: Some(ForegroundObservation::Confirmed {
+                    agent: Agent::Djinn,
+                    process_group_id: Some(42),
+                }),
+                fallback: None,
+                observed_at: Instant::now(),
+            });
+            assert!(
+                control_rx.try_recv().is_err(),
+                "completion must not require a resend or repeat on another probe"
+            );
+            server.app.state.assert_invariants_for_test();
+        }
+    }
+
+    #[tokio::test]
+    async fn detector_update_promotes_pending_hook_through_headless_status_pipeline() {
+        use crate::terminal::evidence::ForegroundObservation;
+        let mut server = test_headless_server();
+        server.app.state = crate::app::state::AppState::test_with_adversarial_identity_state();
+        server.app.state.local_sound_playback = false;
+        let pane_id = server.app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = server.app.state.terminal_id_for_pane(0, pane_id).unwrap();
+        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+        let epoch = runtime.detector_epoch();
+        server
+            .app
+            .terminal_runtimes
+            .insert(terminal_id.clone(), runtime);
+        server
+            .app
+            .state
+            .handle_app_event(AppEvent::AgentSessionReported {
+                pane_id,
+                source: "kitsune:djinn".into(),
+                agent_label: "djinn".into(),
+                seq: Some(0),
+                session_ref: crate::agent_resume::AgentSessionRef::id("djinn-session"),
+                session_start_source: Some("new".into()),
+            });
+        let observed_at = Instant::now();
+        server.handle_internal_event_with_forwarding(AppEvent::HookStateReported {
+            pane_id,
+            source: "kitsune:djinn".into(),
+            agent_label: "djinn".into(),
+            state: crate::detect::AgentState::Working,
+            message: None,
+            seq: Some(1),
+            session_ref: crate::agent_resume::AgentSessionRef::id("djinn-session"),
+        });
+        assert!(!server.app.state.terminals[&terminal_id].full_lifecycle_hook_authority_active());
+        assert!(
+            server.handle_internal_event_with_forwarding(AppEvent::DetectorUpdate {
+                pane_id,
+                epoch,
+                foreground: Some(ForegroundObservation::Confirmed {
+                    agent: crate::detect::Agent::Djinn,
+                    process_group_id: Some(42),
+                }),
+                fallback: None,
+                observed_at,
+            })
+        );
+        assert!(server.app.state.terminals[&terminal_id].full_lifecycle_hook_authority_active());
+        assert_eq!(
+            server.app.state.terminals[&terminal_id].state,
+            crate::detect::AgentState::Working
+        );
+        assert!(server
+            .app
+            .event_hub
+            .events_after(0)
+            .iter()
+            .any(|(_, event)| matches!(
+                event.data,
+                api::schema::EventData::PaneAgentStatusChanged {
+                    agent_status: api::schema::AgentStatus::Working,
+                    ..
+                }
+            )));
         server.app.state.assert_invariants_for_test();
     }
 
@@ -9753,8 +10137,8 @@ next_tab = ""
         }
     }
 
-    #[test]
-    fn stale_api_agent_report_does_not_forward_done_sound() {
+    #[tokio::test]
+    async fn stale_api_agent_report_does_not_forward_done_sound() {
         let mut server = test_headless_server();
         let background = crate::workspace::Workspace::test_new("background");
         let pane_id = background.tabs[0].root_pane;
@@ -9767,16 +10151,29 @@ next_tab = ""
             .unwrap()
             .attached_terminal_id
             .clone();
+        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+        let epoch = runtime.detector_epoch();
         server
             .app
-            .state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_detected_state(
-                Some(crate::detect::Agent::Pi),
-                crate::detect::AgentState::Idle,
-            );
+            .terminal_runtimes
+            .insert(terminal_id.clone(), runtime);
+        server.handle_internal_event_with_forwarding(AppEvent::DetectorUpdate {
+            pane_id,
+            epoch,
+            foreground: Some(
+                crate::terminal::evidence::ForegroundObservation::Confirmed {
+                    agent: crate::detect::Agent::Pi,
+                    process_group_id: None,
+                },
+            ),
+            fallback: Some(crate::terminal::evidence::FallbackObservation {
+                agent: Some(crate::detect::Agent::Pi),
+                state: crate::detect::AgentState::Idle,
+                visible_blocker: false,
+                visible_working: false,
+            }),
+            observed_at: Instant::now(),
+        });
         server
             .app
             .state

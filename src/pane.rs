@@ -22,9 +22,11 @@ use crate::detect::{Agent, AgentState};
 use crate::events::AppEvent;
 use crate::layout::PaneId;
 use crate::pty::actor::{PtyIoActor, PtyIoActorConfig, PtyIoActorHandle, PtyReadResult};
+use crate::terminal::evidence::{DetectorEpoch, FallbackObservation, ForegroundObservation};
 
 mod agent_detection;
 mod cursor;
+mod detector_producer;
 mod input;
 mod kitty_keyboard;
 mod osc;
@@ -39,6 +41,7 @@ use self::agent_detection::{
     DetectionScreenReadInput, PendingIdleConfirmation, ScreenDetectionPublishInput,
     AGENT_PENDING_IDLE_RECHECK, AGENT_STARTUP_GRACE_WINDOW,
 };
+use self::detector_producer::DetectorProducer;
 use self::terminal::{GhosttyPaneTerminal, PaneTerminal};
 pub(crate) use self::terminal::{
     TerminalDirtyPatch, TerminalDirtyPatchOutcome, TerminalReadSnapshot, TerminalTextMatch,
@@ -174,6 +177,7 @@ fn active_pending_release(
 async fn publish_state_changed_event(
     state_events: mpsc::Sender<AppEvent>,
     pane_id: PaneId,
+    epoch: DetectorEpoch,
     agent: Option<Agent>,
     state: AgentState,
     visible_blocker: bool,
@@ -185,13 +189,24 @@ async fn publish_state_changed_event(
     // Waiting for queue space here preserves correctness-critical state transitions
     // without blocking pane I/O.
     if let Err(e) = state_events
-        .send(AppEvent::StateChanged {
+        .send(AppEvent::DetectorUpdate {
             pane_id,
-            agent,
-            state,
-            visible_blocker,
-            visible_working,
-            process_exited,
+            epoch,
+            foreground: if process_exited {
+                agent.map(|agent| ForegroundObservation::Exited { agent })
+            } else {
+                None
+            },
+            fallback: Some(FallbackObservation {
+                agent,
+                state: if process_exited {
+                    AgentState::Idle
+                } else {
+                    state
+                },
+                visible_blocker,
+                visible_working,
+            }),
             observed_at,
         })
         .await
@@ -199,7 +214,7 @@ async fn publish_state_changed_event(
         warn!(
             pane = pane_id.raw(),
             err = %e,
-            "failed to deliver StateChanged event"
+            "failed to deliver detector fallback event"
         );
     }
 }
@@ -213,9 +228,13 @@ struct AgentDetectionPublishUpdate {
     process_exited: bool,
 }
 
+// Update the detector's existing publication bookkeeping and scoped evidence together.
+#[allow(clippy::too_many_arguments)]
 async fn apply_agent_detection_publish_update(
     state_events: mpsc::Sender<AppEvent>,
     pane_id: PaneId,
+    epoch: DetectorEpoch,
+    producer: &mut DetectorProducer,
     agent: Option<Agent>,
     update: AgentDetectionPublishUpdate,
     observed_at: std::time::Instant,
@@ -237,10 +256,14 @@ async fn apply_agent_detection_publish_update(
     };
     if update.process_exited {
         *foreground_shell_exit_reported = true;
+        if let Some(agent) = agent {
+            producer.observe(ForegroundObservation::Exited { agent });
+        }
     }
     publish_state_changed_event(
         state_events,
         pane_id,
+        epoch,
         agent,
         update.state,
         update.visible_blocker,
@@ -609,6 +632,8 @@ fn probe_foreground_process(pid: u32, foreground_pgid: Option<u32>) -> ProcessPr
 #[cfg(unix)]
 fn spawn_basic_detection_task(
     pane_id: PaneId,
+    epoch: DetectorEpoch,
+    detect_wake: Arc<Notify>,
     child_pid: Arc<AtomicU32>,
     terminal: Arc<PaneTerminal>,
     detection_content_seq: Arc<AtomicU64>,
@@ -625,6 +650,7 @@ fn spawn_basic_detection_task(
     let pending_release_for_task = pending_release.clone();
 
     let handle = tokio::spawn(async move {
+        let mut producer = DetectorProducer::default();
         let mut agent_presence = AgentDetectionPresence::from_agent(None);
         let mut state = AgentState::Unknown;
         let mut last_visible_idle = false;
@@ -652,8 +678,12 @@ fn spawn_basic_detection_task(
             };
             tokio::select! {
                 _ = tokio::time::sleep(sleep_duration) => {}
+                _ = detect_wake.notified() => {}
                 _ = detect_reset.notified() => {
-                    agent_presence = AgentDetectionPresence::from_agent(None);
+                    producer.reset_presence(
+                        &state_events, pane_id, epoch, &mut agent_presence,
+                        active_pending_release(&pending_release_for_task, std::time::Instant::now()),
+                    ).await;
                     state = AgentState::Unknown;
                     last_visible_idle = false;
                     last_visible_blocker = false;
@@ -741,6 +771,19 @@ fn spawn_basic_detection_task(
                     &mut pending_foreground_shell_clear,
                     &mut foreground_shell_exit_reported,
                 );
+                producer
+                    .publish_probe(
+                        &state_events,
+                        pane_id,
+                        epoch,
+                        new_agent,
+                        process_group_id,
+                        foreground_action,
+                        previous_agent,
+                        agent_presence.current_agent(),
+                        now,
+                    )
+                    .await;
                 if new_agent.is_some() {
                     last_foreground_pgid = process_group_id.or(foreground_pgid);
                     acquisition_started_at = None;
@@ -774,6 +817,7 @@ fn spawn_basic_detection_task(
                             publish_state_changed_event(
                                 state_events.clone(),
                                 pane_id,
+                                epoch,
                                 agent,
                                 AgentState::Idle,
                                 false,
@@ -887,6 +931,8 @@ fn spawn_basic_detection_task(
                     apply_agent_detection_publish_update(
                         state_events.clone(),
                         pane_id,
+                        epoch,
+                        &mut producer,
                         agent,
                         AgentDetectionPublishUpdate {
                             state: new_state,
@@ -969,6 +1015,7 @@ impl AgentDetectionPresence {
 /// Dropping this shuts down all background tasks and closes the PTY.
 pub struct PaneRuntime {
     pane_id: PaneId,
+    detector_epoch: DetectorEpoch,
     terminal: Arc<PaneTerminal>,
     io: PaneRuntimeIo,
     current_size: Cell<(u16, u16, u32, u32)>,
@@ -979,6 +1026,7 @@ pub struct PaneRuntime {
     detection_content_seq: Arc<AtomicU64>,
     full_lifecycle_authority_active: Arc<AtomicBool>,
     detect_reset_notify: Arc<Notify>,
+    detect_wake_notify: Arc<Notify>,
     pending_release: Arc<Mutex<Option<PendingAgentRelease>>>,
     preserve_processes_on_drop: bool,
     // Task handles for deterministic shutdown
@@ -1477,6 +1525,10 @@ fn publish_reported_cwd(
 }
 
 impl PaneRuntime {
+    pub(crate) fn detector_epoch(&self) -> DetectorEpoch {
+        self.detector_epoch
+    }
+
     pub fn shutdown(mut self) {
         if let Some(handle) = self.detect_handle.take() {
             handle.abort();
@@ -1844,8 +1896,12 @@ impl PaneRuntime {
         };
 
         let full_lifecycle_authority_active = Arc::new(AtomicBool::new(false));
+        let detector_epoch = DetectorEpoch::new();
+        let detect_wake_notify = Arc::new(Notify::new());
         let (detect_handle, detect_reset_notify, pending_release) = spawn_basic_detection_task(
             pane_id,
+            detector_epoch,
+            detect_wake_notify.clone(),
             child_pid.clone(),
             terminal.clone(),
             detection_content_seq.clone(),
@@ -1855,6 +1911,7 @@ impl PaneRuntime {
 
         Ok(Self {
             pane_id,
+            detector_epoch,
             terminal,
             io,
             current_size: Cell::new((rows, cols, cell_width_px, cell_height_px)),
@@ -1865,6 +1922,7 @@ impl PaneRuntime {
             detection_content_seq,
             full_lifecycle_authority_active,
             detect_reset_notify,
+            detect_wake_notify,
             pending_release,
             preserve_processes_on_drop: true,
             detect_handle: Some(detect_handle),
@@ -1888,6 +1946,7 @@ impl PaneRuntime {
         agent_detection: AgentDetection,
     ) -> std::io::Result<Self> {
         crate::logging::pane_spawn_started(pane_id.raw(), rows, cols, scrollback_limit_bytes);
+        let detector_epoch = DetectorEpoch::new();
 
         let (response_tx, _response_rx) = mpsc::channel::<Bytes>(1);
         let mut terminal = crate::ghostty::Terminal::new(cols, rows, scrollback_limit_bytes)
@@ -2000,6 +2059,7 @@ impl PaneRuntime {
         };
 
         // --- Detection task ---
+        let detect_wake_notify = Arc::new(Notify::new());
         let (detect_handle, detect_reset_notify, pending_release) = if agent_detection
             == AgentDetection::Enabled
         {
@@ -2019,10 +2079,12 @@ impl PaneRuntime {
             let render_dirty = render_dirty.clone();
             let detect_reset_notify = Arc::new(Notify::new());
             let detect_reset = detect_reset_notify.clone();
+            let detect_wake = detect_wake_notify.clone();
             let pending_release = Arc::new(Mutex::new(None));
             let pending_release_for_task = pending_release.clone();
 
             let handle = tokio::spawn(async move {
+                let mut producer = DetectorProducer::default();
                 let mut agent_presence =
                     AgentDetectionPresence::from_agent(initial_state.detected_agent);
                 let mut state = AgentState::Idle;
@@ -2062,8 +2124,12 @@ impl PaneRuntime {
                     };
                     tokio::select! {
                         _ = tokio::time::sleep(tick) => {}
+                        _ = detect_wake.notified() => {}
                         _ = detect_reset.notified() => {
-                            agent_presence = AgentDetectionPresence::from_agent(None);
+                            producer.reset_presence(
+                                &state_events, pane_id, detector_epoch, &mut agent_presence,
+                                active_pending_release(&pending_release_for_task, Instant::now()),
+                            ).await;
                             state = AgentState::Unknown;
                             last_visible_idle = false;
                             last_foreground_pgid = None;
@@ -2157,6 +2223,19 @@ impl PaneRuntime {
                                 &mut pending_foreground_shell_clear,
                                 &mut foreground_shell_exit_reported,
                             );
+                            producer
+                                .publish_probe(
+                                    &state_events,
+                                    pane_id,
+                                    detector_epoch,
+                                    new_agent,
+                                    process_group_id,
+                                    foreground_action,
+                                    previous_agent,
+                                    agent_presence.current_agent(),
+                                    now,
+                                )
+                                .await;
                             if new_agent.is_some() {
                                 last_foreground_pgid = process_group_id;
                                 acquisition_started_at = None;
@@ -2193,6 +2272,7 @@ impl PaneRuntime {
                                         publish_state_changed_event(
                                             state_events.clone(),
                                             pane_id,
+                                            detector_epoch,
                                             agent,
                                             AgentState::Idle,
                                             false,
@@ -2335,6 +2415,8 @@ impl PaneRuntime {
                             apply_agent_detection_publish_update(
                                 state_events.clone(),
                                 pane_id,
+                                detector_epoch,
+                                &mut producer,
                                 agent,
                                 AgentDetectionPublishUpdate {
                                     state: new_state,
@@ -2367,6 +2449,7 @@ impl PaneRuntime {
 
         Ok(Self {
             pane_id,
+            detector_epoch,
             terminal,
             io,
             current_size: Cell::new((rows, cols, 0, 0)),
@@ -2377,6 +2460,7 @@ impl PaneRuntime {
             detection_content_seq,
             full_lifecycle_authority_active,
             detect_reset_notify,
+            detect_wake_notify,
             pending_release,
             preserve_processes_on_drop: false,
             detect_handle,
@@ -2403,6 +2487,11 @@ impl PaneRuntime {
     }
 
     #[cfg(test)]
+    pub(crate) fn agent_detection_wake_notify_for_test(&self) -> Arc<Notify> {
+        self.detect_wake_notify.clone()
+    }
+
+    #[cfg(test)]
     pub(crate) fn agent_detection_enabled_for_test(&self) -> bool {
         self.detect_handle.is_some()
     }
@@ -2411,8 +2500,8 @@ impl PaneRuntime {
         let previous = self
             .full_lifecycle_authority_active
             .swap(active, Ordering::AcqRel);
-        if active && !previous {
-            self.detect_reset_notify.notify_one();
+        if active != previous {
+            self.detect_wake_notify.notify_one();
         }
     }
 
@@ -2842,6 +2931,7 @@ impl PaneRuntime {
         (
             Self {
                 pane_id: PaneId::from_raw(0),
+                detector_epoch: DetectorEpoch::new(),
                 terminal: Arc::new(PaneTerminal::new(
                     GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap(),
                 )),
@@ -2857,6 +2947,7 @@ impl PaneRuntime {
                 detection_content_seq: Arc::new(AtomicU64::new(0)),
                 full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
                 detect_reset_notify: Arc::new(Notify::new()),
+                detect_wake_notify: Arc::new(Notify::new()),
                 pending_release: Arc::new(Mutex::new(None)),
                 preserve_processes_on_drop: true,
                 detect_handle: Some(tokio::spawn(async {}).abort_handle()),
@@ -2869,6 +2960,10 @@ impl PaneRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod detector_producer_tests {
+        include!("pane/detector_producer_tests.rs");
+    }
 
     #[tokio::test]
     async fn cwd_returns_accepted_report_without_rechecking_filesystem() {
@@ -3396,6 +3491,7 @@ mod tests {
             .unwrap();
         let runtime = PaneRuntime {
             pane_id: PaneId::from_raw(0),
+            detector_epoch: DetectorEpoch::new(),
             terminal: Arc::new(PaneTerminal::new(
                 GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap(),
             )),
@@ -3411,6 +3507,7 @@ mod tests {
             detection_content_seq: Arc::new(AtomicU64::new(0)),
             full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
             detect_reset_notify: Arc::new(Notify::new()),
+            detect_wake_notify: Arc::new(Notify::new()),
             pending_release: Arc::new(Mutex::new(None)),
             preserve_processes_on_drop: true,
             detect_handle: Some(tokio::spawn(async {}).abort_handle()),
@@ -3427,6 +3524,7 @@ mod tests {
         let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
         let runtime = PaneRuntime {
             pane_id: PaneId::from_raw(0),
+            detector_epoch: DetectorEpoch::new(),
             terminal: Arc::new(PaneTerminal::new(
                 GhosttyPaneTerminal::new(terminal, tx.clone()).unwrap(),
             )),
@@ -3442,6 +3540,7 @@ mod tests {
             detection_content_seq: Arc::new(AtomicU64::new(0)),
             full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
             detect_reset_notify: Arc::new(Notify::new()),
+            detect_wake_notify: Arc::new(Notify::new()),
             pending_release: Arc::new(Mutex::new(None)),
             preserve_processes_on_drop: true,
             detect_handle: Some(tokio::spawn(async {}).abort_handle()),
@@ -4044,53 +4143,49 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_full_lifecycle_authority_active_notifies_only_on_activation_transitions() {
+    async fn set_full_lifecycle_authority_active_wakes_on_changes_without_reset() {
         let runtime = PaneRuntime::test_with_screen_bytes(80, 24, b"");
         let reset_notify = runtime.agent_detection_reset_notify_for_test();
+        let wake_notify = runtime.agent_detection_wake_notify_for_test();
 
         runtime.set_full_lifecycle_authority_active(true);
-        tokio::time::timeout(
-            std::time::Duration::from_millis(50),
-            reset_notify.notified(),
-        )
-        .await
-        .expect("false-to-true transition should notify detection reset");
+        tokio::time::timeout(std::time::Duration::from_millis(50), wake_notify.notified())
+            .await
+            .expect("false-to-true transition should wake detection");
 
         runtime.set_full_lifecycle_authority_active(true);
         assert!(
-            tokio::time::timeout(
-                std::time::Duration::from_millis(20),
-                reset_notify.notified()
-            )
-            .await
-            .is_err(),
-            "repeated true-to-true sync should not notify detection reset"
+            tokio::time::timeout(std::time::Duration::from_millis(20), wake_notify.notified())
+                .await
+                .is_err(),
+            "repeated true-to-true sync should not wake detection"
         );
 
         runtime.set_full_lifecycle_authority_active(false);
+        tokio::time::timeout(std::time::Duration::from_millis(50), wake_notify.notified())
+            .await
+            .expect("true-to-false transition should wake detection");
+
+        runtime.set_full_lifecycle_authority_active(true);
+        tokio::time::timeout(std::time::Duration::from_millis(50), wake_notify.notified())
+            .await
+            .expect("re-entering active authority should wake detection");
         assert!(
             tokio::time::timeout(
                 std::time::Duration::from_millis(20),
-                reset_notify.notified()
+                reset_notify.notified(),
             )
             .await
             .is_err(),
-            "true-to-false transition should not notify detection reset"
+            "authority changes must not invalidate detector evidence"
         );
-
-        runtime.set_full_lifecycle_authority_active(true);
-        tokio::time::timeout(
-            std::time::Duration::from_millis(50),
-            reset_notify.notified(),
-        )
-        .await
-        .expect("re-entering active authority should notify detection reset");
     }
 
     #[tokio::test]
-    async fn state_changed_event_waits_for_queue_space_instead_of_dropping() {
+    async fn detector_fallback_event_waits_for_queue_space_instead_of_dropping() {
         let (tx, mut rx) = mpsc::channel(1);
         let pane_id = PaneId::from_raw(42);
+        let epoch = DetectorEpoch::new();
 
         tx.try_send(AppEvent::ClipboardWrite { content: vec![] })
             .unwrap();
@@ -4098,6 +4193,7 @@ mod tests {
         let publish = publish_state_changed_event(
             tx.clone(),
             pane_id,
+            epoch,
             Some(Agent::Pi),
             AgentState::Idle,
             false,
@@ -4113,7 +4209,7 @@ mod tests {
         .await;
         assert!(
             blocked.is_err(),
-            "publisher should wait for queue space instead of dropping StateChanged"
+            "publisher should wait for queue space instead of dropping DetectorUpdate"
         );
 
         let first = tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv())
@@ -4134,15 +4230,18 @@ mod tests {
             .expect("sender still alive");
         assert!(matches!(
             second,
-            AppEvent::StateChanged {
+            AppEvent::DetectorUpdate {
                 pane_id: delivered_pane,
-                agent: Some(Agent::Pi),
-                state: AgentState::Idle,
-                visible_blocker: false,
-                visible_working: false,
-                process_exited: false,
+                epoch: delivered_epoch,
+                foreground: None,
+                fallback: Some(FallbackObservation {
+                    agent: Some(Agent::Pi),
+                    state: AgentState::Idle,
+                    visible_blocker: false,
+                    visible_working: false,
+                }),
                 observed_at: _,
-            } if delivered_pane == pane_id
+            } if delivered_pane == pane_id && delivered_epoch == epoch
         ));
     }
 }

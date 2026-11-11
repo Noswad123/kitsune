@@ -235,6 +235,15 @@ pub fn current_process_is_detached_server_daemon() -> bool {
     unsafe { IsProcessInJob(GetCurrentProcess(), null_mut(), &mut in_job) != 0 && in_job == 0 }
 }
 
+pub(crate) fn process_observation_metadata() -> Option<super::ProcessObservationMetadata> {
+    // foreground_job selects a candidate using the legacy agent classifier.
+    Some(super::ProcessObservationMetadata {
+        platform: "windows",
+        scope: "selected_process",
+        selection: "legacy_agent_aware",
+    })
+}
+
 pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
     let entries = snapshot_processes();
     select_pane_foreground_job(child_pid, &entries)

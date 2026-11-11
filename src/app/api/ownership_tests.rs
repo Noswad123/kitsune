@@ -8,7 +8,8 @@ use crate::api::schema::{
 use crate::app::test_support::app_from_state;
 use crate::app::{App, AppState};
 use crate::detect::{Agent, AgentState};
-use crate::terminal::TerminalId;
+use crate::terminal::evidence::{FallbackObservation, ForegroundObservation};
+use crate::terminal::{TerminalId, TerminalRuntime};
 
 // Avoid App::new: these tests need no application config loading or runtimes.
 fn fixture(agent: &str) -> (App, String, TerminalId, PersistedAgentSession) {
@@ -40,20 +41,47 @@ fn assert_ok(response: String) {
     assert_eq!(response.result, ResponseResult::Ok {});
 }
 
+fn observe_live_fixture(app: &mut App, agent: Agent) -> &TerminalRuntime {
+    let pane_id = app.state.workspaces[0].tabs[0].root_pane;
+    let terminal_id = app.state.workspaces[0]
+        .terminal_id(pane_id)
+        .unwrap()
+        .clone();
+    let runtime = TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+    assert_eq!(runtime.child_pid(), None);
+    let epoch = runtime.detector_epoch();
+    app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+    let observed_at = Instant::now();
+    app.handle_internal_event(crate::events::AppEvent::DetectorUpdate {
+        pane_id,
+        epoch,
+        foreground: Some(ForegroundObservation::Confirmed {
+            agent,
+            process_group_id: None,
+        }),
+        fallback: Some(FallbackObservation {
+            agent: Some(agent),
+            state: AgentState::Idle,
+            visible_blocker: false,
+            visible_working: false,
+        }),
+        observed_at,
+    });
+    assert_eq!(
+        app.state.terminals[&terminal_id].foreground_agent_evidence(),
+        Some((agent, observed_at))
+    );
+    let runtime = app.terminal_runtimes.get(&terminal_id).unwrap();
+    assert_eq!(runtime.child_pid(), None);
+    runtime
+}
+
 fn live_djinn_fixture() -> (App, String, TerminalId, PersistedAgentSession) {
     let (mut app, pane_id, terminal_id, session) = fixture("djinn");
     let pending = app.state.terminals[&terminal_id]
         .pending_agent_resume_plan
         .clone();
-    app.handle_internal_event(crate::events::AppEvent::StateChanged {
-        pane_id: app.state.workspaces[0].tabs[0].root_pane,
-        agent: Some(Agent::Djinn),
-        state: AgentState::Idle,
-        visible_blocker: false,
-        visible_working: false,
-        process_exited: false,
-        observed_at: Instant::now(),
-    });
+    observe_live_fixture(&mut app, Agent::Djinn);
     assert_ok(app.handle_pane_report_agent(
         "ownership".into(),
         PaneReportAgentParams {
@@ -74,18 +102,22 @@ fn live_djinn_fixture() -> (App, String, TerminalId, PersistedAgentSession) {
     assert_eq!(authority.session_ref.as_ref(), Some(&session.session_ref));
     assert_eq!(authority.state, AgentState::Working);
     assert_eq!(terminal.state, AgentState::Working);
-    assert_eq!(terminal.detected_agent, Some(Agent::Djinn));
+    assert_eq!(terminal.detected_agent(), Some(Agent::Djinn));
     assert_eq!(terminal.effective_agent_label(), Some("djinn"));
     assert!(terminal.persisted_agent_session.is_none());
     assert_eq!(terminal.pending_agent_resume_plan, pending);
-    assert_eq!(app.terminal_runtimes.len(), 0);
+    assert_eq!(app.terminal_runtimes.len(), 1);
+    assert_eq!(
+        app.terminal_runtimes.get(&terminal_id).unwrap().child_pid(),
+        None
+    );
     app.state.assert_invariants_for_test();
     app.state.session_dirty = false;
     (app, pane_id, terminal_id, session)
 }
 
-#[test]
-fn api_live_hook_release_checks_reference_and_sequence_before_clearing_authority() {
+#[tokio::test]
+async fn api_live_hook_release_checks_reference_and_sequence_before_clearing_authority() {
     let (mut app, pane_id, terminal_id, session) = live_djinn_fixture();
     let pending = app.state.terminals[&terminal_id]
         .pending_agent_resume_plan
@@ -120,17 +152,21 @@ fn api_live_hook_release_checks_reference_and_sequence_before_clearing_authority
             assert_eq!(terminal.revision, revision);
         }
         assert!(terminal.persisted_agent_session.is_none());
-        assert_eq!(terminal.detected_agent, Some(Agent::Djinn));
+        assert_eq!(terminal.detected_agent(), Some(Agent::Djinn));
         assert_eq!(terminal.effective_agent_label(), Some("djinn"));
         assert_eq!(terminal.pending_agent_resume_plan, pending);
         assert_eq!(app.state.session_dirty, accepted);
-        assert_eq!(app.terminal_runtimes.len(), 0);
+        assert_eq!(app.terminal_runtimes.len(), 1);
+        assert_eq!(
+            app.terminal_runtimes.get(&terminal_id).unwrap().child_pid(),
+            None
+        );
         app.state.assert_invariants_for_test();
     }
 }
 
-#[test]
-fn api_live_hook_release_rejects_foreign_source_or_agent_before_consuming_sequence() {
+#[tokio::test]
+async fn api_live_hook_release_rejects_foreign_source_or_agent_before_consuming_sequence() {
     for (source, agent) in [("custom:djinn", "djinn"), ("kitsune:djinn", "claude")] {
         let (mut app, pane_id, terminal_id, session) = live_djinn_fixture();
         let pending = app.state.terminals[&terminal_id]
@@ -169,11 +205,15 @@ fn api_live_hook_release_rejects_foreign_source_or_agent_before_consuming_sequen
                 assert_eq!(terminal.revision, revision);
             }
             assert!(terminal.persisted_agent_session.is_none());
-            assert_eq!(terminal.detected_agent, Some(Agent::Djinn));
+            assert_eq!(terminal.detected_agent(), Some(Agent::Djinn));
             assert_eq!(terminal.effective_agent_label(), Some("djinn"));
             assert_eq!(terminal.pending_agent_resume_plan, pending);
             assert_eq!(app.state.session_dirty, accepted);
-            assert_eq!(app.terminal_runtimes.len(), 0);
+            assert_eq!(app.terminal_runtimes.len(), 1);
+            assert_eq!(
+                app.terminal_runtimes.get(&terminal_id).unwrap().child_pid(),
+                None
+            );
             app.state.assert_invariants_for_test();
         }
         // Sources have separate sequences; only the wrong-agent case proves
@@ -181,21 +221,13 @@ fn api_live_hook_release_rejects_foreign_source_or_agent_before_consuming_sequen
     }
 }
 
-#[test]
-fn api_unsupported_owner_path_is_discarded_before_takeover_sequence() {
+#[tokio::test]
+async fn api_unsupported_owner_path_is_discarded_before_takeover_sequence() {
     let (mut app, pane_id, terminal_id, session) = fixture("droid");
     let pending = app.state.terminals[&terminal_id]
         .pending_agent_resume_plan
         .clone();
-    app.handle_internal_event(crate::events::AppEvent::StateChanged {
-        pane_id: app.state.workspaces[0].tabs[0].root_pane,
-        agent: Some(Agent::Claude),
-        state: AgentState::Idle,
-        visible_blocker: false,
-        visible_working: false,
-        process_exited: false,
-        observed_at: Instant::now(),
-    });
+    observe_live_fixture(&mut app, Agent::Claude);
     app.state.session_dirty = false;
     let revision = app.state.terminals[&terminal_id].revision;
     let path = std::env::current_dir()
@@ -231,11 +263,15 @@ fn api_unsupported_owner_path_is_discarded_before_takeover_sequence() {
             assert_eq!(terminal.revision, revision);
         }
         assert!(terminal.hook_authority.is_none());
-        assert_eq!(terminal.detected_agent, Some(Agent::Claude));
+        assert_eq!(terminal.detected_agent(), Some(Agent::Claude));
         assert_eq!(terminal.state, AgentState::Idle);
         assert_eq!(terminal.pending_agent_resume_plan, pending);
         assert_eq!(app.state.session_dirty, accepted);
-        assert_eq!(app.terminal_runtimes.len(), 0);
+        assert_eq!(app.terminal_runtimes.len(), 1);
+        assert_eq!(
+            app.terminal_runtimes.get(&terminal_id).unwrap().child_pid(),
+            None
+        );
         app.state.assert_invariants_for_test();
     }
 }
@@ -265,7 +301,7 @@ fn api_restored_session_release_checks_reference_before_consuming_sequence() {
             (!cleared).then_some(&session)
         );
         assert!(terminal.hook_authority.is_none());
-        assert_eq!(terminal.detected_agent, None);
+        assert_eq!(terminal.detected_agent(), None);
         assert_eq!(terminal.state, AgentState::Unknown);
         // Releasing a restored reference does not cancel its queued resume plan.
         assert_eq!(terminal.pending_agent_resume_plan, pending);
@@ -336,7 +372,7 @@ fn api_invalid_report_reference_is_ignored_but_invalid_release_is_unscoped() {
         let terminal = &app.state.terminals[&terminal_id];
         assert!(terminal.persisted_agent_session.is_none());
         assert!(terminal.hook_authority.is_none());
-        assert_eq!(terminal.detected_agent, None);
+        assert_eq!(terminal.detected_agent(), None);
         assert_eq!(terminal.state, AgentState::Unknown);
         assert_eq!(terminal.pending_agent_resume_plan, pending);
         assert!(app.state.session_dirty);
@@ -345,8 +381,8 @@ fn api_invalid_report_reference_is_ignored_but_invalid_release_is_unscoped() {
     }
 }
 
-#[test]
-fn api_rejected_identity_update_consumes_sequence_before_foreground_confirmation() {
+#[tokio::test]
+async fn api_rejected_identity_update_consumes_sequence_before_foreground_confirmation() {
     let (mut app, pane_id, terminal_id, session) = fixture("droid");
     let pending = app.state.terminals[&terminal_id]
         .pending_agent_resume_plan
@@ -369,16 +405,7 @@ fn api_rejected_identity_update_consumes_sequence_before_foreground_confirmation
     );
     assert!(!app.state.session_dirty);
 
-    let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-    app.handle_internal_event(crate::events::AppEvent::StateChanged {
-        pane_id,
-        agent: Some(Agent::Claude),
-        state: AgentState::Idle,
-        visible_blocker: false,
-        visible_working: false,
-        process_exited: false,
-        observed_at: Instant::now(),
-    });
+    observe_live_fixture(&mut app, Agent::Claude);
     app.state.session_dirty = false;
     for seq in [Some(19), Some(20), None, Some(21)] {
         let accepted = seq == Some(21);
@@ -400,11 +427,15 @@ fn api_rejected_identity_update_consumes_sequence_before_foreground_confirmation
             Some(if accepted { &expected } else { &session })
         );
         assert!(terminal.hook_authority.is_none());
-        assert_eq!(terminal.detected_agent, Some(Agent::Claude));
+        assert_eq!(terminal.detected_agent(), Some(Agent::Claude));
         assert_eq!(terminal.state, AgentState::Idle);
         assert_eq!(terminal.pending_agent_resume_plan, pending);
         assert_eq!(app.state.session_dirty, accepted);
-        assert_eq!(app.terminal_runtimes.len(), 0);
+        assert_eq!(app.terminal_runtimes.len(), 1);
+        assert_eq!(
+            app.terminal_runtimes.get(&terminal_id).unwrap().child_pid(),
+            None
+        );
         app.state.assert_invariants_for_test();
     }
 }

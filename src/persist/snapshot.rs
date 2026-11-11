@@ -1176,6 +1176,52 @@ mod tests {
     }
 
     #[test]
+    fn historical_identity_preserves_exact_pane_snapshot_representation() {
+        let mut state = AppState::test_with_adversarial_identity_state();
+        state.assert_invariants_for_test();
+        for terminal in state.terminals.values_mut() {
+            terminal.restore_managed_agent("reviewer".into(), crate::detect::Agent::Codex);
+            terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
+                source: "kitsune:codex".into(),
+                agent: "codex".into(),
+                session_ref: crate::agent_resume::AgentSessionRef::id("saved-session").unwrap(),
+            });
+        }
+        let before = capture_from_state(&state);
+        for terminal in state.terminals.values_mut() {
+            terminal.seed_restored_agent_identity(crate::detect::Agent::Codex);
+            assert_eq!(terminal.foreground_agent_evidence(), None);
+        }
+        let after = capture_from_state(&state);
+        assert_eq!(
+            serde_json::to_value(&before).unwrap(),
+            serde_json::to_value(&after).unwrap()
+        );
+        for workspace in &after.workspaces {
+            for tab in &workspace.tabs {
+                for pane in tab.panes.values() {
+                    let bytes = serde_json::to_string(pane).unwrap();
+                    let expected = format!(
+                        "{{\"cwd\":{},\"agent_name\":\"reviewer\",\"managed_agent_kind\":\"codex\",\"agent_session\":{{\"source\":\"kitsune:codex\",\"agent\":\"codex\",\"kind\":\"id\",\"value\":\"saved-session\"}}}}",
+                        serde_json::to_string(&pane.cwd).unwrap()
+                    );
+                    assert_eq!(bytes, expected);
+                    let decoded: PaneSnapshot = serde_json::from_str(&bytes).unwrap();
+                    assert_eq!(serde_json::to_string(&decoded).unwrap(), bytes);
+                }
+            }
+        }
+        let encoded = serde_json::to_string(&after).unwrap();
+        let decoded = parse_snapshot(&encoded).unwrap();
+        assert_eq!(
+            serde_json::to_value(&decoded).unwrap(),
+            serde_json::to_value(&after).unwrap()
+        );
+        assert_eq!(decoded.version, SNAPSHOT_VERSION);
+        state.assert_invariants_for_test();
+    }
+
+    #[test]
     fn old_unversioned_snapshot_loads_as_version_0() {
         let json = r#"{"workspaces":[],"active":null,"selected":0}"#;
         let snap = parse_snapshot(json).unwrap();

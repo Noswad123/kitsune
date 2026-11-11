@@ -19,6 +19,13 @@ pub struct ForegroundJob {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ProcessObservationMetadata {
+    pub platform: &'static str,
+    pub scope: &'static str,
+    pub selection: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Signal {
     Hangup,
     Terminate,

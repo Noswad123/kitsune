@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
+#[cfg(any(test, not(target_os = "linux")))]
 #[derive(Debug)]
 pub(crate) struct ClaudeInstallPaths {
     pub hook_path: PathBuf,
     pub settings_path: PathBuf,
 }
 
+#[cfg(any(test, not(target_os = "linux")))]
 #[derive(Debug)]
 pub(crate) struct CodexInstallPaths {
     pub hook_path: PathBuf,
@@ -13,12 +15,14 @@ pub(crate) struct CodexInstallPaths {
     pub config_path: PathBuf,
 }
 
+#[cfg(any(test, not(target_os = "linux")))]
 #[derive(Debug)]
 pub(crate) struct CopilotInstallPaths {
     pub hook_path: PathBuf,
     pub settings_path: PathBuf,
 }
 
+#[cfg(any(test, not(target_os = "linux")))]
 #[derive(Debug)]
 pub(crate) struct OpenCodeInstallPaths {
     pub plugin_path: PathBuf,

@@ -444,7 +444,7 @@ mod tests {
                 .attached_terminal_id
                 .clone();
             let terminal = state.terminals.get_mut(&terminal_id).unwrap();
-            terminal.detected_agent = Some(Agent::Claude);
+            terminal.set_fallback_agent_for_test(Some(Agent::Claude));
             terminal.state = agent_state;
         }
         state

@@ -7,8 +7,27 @@ use std::time::{Duration, Instant};
 // remains only for session-only/custom hook paths and fallback detection.
 // Process-exit updates clear matching hook authority before recomputing state.
 
+use super::evidence::{DetectorEpoch, FallbackObservation, ForegroundObservation};
 use crate::detect::{Agent, AgentState};
 use crate::terminal::TerminalId;
+
+#[path = "state/evidence.rs"]
+mod evidence;
+
+#[derive(Debug, Clone, Copy)]
+struct ForegroundAgentEvidence {
+    agent: Agent,
+    observed_at: Instant,
+    // Retained probe provenance; ownership does not use process-group IDs.
+    #[cfg_attr(not(test), allow(dead_code))]
+    process_group_id: Option<u32>,
+    epoch: DetectorEpoch,
+}
+
+struct SuspendedNativeProjection {
+    authority: HookAuthority,
+    state_changed: bool,
+}
 
 #[path = "metadata.rs"]
 mod metadata;
@@ -31,6 +50,7 @@ struct SuppressedFullLifecycleHookReport {
     observed_at: Instant,
     reason: FullLifecycleHookSuppressionReason,
     replacement_session_ref: Option<crate::agent_resume::AgentSessionRef>,
+    replacement_observed_at: Option<Instant>,
     pending_replacement_report: Option<PendingFullLifecycleHookReport>,
 }
 
@@ -76,6 +96,8 @@ struct ManagedAgent {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EffectiveStateChange {
+    /// Internal invalidation recovery, not a newly completed agent turn.
+    pub(crate) projection_reconfirmed: bool,
     pub previous_agent_label: Option<String>,
     pub previous_known_agent: Option<Agent>,
     pub previous_state: AgentState,
@@ -119,7 +141,13 @@ struct RecentAgentProcessExit {
 pub struct TerminalState {
     pub id: TerminalId,
     pub cwd: PathBuf,
-    pub detected_agent: Option<Agent>,
+    detected_agent: Option<Agent>,
+    historical_agent: Option<Agent>,
+    detector_epoch: Option<DetectorEpoch>,
+    detector_observed_at: Option<Instant>,
+    foreground_evidence: Option<ForegroundAgentEvidence>,
+    suspended_native_projection: Option<SuspendedNativeProjection>,
+    last_detector_projection_reconfirmation: Option<(DetectorEpoch, Instant)>,
     pub fallback_state: AgentState,
     fallback_visible_blocker: bool,
     fallback_observed_at: Option<Instant>,
@@ -153,6 +181,12 @@ impl TerminalState {
             id,
             cwd,
             detected_agent: None,
+            historical_agent: None,
+            detector_epoch: None,
+            detector_observed_at: None,
+            foreground_evidence: None,
+            suspended_native_projection: None,
+            last_detector_projection_reconfirmation: None,
             fallback_state: AgentState::Unknown,
             fallback_visible_blocker: false,
             fallback_observed_at: None,
@@ -274,21 +308,92 @@ impl TerminalState {
         .effective_state_change
     }
 
+    #[cfg(test)]
     pub fn set_detected_state_with_screen_signals_at(
         &mut self,
         agent: Option<Agent>,
         fallback_state: AgentState,
         visible_blocker: bool,
         _visible_idle: bool,
-        _visible_working: bool,
+        visible_working: bool,
         process_exited: bool,
         now: Instant,
     ) -> TerminalStateMutation {
+        let epoch = self.detector_epoch.unwrap_or_else(DetectorEpoch::new);
+        // Timed legacy fixtures bind once, without introducing a wall-clock barrier.
+        self.detector_epoch = Some(epoch);
+        self.apply_detector_update(
+            epoch,
+            Some(if process_exited {
+                match agent {
+                    Some(agent) => ForegroundObservation::Exited { agent },
+                    None => ForegroundObservation::Cleared,
+                }
+            } else {
+                match agent {
+                    Some(agent) => ForegroundObservation::Confirmed {
+                        agent,
+                        process_group_id: None,
+                    },
+                    // The legacy full-lifecycle policy does not clear on a
+                    // missing selection while its hook remains authoritative.
+                    None if self.live_full_lifecycle_hook_authority() => {
+                        ForegroundObservation::Inconclusive
+                    }
+                    None => ForegroundObservation::Cleared,
+                }
+            }),
+            Some(FallbackObservation {
+                agent,
+                state: fallback_state,
+                visible_blocker,
+                visible_working,
+            }),
+            now,
+        )
+    }
+
+    fn update_detection_presentation(
+        &mut self,
+        agent: Option<Agent>,
+        fallback: Option<FallbackObservation>,
+        process_exited: bool,
+        foreground_update: bool,
+        previous_foreground: Option<Agent>,
+        now: Instant,
+    ) -> TerminalStateMutation {
+        let publish_fallback = fallback.is_some();
+        // A queued absence/exit concerns the sampled owner, not a replacement
+        // start received after that sample. Keep its sequence-gated intent.
+        let newer_replacements: Vec<_> = self
+            .suppressed_full_lifecycle_hook_reports
+            .iter()
+            .filter(|(source, suppressed)| {
+                foreground_update
+                    && crate::detect::full_lifecycle_hook_authority(source, &suppressed.agent_label)
+                    && suppressed
+                        .replacement_observed_at
+                        .is_some_and(|at| at > now)
+                    && suppressed
+                        .replacement_session_ref
+                        .as_ref()
+                        .is_some_and(|replacement| {
+                            suppressed.session_ref.as_ref() != Some(replacement)
+                        })
+            })
+            .map(|(source, suppressed)| {
+                (
+                    source.clone(),
+                    suppressed.clone(),
+                    self.hook_report_sequences.get(source).copied(),
+                )
+            })
+            .collect();
         let previous_agent_label = self.effective_agent_label().map(str::to_string);
         let previous_known_agent = self.effective_known_agent();
         let previous_state = self.state;
         let previous_presentation = self.effective_presentation_for_state_at(previous_state, now);
-        let previous_detected_agent = self.detected_agent;
+        let previous_detected_agent = previous_foreground;
         let previous_session = self.current_session_identity_for_persistence();
         let newer_custom_authority = process_exited
             && self.hook_authority.as_ref().is_some_and(|authority| {
@@ -301,13 +406,19 @@ impl TerminalState {
             });
         let agent_released = process_exited
             && !newer_custom_authority
-            && (previous_agent_label.is_some() || self.agent_name.is_some());
-        if self.should_ignore_detected_state_under_full_lifecycle_hook(agent, process_exited) {
-            if self
-                .hook_authority
-                .as_ref()
-                .and_then(|authority| crate::detect::parse_agent_label(&authority.agent_label))
-                == agent
+            && (previous_agent_label.is_some()
+                || previous_foreground.is_some()
+                || self.agent_name.is_some());
+        if self.should_ignore_detected_state_under_full_lifecycle_hook(
+            self.foreground_agent(),
+            process_exited,
+        ) {
+            if publish_fallback
+                && self
+                    .hook_authority
+                    .as_ref()
+                    .and_then(|authority| crate::detect::parse_agent_label(&authority.agent_label))
+                    == agent
             {
                 self.detected_agent = agent;
             }
@@ -324,43 +435,19 @@ impl TerminalState {
                 agent_released: false,
             };
         }
-        let replacement_process_detected = !process_exited
-            && agent.is_some()
-            && self
-                .recent_agent_process_exit
-                .is_some_and(|exit| Some(exit.agent) == agent && exit.observed_at < now);
-        if !process_exited && self.detected_state_observed_before_release_suppression(agent, now) {
-            return TerminalStateMutation {
-                effective_state_change: self.recompute_effective_state(
-                    previous_agent_label,
-                    previous_known_agent,
-                    previous_state,
-                    previous_presentation,
-                    now,
-                ),
-                session_ref_changed: previous_session
-                    != self.current_session_identity_for_persistence(),
-                agent_released: false,
-            };
+        if publish_fallback {
+            self.detected_agent = agent;
         }
-        self.detected_agent = agent;
-        if let Some(agent) = agent {
+        if let Some(agent) = self.foreground_agent().filter(|_| foreground_update) {
             let agent_label = crate::detect::agent_label(agent);
             self.reconcile_agent_name_owner(agent_label, None);
         }
-        if !process_exited {
-            self.clear_full_lifecycle_hook_suppression_for_detected_agent(
-                if replacement_process_detected {
-                    None
-                } else {
-                    previous_detected_agent
-                },
-                agent,
-            );
+        if let Some(fallback) = fallback {
+            self.fallback_state = fallback.state;
+            self.fallback_visible_blocker =
+                fallback.visible_blocker && fallback.state == AgentState::Blocked;
+            self.fallback_observed_at = Some(now);
         }
-        self.fallback_state = fallback_state;
-        self.fallback_visible_blocker = visible_blocker && fallback_state == AgentState::Blocked;
-        self.fallback_observed_at = Some(now);
         if process_exited {
             if let Some(agent) = agent {
                 self.recent_agent_process_exit = Some(RecentAgentProcessExit {
@@ -368,7 +455,7 @@ impl TerminalState {
                     observed_at: now,
                 });
             }
-        } else if agent.is_some() {
+        } else if foreground_update && self.foreground_agent().is_some() {
             self.recent_agent_process_exit = None;
         }
         if process_exited {
@@ -403,6 +490,7 @@ impl TerminalState {
                 }
                 suppressed.session_ref = exited_session_ref;
                 suppressed.pending_replacement_report = None;
+                suppressed.replacement_observed_at = None;
                 suppressed.observed_at = now;
                 reset_sources.push(source.clone());
             }
@@ -513,10 +601,16 @@ impl TerminalState {
                 }
             }
         }
-        if self.hook_authority_not_newer_than(now)
-            && (self.hook_authority_conflicts_with_detected_agent(agent)
+        if foreground_update
+            // Native hook time is state evidence, never foreground proof. An
+            // admitted probe retires its native owner even if a report overtook it.
+            && (self.hook_authority_not_newer_than(now)
+                || self.hook_authority.as_ref().is_some_and(|authority| {
+                    crate::detect::full_lifecycle_hook_authority(&authority.source, &authority.agent_label)
+                }))
+            && (self.hook_authority_conflicts_with_detected_agent(self.foreground_agent())
                 || (previous_detected_agent.is_some()
-                    && agent != previous_detected_agent
+                    && self.foreground_agent() != previous_detected_agent
                     && self.hook_authority.as_ref().is_some_and(|authority| {
                         crate::detect::parse_agent_label(&authority.agent_label)
                             == previous_detected_agent
@@ -536,6 +630,13 @@ impl TerminalState {
             );
             self.hook_authority = None;
             self.persisted_agent_session = durable_session;
+        }
+        for (source, suppressed, sequence) in newer_replacements {
+            self.suppressed_full_lifecycle_hook_reports
+                .insert(source.clone(), suppressed);
+            if let Some(sequence) = sequence {
+                self.hook_report_sequences.insert(source, sequence);
+            }
         }
         if agent_released {
             self.clear_agent_name();
@@ -640,6 +741,20 @@ impl TerminalState {
         if owner_conflicts && !foreground_takeover_allowed {
             return None;
         }
+        // State-only reports may update a suspended owner, but cannot erase its
+        // already anchored identity while foreground confirmation is pending.
+        let session_ref = session_ref.or_else(|| {
+            self.native_authority_awaits_foreground_confirmation()
+                .then(|| {
+                    self.hook_authority
+                        .as_ref()
+                        .filter(|authority| {
+                            authority.source == source && authority.agent_label == agent_label
+                        })
+                        .and_then(|authority| authority.session_ref.clone())
+                })
+                .flatten()
+        });
         let session_ref = session_ref.map(|session_ref| {
             if self.lifecycle_hook_report_replaces_persisted_session(
                 &source,
@@ -678,7 +793,24 @@ impl TerminalState {
             );
         }
         if session_ref.is_some() || reanchor_sequence {
-            if let Some(suppressed) = self.suppressed_full_lifecycle_hook_reports.remove(&source) {
+            // An unvalidated candidate buffered during Reset is not an exit of
+            // the still-anchored native session. Keep its generation gate intact.
+            let retaining_native_session = self.hook_authority.as_ref().is_some_and(|authority| {
+                authority.source == source
+                    && authority.agent_label == agent_label
+                    && authority.session_ref == session_ref
+                    && self
+                        .suppressed_full_lifecycle_hook_reports
+                        .get(&source)
+                        .is_some_and(|suppressed| {
+                            suppressed.reason == FullLifecycleHookSuppressionReason::ProcessExit
+                                && suppressed.session_ref == session_ref
+                        })
+            });
+            if let Some(suppressed) = (!retaining_native_session)
+                .then(|| self.suppressed_full_lifecycle_hook_reports.remove(&source))
+                .flatten()
+            {
                 if let Some(suppressed_ref) = suppressed.session_ref {
                     self.remember_stale_full_lifecycle_hook_session(
                         source.clone(),
@@ -689,6 +821,22 @@ impl TerminalState {
             }
         }
         self.persisted_agent_session = None;
+        if let Some(suspended) = self.suspended_native_projection.as_mut() {
+            if suspended.authority.source == source
+                && suspended.authority.agent_label == agent_label
+                && suspended.authority.session_ref == session_ref
+                && self.hook_authority.as_ref().is_some_and(|authority| {
+                    authority.source == source
+                        && authority.agent_label == agent_label
+                        && authority.session_ref == session_ref
+                        && authority.state != state
+                })
+            {
+                // Accepted activity remains meaningful even if subsequent reports
+                // return to the state that preceded Reset.
+                suspended.state_changed = true;
+            }
+        }
         self.hook_authority = Some(HookAuthority {
             source,
             agent_label,
@@ -816,6 +964,7 @@ impl TerminalState {
                 observed_at,
                 reason,
                 replacement_session_ref: None,
+                replacement_observed_at: None,
                 pending_replacement_report: None,
             },
         );
@@ -842,7 +991,7 @@ impl TerminalState {
 
         let known_agent = crate::detect::parse_agent_label(agent_label);
         let process_present = known_agent.is_some()
-            && self.detected_agent == known_agent
+            && self.foreground_agent() == known_agent
             && self.recent_agent_process_exit.is_none();
         let session_anchored = self
             .hook_authority
@@ -879,11 +1028,27 @@ impl TerminalState {
             }
         }
 
-        if process_present
+        let retained_owner = self.native_authority_awaits_foreground_confirmation()
+            && self.hook_authority.as_ref().is_some_and(|authority| {
+                authority.source == source && authority.agent_label == agent_label
+            });
+        let retained_generation = self.hook_authority.as_ref().is_some_and(|authority| {
+            authority.source == source
+                && authority.agent_label == agent_label
+                && self
+                    .suppressed_full_lifecycle_hook_reports
+                    .get(source)
+                    .is_some_and(|suppressed| {
+                        suppressed.reason == FullLifecycleHookSuppressionReason::ProcessExit
+                            && suppressed.session_ref == authority.session_ref
+                    })
+        });
+        if (process_present || retained_owner)
             && session_anchored
-            && !self
-                .suppressed_full_lifecycle_hook_reports
-                .contains_key(source)
+            && (retained_generation
+                || !self
+                    .suppressed_full_lifecycle_hook_reports
+                    .contains_key(source))
         {
             return FullLifecycleHookReportRoute::Accept {
                 reanchor_sequence: self
@@ -910,10 +1075,16 @@ impl TerminalState {
         }
 
         let previous_session_ref = self
-            .persisted_agent_session
+            .hook_authority
             .as_ref()
-            .filter(|session| session.source == source && session.agent == agent_label)
-            .map(|session| session.session_ref.clone());
+            .filter(|authority| authority.source == source && authority.agent_label == agent_label)
+            .and_then(|authority| authority.session_ref.clone())
+            .or_else(|| {
+                self.persisted_agent_session
+                    .as_ref()
+                    .filter(|session| session.source == source && session.agent == agent_label)
+                    .map(|session| session.session_ref.clone())
+            });
         let suppressed = self
             .suppressed_full_lifecycle_hook_reports
             .entry(source.to_string())
@@ -923,6 +1094,7 @@ impl TerminalState {
                 observed_at: reported_at,
                 reason: FullLifecycleHookSuppressionReason::ProcessExit,
                 replacement_session_ref: None,
+                replacement_observed_at: None,
                 pending_replacement_report: None,
             });
         let replace_pending = suppressed
@@ -1114,6 +1286,13 @@ impl TerminalState {
         for (source, agent_label, session_ref, pending) in validated_replacement_sessions {
             self.forget_stale_full_lifecycle_hook_session(&source, &agent_label, &session_ref);
             self.reconcile_agent_name_owner(&agent_label, Some(&session_ref));
+            if self.hook_authority.as_ref().is_some_and(|authority| {
+                authority.source == source
+                    && authority.agent_label == agent_label
+                    && authority.session_ref.as_ref() != Some(&session_ref)
+            }) {
+                self.hook_authority = None;
+            }
             self.persisted_agent_session = Some(crate::agent_resume::PersistedAgentSession {
                 source: source.clone(),
                 agent: agent_label,
@@ -1334,7 +1513,7 @@ impl TerminalState {
         let session_ref = session_ref?;
         let known_agent = crate::detect::parse_agent_label(&agent_label);
         let process_present = known_agent.is_some()
-            && self.detected_agent == known_agent
+            && self.foreground_agent() == known_agent
             && self.recent_agent_process_exit.is_none();
         let full_lifecycle_source =
             crate::detect::full_lifecycle_hook_authority(&source, &agent_label);
@@ -1350,7 +1529,15 @@ impl TerminalState {
                 && authority.agent_label == agent_label
                 && authority.session_ref.is_some()
         }) || self.persisted_agent_session_matches(&source, &agent_label);
-        if full_lifecycle_source && (!process_present || generation_gated || !session_anchored) {
+        let retained_session = self.native_authority_awaits_foreground_confirmation()
+            && self.hook_authority.as_ref().is_some_and(|authority| {
+                authority.source == source
+                    && authority.agent_label == agent_label
+                    && authority.session_ref.as_ref() == Some(&session_ref)
+            });
+        if full_lifecycle_source
+            && ((!process_present && !retained_session) || generation_gated || !session_anchored)
+        {
             if !Self::session_start_source_is_recognized(session_start_source.as_deref()) {
                 return None;
             }
@@ -1370,15 +1557,23 @@ impl TerminalState {
             let previous_presentation =
                 self.effective_presentation_for_state_at(previous_state, now);
             let previous_session = self.current_session_identity_for_persistence();
+            let previous_native_ref = self
+                .hook_authority
+                .as_ref()
+                .filter(|authority| {
+                    authority.source == source && authority.agent_label == agent_label
+                })
+                .and_then(|authority| authority.session_ref.clone());
             let suppressed = self
                 .suppressed_full_lifecycle_hook_reports
                 .entry(source.clone())
                 .or_insert_with(|| SuppressedFullLifecycleHookReport {
                     agent_label: agent_label.clone(),
-                    session_ref: None,
+                    session_ref: previous_native_ref,
                     observed_at: now,
                     reason: FullLifecycleHookSuppressionReason::ProcessExit,
                     replacement_session_ref: None,
+                    replacement_observed_at: None,
                     pending_replacement_report: None,
                 });
             if suppressed.replacement_session_ref.as_ref() != Some(&session_ref) {
@@ -1393,6 +1588,7 @@ impl TerminalState {
                 }
                 suppressed.replacement_session_ref = Some(session_ref);
             }
+            suppressed.replacement_observed_at = Some(now);
             self.hook_report_sequences.insert(source.clone(), seq);
 
             if process_present {
@@ -1512,7 +1708,7 @@ impl TerminalState {
     }
 
     fn known_agent_label_conflicts_with_detected_agent(&self, agent_label: &str) -> bool {
-        let Some(detected_agent) = self.detected_agent else {
+        let Some(detected_agent) = self.foreground_agent() else {
             return false;
         };
         crate::detect::parse_agent_label(agent_label)
@@ -1547,7 +1743,7 @@ impl TerminalState {
         agent_label: &str,
         session_ref: &crate::agent_resume::AgentSessionRef,
     ) -> bool {
-        let Some(detected_agent) = self.detected_agent else {
+        let Some(detected_agent) = self.foreground_agent() else {
             return false;
         };
         crate::detect::parse_agent_label(agent_label) == Some(detected_agent)
@@ -1613,6 +1809,8 @@ impl TerminalState {
         self.suppress_current_full_lifecycle_hook_authority(
             FullLifecycleHookSuppressionReason::HookClear,
         );
+        self.suspended_native_projection = None;
+        self.last_detector_projection_reconfirmation = None;
         self.hook_authority = None;
         self.persisted_agent_session = None;
         Some(TerminalStateMutation {
@@ -1670,7 +1868,7 @@ impl TerminalState {
             .is_some_and(|session| session.source != source || session.agent != agent_label);
         let process_owns_agent =
             crate::detect::parse_agent_label(agent_label).is_some_and(|agent| {
-                self.detected_agent == Some(agent) && self.recent_agent_process_exit.is_none()
+                self.foreground_agent() == Some(agent) && self.recent_agent_process_exit.is_none()
             });
 
         let now = Instant::now();
@@ -1684,8 +1882,15 @@ impl TerminalState {
             agent_label,
             FullLifecycleHookSuppressionReason::HookClear,
         );
+        self.detector_observed_at = Some(self.detector_observed_at.map_or(now, |at| at.max(now)));
+        // Preserve the pre-release display decision, not eligibility to confirm
+        // another owner after a queued negative observation was overtaken.
+        self.foreground_evidence = None;
+        self.suspended_native_projection = None;
+        self.last_detector_projection_reconfirmation = None;
         if !process_owns_agent {
             self.detected_agent = None;
+            self.historical_agent = None;
             self.fallback_state = AgentState::Unknown;
             self.fallback_visible_blocker = false;
             self.fallback_observed_at = None;
@@ -1712,7 +1917,17 @@ impl TerminalState {
     fn hook_authority_is_effective(&self, authority: &HookAuthority) -> bool {
         !crate::detect::full_lifecycle_hook_authority(&authority.source, &authority.agent_label)
             || crate::detect::parse_agent_label(&authority.agent_label).is_none_or(|agent| {
-                self.detected_agent == Some(agent) && self.recent_agent_process_exit.is_none()
+                self.foreground_agent() == Some(agent) && self.recent_agent_process_exit.is_none()
+            })
+    }
+
+    fn native_authority_awaits_foreground_confirmation(&self) -> bool {
+        self.foreground_agent().is_none()
+            && self.hook_authority.as_ref().is_some_and(|authority| {
+                crate::detect::full_lifecycle_hook_authority(
+                    &authority.source,
+                    &authority.agent_label,
+                )
             })
     }
 
@@ -1724,7 +1939,7 @@ impl TerminalState {
             .or_else(|| {
                 self.recent_agent_process_exit
                     .is_none()
-                    .then(|| self.detected_agent.map(crate::detect::agent_label))
+                    .then(|| self.detected_agent().map(crate::detect::agent_label))
                     .flatten()
             })
     }
@@ -1740,6 +1955,7 @@ impl TerminalState {
         let state = self.state;
         let presentation = self.effective_presentation_for_state_at(state, now);
         EffectiveStateChange {
+            projection_reconfirmed: false,
             previous_agent_label: agent_label.clone(),
             previous_known_agent: known_agent,
             previous_state: state,
@@ -1842,9 +2058,14 @@ impl TerminalState {
             .is_some_and(|managed| matches!(managed.phase, ManagedAgentPhase::Pending { .. }))
     }
 
+    /// Restored Active phase is preserved, but historical identity alone is not
+    /// readiness. A matching foreground probe OR accepted fallback observation
+    /// enables readiness; Pending still uses the effective Idle/Blocked settle rules.
     pub fn managed_agent_interactive_ready(&self) -> bool {
         self.managed_agent
             .is_some_and(|managed| matches!(managed.phase, ManagedAgentPhase::Active))
+            && (self.foreground_agent() == self.managed_agent_kind()
+                || self.fallback_observed_at.is_some())
     }
 
     pub fn managed_agent_kind(&self) -> Option<Agent> {
@@ -1867,7 +2088,12 @@ impl TerminalState {
         let Some(managed) = self.managed_agent else {
             return false;
         };
-        let known_agent = self.effective_known_agent();
+        let known_agent =
+            if self.foreground_evidence.is_some() || self.fallback_observed_at.is_some() {
+                self.effective_known_agent()
+            } else {
+                None
+            };
         let observed_expected = match managed.phase {
             ManagedAgentPhase::Pending {
                 observed_expected, ..
@@ -1950,6 +2176,12 @@ impl TerminalState {
 
     pub fn clear_agent_runtime_identity_after_respawn(&mut self) {
         self.detected_agent = None;
+        self.historical_agent = None;
+        self.foreground_evidence = None;
+        self.suspended_native_projection = None;
+        self.last_detector_projection_reconfirmation = None;
+        self.detector_epoch = None;
+        self.detector_observed_at = None;
         self.fallback_state = AgentState::Unknown;
         self.fallback_visible_blocker = false;
         self.fallback_observed_at = None;
@@ -2031,7 +2263,11 @@ impl TerminalState {
         previous_presentation: EffectivePresentation,
         now: Instant,
     ) -> Option<EffectiveStateChange> {
-        let state = if self.visible_blocker_overrides_hook() {
+        // Reset/runtime replacement suspends native authority without completing
+        // its session. Falling back to an old Idle sample would fabricate Done.
+        let state = if self.native_authority_awaits_foreground_confirmation() {
+            AgentState::Unknown
+        } else if self.visible_blocker_overrides_hook() {
             AgentState::Blocked
         } else {
             self.hook_authority
@@ -2055,6 +2291,7 @@ impl TerminalState {
 
         self.state = state;
         Some(EffectiveStateChange {
+            projection_reconfirmed: false,
             previous_agent_label,
             previous_known_agent,
             previous_state,
@@ -4816,7 +5053,6 @@ mod tests {
     #[test]
     fn foreground_agent_session_replaces_stale_different_owner_hook_authority() {
         let mut terminal = test_terminal();
-        let now = std::time::Instant::now();
         anchor_full_lifecycle_session(
             &mut terminal,
             Agent::OpenCode,
@@ -4824,6 +5060,8 @@ mod tests {
             "opencode",
             crate::agent_resume::AgentSessionRef::id("opencode-session").unwrap(),
         );
+        // The takeover probe follows the initial probe, but precedes the hook.
+        let now = std::time::Instant::now();
         terminal
             .set_hook_authority_at(
                 "kitsune:opencode".into(),

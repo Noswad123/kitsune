@@ -21,7 +21,7 @@ pub use integrations::*;
 pub use panes::*;
 pub use response::*;
 pub use server::*;
-pub use session::*;
+pub use session::{AnnotationInfo, CommandSubmissionInfo, ProcessObservationInfo, SessionSnapshot};
 pub use tabs::*;
 pub use workspaces::*;
 pub use worktrees::*;

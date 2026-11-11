@@ -1456,7 +1456,7 @@ mod tests {
             .attached_terminal_id
             .clone();
         let terminal_state = app.terminals.get_mut(&terminal_id).unwrap();
-        terminal_state.detected_agent = Some(Agent::Pi);
+        terminal_state.set_fallback_agent_for_test(Some(Agent::Pi));
         terminal_state.state = AgentState::Working;
 
         assert_generic_empty_lower_panel(&mut app, Rect::new(0, 0, 26, 20));
@@ -1481,7 +1481,10 @@ rows = [[{ token = "workspace", bold = false }, { token = "agent", dim = false }
         let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
             .attached_terminal_id
             .clone();
-        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
+        app.terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_fallback_agent_for_test(Some(Agent::Pi));
 
         assert_generic_empty_lower_panel(&mut app, Rect::new(0, 0, 26, 20));
     }
@@ -1607,7 +1610,10 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             let terminal_id = workspace.tabs[0].panes[&pane_id]
                 .attached_terminal_id
                 .clone();
-            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(agent);
+            app.terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .set_fallback_agent_for_test(Some(agent));
         }
         app.sidebar_agents.rows = vec![vec![crate::config::AgentSidebarToken::Agent]];
         assert_eq!(app.sidebar_agents.row_gap, 0);
@@ -1626,7 +1632,10 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         let terminal_id = app.workspaces[0].tabs[tab_idx].panes[&pane_id]
             .attached_terminal_id
             .clone();
-        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
+        app.terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_fallback_agent_for_test(Some(Agent::Pi));
         app.sidebar_agents.rows = vec![vec![
             crate::config::AgentSidebarToken::StateIcon,
             crate::config::AgentSidebarToken::Workspace,
@@ -1647,7 +1656,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             .attached_terminal_id
             .clone();
         let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-        terminal.detected_agent = Some(Agent::Claude);
+        terminal.set_fallback_agent_for_test(Some(Agent::Claude));
         terminal.set_manual_label("reviewer".into());
 
         assert_generic_empty_lower_panel(&mut app, Rect::new(0, 0, 26, 20));
@@ -1663,7 +1672,10 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
             .attached_terminal_id
             .clone();
-        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Claude);
+        app.terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_fallback_agent_for_test(Some(Agent::Claude));
 
         let entry = agent_panel_entries(&app).into_iter().next().unwrap();
         let rows = resolved_agent_rows(&app, &entry);
@@ -1693,7 +1705,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             .attached_terminal_id
             .clone();
         let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-        terminal.detected_agent = Some(Agent::Claude);
+        terminal.set_fallback_agent_for_test(Some(Agent::Claude));
         terminal.set_terminal_title(Some("⠋ 修复🙂标题很长".into()));
         app.sidebar_agents.rows = vec![vec![
             crate::config::AgentSidebarToken::TerminalTitleStripped,
@@ -1734,7 +1746,10 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             let terminal_id = workspace.tabs[0].panes[&pane_id]
                 .attached_terminal_id
                 .clone();
-            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Pi);
+            app.terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .set_fallback_agent_for_test(Some(Agent::Pi));
         }
         let first_pane = app.workspaces[0].tabs[0].root_pane;
         let first_terminal = app.workspaces[0].tabs[0].panes[&first_pane]
@@ -1792,7 +1807,10 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
             .attached_terminal_id
             .clone();
-        app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Claude);
+        app.terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_fallback_agent_for_test(Some(Agent::Claude));
         app.sidebar_agents.rows_by_agent.insert(
             "claude".into(),
             vec![vec![crate::config::AgentSidebarToken::Agent]; 6],
@@ -1858,7 +1876,10 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             let terminal_id = app.workspaces[ws_idx].tabs[tab_idx].panes[&pane_id]
                 .attached_terminal_id
                 .clone();
-            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(agent);
+            app.terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .set_fallback_agent_for_test(Some(agent));
         }
 
         let entries = agent_panel_entries(&app);
@@ -1903,7 +1924,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
                 .attached_terminal_id
                 .clone();
             let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-            terminal.detected_agent = Some(Agent::Claude);
+            terminal.set_fallback_agent_for_test(Some(Agent::Claude));
             terminal.state = state;
         };
         set_state(&mut app, 0, AgentState::Working);
@@ -1937,7 +1958,10 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             let terminal_id = app.workspaces[ws_idx].tabs[0].panes[&pane]
                 .attached_terminal_id
                 .clone();
-            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Claude);
+            app.terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .set_fallback_agent_for_test(Some(Agent::Claude));
         }
 
         let area = Rect::new(0, 0, 4, 12);
@@ -1958,7 +1982,10 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             let terminal_id = app.workspaces[ws_idx].tabs[0].panes[&pane]
                 .attached_terminal_id
                 .clone();
-            app.terminals.get_mut(&terminal_id).unwrap().detected_agent = Some(Agent::Claude);
+            app.terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .set_fallback_agent_for_test(Some(Agent::Claude));
         }
 
         let area = Rect::new(0, 0, 4, 25);
@@ -1984,7 +2011,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
                 .attached_terminal_id
                 .clone();
             let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-            terminal.detected_agent = Some(Agent::Claude);
+            terminal.set_fallback_agent_for_test(Some(Agent::Claude));
             terminal.state = state;
         };
         set_state(&mut app, 0, first_pane, AgentState::Working);
@@ -2029,7 +2056,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
             .clone();
         let terminal = app.terminals.get_mut(&terminal_id).unwrap();
         terminal.cwd = stale_cwd;
-        terminal.detected_agent = Some(Agent::Pi);
+        terminal.set_fallback_agent_for_test(Some(Agent::Pi));
         app.active = Some(0);
         app.selected = 0;
 
@@ -2081,7 +2108,7 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         app.terminals
             .get_mut(&first_terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Pi);
+            .set_fallback_agent_for_test(Some(Agent::Pi));
         app.terminals
             .get_mut(&first_terminal_id)
             .unwrap()

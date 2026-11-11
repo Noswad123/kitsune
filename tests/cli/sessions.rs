@@ -1,5 +1,12 @@
 use super::harness::*;
 
+// These local integration fixtures never bind a server socket. Honor TMPDIR for
+// disk-backed scratch without lengthening unrelated named-session socket paths.
+fn local_integration_test_dir() -> PathBuf {
+    let unique = unique_test_dir();
+    std::env::temp_dir().join(unique.file_name().expect("unique fixture basename"))
+}
+
 #[test]
 fn named_sessions_use_separate_servers_and_workspace_state() {
     let base = unique_test_dir();
@@ -186,7 +193,7 @@ fn named_sessions_use_separate_servers_and_workspace_state() {
 
 #[test]
 fn integration_commands_run_locally_when_server_is_missing() {
-    let base = unique_test_dir();
+    let base = local_integration_test_dir();
     let home_dir = base.join("home");
     let extensions_dir = home_dir.join(".pi/agent/extensions");
     fs::create_dir_all(&extensions_dir).unwrap();
@@ -216,11 +223,40 @@ fn integration_commands_run_locally_when_server_is_missing() {
         .env("HOME", &home_dir)
         .output()
         .unwrap();
-    assert_eq!(integration_install.status.code(), Some(0));
-    assert!(
-        expected_extension.exists(),
-        "integration install should write local files without a server"
-    );
+    #[cfg(target_os = "linux")]
+    {
+        assert_eq!(integration_install.status.code(), Some(1));
+        assert!(integration_install.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&integration_install.stderr);
+        for guidance in [
+            "Pi extensions on Linux are managed by Coven",
+            "coven agent extensions plan --provider pi --extension-root ABS",
+            "coven agent extensions install --provider pi --extension-root ABS",
+            "--migrate-kitsune",
+            "--apply",
+        ] {
+            assert!(stderr.contains(guidance), "stderr: {stderr}");
+        }
+        assert!(
+            fs::read_dir(&extensions_dir).unwrap().next().is_none(),
+            "retired integration install should refuse before writing local files"
+        );
+
+        // Seed exact legacy v7 bytes only to exercise read-only status and cleanup.
+        fs::write(
+            &expected_extension,
+            include_str!("../../src/integration/assets/pi/kitsune-agent-state.ts"),
+        )
+        .unwrap();
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        assert_eq!(integration_install.status.code(), Some(0));
+        assert!(
+            expected_extension.exists(),
+            "integration install should write local files without a server"
+        );
+    }
 
     let integration_status = Command::new(env!("CARGO_BIN_EXE_kitsune"))
         .args(["integration", "status"])
@@ -250,7 +286,7 @@ fn integration_commands_run_locally_when_server_is_missing() {
 
 #[test]
 fn integration_status_outdated_only_prints_action_for_legacy_install() {
-    let base = unique_test_dir();
+    let base = local_integration_test_dir();
     let home_dir = base.join("home");
     let extensions_dir = home_dir.join(".pi/agent/extensions");
     fs::create_dir_all(&extensions_dir).unwrap();
@@ -274,16 +310,38 @@ fn integration_status_outdated_only_prints_action_for_legacy_install() {
 
     assert_eq!(output.status.code(), Some(0));
     assert!(output.stdout.is_empty());
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("installed kitsune integrations need updating"));
-    assert!(stderr.contains("kitsune integration install pi"));
+    #[cfg(target_os = "linux")]
+    assert!(output.stderr.is_empty());
+    #[cfg(not(target_os = "linux"))]
+    {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("installed kitsune integrations need updating"));
+        assert!(stderr.contains("kitsune integration install pi"));
+    }
+
+    let status = Command::new(env!("CARGO_BIN_EXE_kitsune"))
+        .args(["integration", "status"])
+        .env("KITSUNE_SOCKET_PATH", &missing_socket)
+        .env("HOME", &home_dir)
+        .output()
+        .unwrap();
+    assert_eq!(status.status.code(), Some(0));
+    let stdout = String::from_utf8_lossy(&status.stdout);
+    assert!(
+        stdout.contains("pi: outdated (legacy < v7)"),
+        "stdout: {stdout}"
+    );
+    assert_eq!(
+        fs::read_to_string(extensions_dir.join("kitsune-agent-state.ts")).unwrap(),
+        "// legacy kitsune integration\n"
+    );
 
     cleanup_test_base(&base);
 }
 
 #[test]
 fn integration_status_rejects_unknown_flags() {
-    let base = unique_test_dir();
+    let base = local_integration_test_dir();
     let home_dir = base.join("home");
     fs::create_dir_all(&home_dir).unwrap();
     let runtime_dir = base.join("runtime");

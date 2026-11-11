@@ -75,7 +75,7 @@ mod tests {
             .attached_terminal_id
             .clone();
         let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.detected_agent = Some(Agent::Claude);
+        terminal.set_fallback_agent_for_test(Some(Agent::Claude));
         terminal.state = AgentState::Working;
         let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
         runtime.test_process_pty_bytes("\x1b]0;⠋ 修复🙂标题\x07".as_bytes());

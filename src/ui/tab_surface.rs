@@ -126,7 +126,7 @@ pub(crate) fn tab_surface_cursor(
                 .get(ws_idx)
                 .and_then(|ws| ws.terminal_id(info.id))
                 .and_then(|terminal_id| app.terminals.get(terminal_id))
-                .and_then(|terminal| terminal.detected_agent);
+                .and_then(|terminal| terminal.detected_agent());
             detected.is_some_and(|agent| app.cjk_ime_agents.contains(&agent))
         });
 
@@ -302,9 +302,19 @@ mod tests {
         assert!(!app.view.split_borders.is_empty());
         assert!(frame.cursor.is_some());
         assert_eq!(frame.hyperlinks, vec![uri.to_owned()]);
+        let text = frame
+            .cells
+            .iter()
+            .map(|cell| cell.symbol.as_str())
+            .collect::<String>();
+        assert!(text.contains(&crate::annotations::render_text(
+            "No integrations configured",
+            usize::from(app.integration_views_area().width),
+        )));
+        assert!(!text.contains("Agents"));
         assert_eq!(
             frame_digest(&frame),
-            "22dc5c7199aaa9a57bfbdc9323473c7986543755acf0c5814a16885636266811"
+            "101b79bcc66557ea1049cd77cc79db9746be6ff236360e32e085e40e9c1159c4"
         );
     }
 

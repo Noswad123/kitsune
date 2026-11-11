@@ -3,6 +3,10 @@ use std::process::Command;
 
 use super::{ClipboardImage, ForegroundJob, Signal};
 
+pub(crate) fn process_observation_metadata() -> Option<super::ProcessObservationMetadata> {
+    None
+}
+
 /// Unsupported platform stub.
 pub fn raise_server_nofile_limit() {}
 

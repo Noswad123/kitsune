@@ -7501,6 +7501,32 @@
           ],
           "type": "object"
         },
+        "ProcessObservationInfo": {
+          "description": "Acquisition semantics of pane.process_info, not a new process provider.\nThis does not promise a complete process tree or stable process generations.",
+          "properties": {
+            "platform": {
+              "type": "string"
+            },
+            "scope": {
+              "type": "string"
+            },
+            "selection": {
+              "type": "string"
+            },
+            "version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version",
+            "platform",
+            "scope",
+            "selection"
+          ],
+          "type": "object"
+        },
         "ReadFormat": {
           "enum": [
             "text",
@@ -8628,6 +8654,16 @@
                 "$ref": "#/schemas/success_response/$defs/PaneInfo"
               },
               "type": "array"
+            },
+            "process_observation": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/ProcessObservationInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "protocol": {
               "format": "uint32",

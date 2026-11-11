@@ -994,6 +994,7 @@ fn session_snapshot_request_and_response_round_trip() {
                 protocol: 16,
                 annotations: None,
                 command_submission: None,
+                process_observation: None,
                 integration_views: None,
                 focused_workspace_id: None,
                 focused_tab_id: None,
@@ -1010,6 +1011,62 @@ fn session_snapshot_request_and_response_round_trip() {
     assert!(json.contains("\"type\":\"session_snapshot\""));
     let restored: SuccessResponse = serde_json::from_str(&json).unwrap();
     assert_eq!(restored, response);
+}
+
+#[test]
+fn session_snapshot_process_observation_is_optional_and_round_trips() {
+    let old = serde_json::json!({
+        "version": "0.1.2", "protocol": 16,
+        "workspaces": [], "tabs": [], "panes": [], "layouts": [], "agents": []
+    });
+    let snapshot: SessionSnapshot = serde_json::from_value(old).unwrap();
+    assert!(snapshot.process_observation.is_none());
+    assert!(serde_json::to_value(&snapshot)
+        .unwrap()
+        .get("process_observation")
+        .is_none());
+
+    // Check every advertised contract even when testing on Linux. Windows must
+    // never be described as neutral while its candidate selection is agent-aware.
+    for (platform, scope, selection, source) in [
+        (
+            "linux",
+            "pane_foreground_cohort",
+            "unclassified",
+            include_str!("../../platform/linux.rs"),
+        ),
+        (
+            "macos",
+            "pane_foreground_cohort",
+            "unclassified",
+            include_str!("../../platform/macos.rs"),
+        ),
+        (
+            "windows",
+            "selected_process",
+            "legacy_agent_aware",
+            include_str!("../../platform/windows.rs"),
+        ),
+    ] {
+        for (key, value) in [
+            ("platform", platform),
+            ("scope", scope),
+            ("selection", selection),
+        ] {
+            assert!(source.contains(&format!("{key}: \"{value}\"")));
+        }
+        let descriptor = serde_json::json!({
+            "version": 1, "platform": platform, "scope": scope, "selection": selection
+        });
+        let mut snapshot = snapshot.clone();
+        snapshot.process_observation = Some(serde_json::from_value(descriptor.clone()).unwrap());
+        let json = serde_json::to_value(&snapshot).unwrap();
+        assert_eq!(json["process_observation"], descriptor);
+        assert_eq!(
+            serde_json::from_value::<SessionSnapshot>(json).unwrap(),
+            snapshot
+        );
+    }
 }
 
 #[test]

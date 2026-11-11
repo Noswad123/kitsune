@@ -5,6 +5,8 @@ mod agent_view;
 mod agents;
 mod annotations;
 mod command_submission;
+#[cfg(test)]
+mod detector_evidence_tests;
 mod env;
 mod integration_views;
 #[cfg(all(test, unix))]
@@ -67,6 +69,11 @@ impl App {
 
     pub(crate) fn handle_internal_event_with_render_impact(&mut self, ev: AppEvent) -> bool {
         match ev {
+            AppEvent::DetectorUpdate { pane_id, .. } => {
+                let before = self.detector_presentation_snapshot(pane_id);
+                self.handle_internal_event(ev);
+                before != self.detector_presentation_snapshot(pane_id)
+            }
             AppEvent::GitStatusRefreshed {
                 results,
                 cache_updates,
@@ -76,6 +83,25 @@ impl App {
                 true
             }
         }
+    }
+
+    fn detector_presentation_snapshot(
+        &self,
+        pane_id: crate::layout::PaneId,
+    ) -> Option<(
+        crate::detect::AgentState,
+        Option<String>,
+        crate::terminal::EffectivePresentation,
+        bool,
+    )> {
+        let (_, pane) = self.find_pane(pane_id)?;
+        let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
+        Some((
+            terminal.state,
+            terminal.effective_agent_label().map(str::to_string),
+            terminal.effective_presentation(),
+            pane.seen,
+        ))
     }
 
     fn handle_git_status_refreshed(
@@ -104,6 +130,29 @@ impl App {
     }
 
     pub(crate) fn handle_internal_event(&mut self, ev: AppEvent) {
+        self.handle_internal_event_inner(
+            ev,
+            #[cfg(test)]
+            None,
+        );
+    }
+
+    fn handle_internal_event_inner(
+        &mut self,
+        ev: AppEvent,
+        #[cfg(test)] respawn_runtime: Option<crate::terminal::TerminalRuntime>,
+    ) {
+        // Only the currently attached runtime can supply detector evidence. Do not
+        // let an old queued observation bind its token to a replacement runtime.
+        if let AppEvent::DetectorUpdate { pane_id, epoch, .. } = &ev {
+            let current = self
+                .find_pane(*pane_id)
+                .and_then(|(_, pane)| self.terminal_runtimes.get(&pane.attached_terminal_id))
+                .map(|runtime| runtime.detector_epoch());
+            if current != Some(*epoch) {
+                return;
+            }
+        }
         if let AppEvent::ClipboardWrite { content } = ev {
             #[cfg(not(test))]
             crate::selection::write_osc52_bytes(&content);
@@ -166,7 +215,11 @@ impl App {
                 self.emit_terminal_or_system_agent_notifications(std::slice::from_ref(&update));
             }
             if self.runtime_exit_action(*pane_id) == RuntimeExitAction::RespawnShell
-                && self.respawn_shell_for_launch_pane(*pane_id)
+                && self.respawn_shell_for_launch_pane(
+                    *pane_id,
+                    #[cfg(test)]
+                    respawn_runtime,
+                )
             {
                 self.overlay_panes.remove(pane_id);
                 self.render_dirty.store(true, Ordering::Release);
@@ -239,12 +292,35 @@ impl App {
             };
         let terminal_cwd_reported = matches!(ev, AppEvent::TerminalCwdReported { .. });
         let previous_toast = self.state.toast.clone();
-        let pane_updates = self.state.handle_app_event(ev);
+        let epoch_pane = match &ev {
+            AppEvent::DetectorUpdate { pane_id, .. }
+            | AppEvent::HookStateReported { pane_id, .. }
+            | AppEvent::AgentSessionReported { pane_id, .. }
+            | AppEvent::HookAgentReleased { pane_id, .. }
+            | AppEvent::HookAuthorityCleared { pane_id, .. } => Some(*pane_id),
+            _ => None,
+        };
+        let mut pane_updates = Vec::new();
+        if let Some(pane_id) = epoch_pane {
+            let epoch = self
+                .find_pane(pane_id)
+                .and_then(|(_, pane)| self.terminal_runtimes.get(&pane.attached_terminal_id))
+                .map(|runtime| runtime.detector_epoch());
+            // A hook can overtake an already queued probe. Admission starts at
+            // runtime creation, not at delivery of either event.
+            let now = epoch.map_or_else(Instant::now, |epoch| epoch.started_at());
+            pane_updates.extend(
+                self.state
+                    .synchronize_pane_detector_epoch(pane_id, epoch, now),
+            );
+        }
+        let (event_updates, release_accepted) =
+            self.state.handle_app_event_with_release_outcome(ev);
         if let Some(agents) = manifest_update_agents {
             self.reset_agent_detection_for_agents(&agents);
         }
         if let Some((pane_id, agent)) = released_agent {
-            if pane_updates.iter().any(|update| update.pane_id == pane_id) {
+            if release_accepted {
                 if let Some((ws_idx, _)) = self.find_pane(pane_id) {
                     if let Some(runtime) = self.state.runtime_for_pane_in_workspace(
                         &self.terminal_runtimes,
@@ -256,6 +332,7 @@ impl App {
                 }
             }
         }
+        pane_updates.extend(event_updates);
         self.sync_full_lifecycle_authority_detection_pauses();
         if terminal_cwd_reported {
             self.request_git_identity_refresh(Instant::now());
@@ -304,7 +381,10 @@ impl App {
             return;
         }
         for (terminal_id, terminal) in &self.state.terminals {
-            let Some(agent) = terminal.effective_known_agent().or(terminal.detected_agent) else {
+            let Some(agent) = terminal
+                .effective_known_agent()
+                .or(terminal.detected_agent())
+            else {
                 continue;
             };
             if !agents.contains(&agent) {
@@ -477,7 +557,11 @@ impl App {
         }
     }
 
-    fn respawn_shell_for_launch_pane(&mut self, pane_id: crate::layout::PaneId) -> bool {
+    fn respawn_shell_for_launch_pane(
+        &mut self,
+        pane_id: crate::layout::PaneId,
+        #[cfg(test)] respawn_runtime: Option<crate::terminal::TerminalRuntime>,
+    ) -> bool {
         let Some((ws_idx, pane_state)) = self.find_pane(pane_id) else {
             return false;
         };
@@ -495,19 +579,28 @@ impl App {
         let Some(launch_env) = self.pane_launch_env(ws_idx, pane_id, Vec::new()) else {
             return false;
         };
-        let runtime = match crate::terminal::TerminalRuntime::spawn(
-            pane_id,
-            rows,
-            cols,
-            cwd,
-            self.state.pane_scrollback_limit_bytes,
-            self.state.host_terminal_theme,
-            crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode),
-            &launch_env,
-            self.event_tx.clone(),
-            self.render_notify.clone(),
-            self.render_dirty.clone(),
-        ) {
+        let spawn = || {
+            crate::terminal::TerminalRuntime::spawn(
+                pane_id,
+                rows,
+                cols,
+                cwd,
+                self.state.pane_scrollback_limit_bytes,
+                self.state.host_terminal_theme,
+                crate::pane::PaneShellConfig::new(&self.state.default_shell, self.state.shell_mode),
+                &launch_env,
+                self.event_tx.clone(),
+                self.render_notify.clone(),
+                self.render_dirty.clone(),
+            )
+        };
+        // Only an explicit fixture overrides spawning; ordinary test calls use
+        // the same spawn path as production.
+        #[cfg(test)]
+        let result = respawn_runtime.map(Ok).unwrap_or_else(spawn);
+        #[cfg(not(test))]
+        let result = spawn();
+        let runtime = match result {
             Ok(runtime) => runtime,
             Err(err) => {
                 tracing::warn!(
@@ -1327,7 +1420,7 @@ mod tests {
             .terminals
             .get_mut(&terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Codex);
+            .seed_restored_agent_identity(Agent::Codex);
         let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
         let reset_notify = runtime.agent_detection_reset_notify_for_test();
         app.terminal_runtimes.insert(terminal_id, runtime);
@@ -1453,7 +1546,7 @@ mod tests {
             .terminals
             .get_mut(&terminal_id)
             .unwrap()
-            .detected_agent = Some(Agent::Codex);
+            .seed_restored_agent_identity(Agent::Codex);
         let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(
             80,
             24,
@@ -1896,9 +1989,26 @@ mod tests {
         let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
         app.state.workspaces = vec![workspace];
         app.state.ensure_test_terminals();
+        let epoch = crate::terminal::evidence::DetectorEpoch::new();
         let observed_at = std::time::Instant::now();
         let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_detected_state(Some(Agent::Codex), AgentState::Working);
+        terminal.synchronize_detector_epoch(Some(epoch), epoch.started_at());
+        terminal.apply_detector_update(
+            epoch,
+            Some(
+                crate::terminal::evidence::ForegroundObservation::Confirmed {
+                    agent: Agent::Codex,
+                    process_group_id: None,
+                },
+            ),
+            Some(crate::terminal::evidence::FallbackObservation {
+                agent: Some(Agent::Codex),
+                state: AgentState::Working,
+                visible_blocker: false,
+                visible_working: false,
+            }),
+            observed_at,
+        );
         terminal
             .set_hook_authority_at(
                 "kitsune:codex".into(),
@@ -2047,7 +2157,28 @@ mod tests {
                 .expect("test session id should be valid"),
         });
 
-        app.handle_internal_event(AppEvent::PaneDied { pane_id });
+        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+        let epoch = runtime.detector_epoch();
+        app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+        app.handle_internal_event(AppEvent::DetectorUpdate {
+            pane_id,
+            epoch,
+            foreground: Some(
+                crate::terminal::evidence::ForegroundObservation::Confirmed {
+                    agent: Agent::Codex,
+                    process_group_id: Some(42),
+                },
+            ),
+            fallback: None,
+            observed_at: Instant::now(),
+        });
+        assert!(app.state.terminals[&terminal_id]
+            .foreground_agent_evidence()
+            .is_some());
+
+        // Exercise exit/respawn state handling without claiming a native PTY spawn.
+        let replacement = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
+        app.handle_internal_event_inner(AppEvent::PaneDied { pane_id }, Some(replacement));
 
         assert!(
             app.find_pane(pane_id).is_some(),
@@ -2061,6 +2192,15 @@ mod tests {
         assert!(!terminal.respawn_shell_on_exit);
         assert!(terminal.persisted_agent_session.is_none());
         assert!(terminal.agent_name.is_none());
+        assert!(terminal.foreground_agent_evidence().is_none());
+        assert_ne!(
+            app.terminal_runtimes
+                .get(&terminal_id)
+                .unwrap()
+                .detector_epoch(),
+            epoch
+        );
+        app.state.assert_invariants_for_test();
 
         for (_, runtime) in app.terminal_runtimes.drain() {
             runtime.shutdown();

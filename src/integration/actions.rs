@@ -2,14 +2,34 @@ use std::io;
 
 use super::registry::{integration_target_label, integration_target_supported};
 use super::targets::{
-    install_claude, install_codex, install_copilot, install_opencode, install_pi, uninstall_claude,
-    uninstall_codex, uninstall_copilot, uninstall_opencode, uninstall_pi,
+    uninstall_claude, uninstall_codex, uninstall_copilot, uninstall_opencode, uninstall_pi,
 };
 use super::version::{agent_version_requirement, enforce_agent_version};
 
 pub(crate) fn install_target(
     target: crate::api::schema::IntegrationTarget,
 ) -> io::Result<Vec<String>> {
+    // Coven's replacement mutator is Linux-only until other platform adapters are ready.
+    #[cfg(target_os = "linux")]
+    if target == crate::api::schema::IntegrationTarget::Pi {
+        return Err(io::Error::other(super::PI_COVEN_GUIDANCE));
+    }
+    #[cfg(target_os = "linux")]
+    if target == crate::api::schema::IntegrationTarget::Claude {
+        return Err(io::Error::other(super::CLAUDE_COVEN_GUIDANCE));
+    }
+    #[cfg(target_os = "linux")]
+    if target == crate::api::schema::IntegrationTarget::Codex {
+        return Err(io::Error::other(super::CODEX_COVEN_GUIDANCE));
+    }
+    #[cfg(target_os = "linux")]
+    if target == crate::api::schema::IntegrationTarget::Copilot {
+        return Err(io::Error::other(super::COPILOT_COVEN_GUIDANCE));
+    }
+    #[cfg(target_os = "linux")]
+    if target == crate::api::schema::IntegrationTarget::Opencode {
+        return Err(io::Error::other(super::OPENCODE_COVEN_GUIDANCE));
+    }
     let result = install_target_inner(target);
     let outcome = if result.is_ok() { "ok" } else { "error" };
     crate::logging::integration_action("install", integration_target_label(target), outcome);
@@ -30,12 +50,22 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
     };
 
     let mut messages = match target {
+        #[cfg(target_os = "linux")]
         crate::api::schema::IntegrationTarget::Pi => {
-            let path = install_pi()?;
+            return Err(io::Error::other(super::PI_COVEN_GUIDANCE));
+        }
+        #[cfg(not(target_os = "linux"))]
+        crate::api::schema::IntegrationTarget::Pi => {
+            let path = super::targets::legacy_install_pi()?;
             vec![format!("installed pi integration to {}", path.display())]
         }
+        #[cfg(target_os = "linux")]
         crate::api::schema::IntegrationTarget::Claude => {
-            let installed = install_claude()?;
+            return Err(io::Error::other(super::CLAUDE_COVEN_GUIDANCE));
+        }
+        #[cfg(not(target_os = "linux"))]
+        crate::api::schema::IntegrationTarget::Claude => {
+            let installed = super::targets::legacy_install_claude()?;
             vec![
                 format!(
                     "installed claude integration hook to {}",
@@ -47,8 +77,13 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 ),
             ]
         }
+        #[cfg(target_os = "linux")]
         crate::api::schema::IntegrationTarget::Codex => {
-            let installed = install_codex()?;
+            return Err(io::Error::other(super::CODEX_COVEN_GUIDANCE));
+        }
+        #[cfg(not(target_os = "linux"))]
+        crate::api::schema::IntegrationTarget::Codex => {
+            let installed = super::targets::legacy_install_codex()?;
             vec![
                 format!(
                     "installed codex integration hook to {}",
@@ -61,8 +96,13 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 ),
             ]
         }
+        #[cfg(target_os = "linux")]
         crate::api::schema::IntegrationTarget::Copilot => {
-            let installed = install_copilot()?;
+            return Err(io::Error::other(super::COPILOT_COVEN_GUIDANCE));
+        }
+        #[cfg(not(target_os = "linux"))]
+        crate::api::schema::IntegrationTarget::Copilot => {
+            let installed = super::targets::legacy_install_copilot()?;
             vec![
                 format!(
                     "installed copilot integration hook to {}",
@@ -74,8 +114,13 @@ fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Re
                 ),
             ]
         }
+        #[cfg(target_os = "linux")]
         crate::api::schema::IntegrationTarget::Opencode => {
-            let installed = install_opencode()?;
+            return Err(io::Error::other(super::OPENCODE_COVEN_GUIDANCE));
+        }
+        #[cfg(not(target_os = "linux"))]
+        crate::api::schema::IntegrationTarget::Opencode => {
+            let installed = super::targets::legacy_install_opencode()?;
             vec![format!(
                 "installed opencode integration plugin to {}",
                 installed.plugin_path.display()
@@ -114,6 +159,11 @@ pub(crate) fn uninstall_target(
         crate::api::schema::IntegrationTarget::Claude => {
             let result = uninstall_claude()?;
             let mut messages = Vec::new();
+            #[cfg(target_os = "linux")]
+            messages.push(format!(
+                "legacy Kitsune Claude cleanup only; {}",
+                super::CLAUDE_COVEN_GUIDANCE
+            ));
             if result.removed_hook_file {
                 messages.push(format!(
                     "removed claude integration hook at {}",
@@ -141,6 +191,11 @@ pub(crate) fn uninstall_target(
         crate::api::schema::IntegrationTarget::Codex => {
             let result = uninstall_codex()?;
             let mut messages = Vec::new();
+            #[cfg(target_os = "linux")]
+            messages.push(format!(
+                "legacy Kitsune Codex cleanup only; {}",
+                super::CODEX_COVEN_GUIDANCE
+            ));
             if result.removed_hook_file {
                 messages.push(format!(
                     "removed codex integration hook at {}",
@@ -172,6 +227,11 @@ pub(crate) fn uninstall_target(
         crate::api::schema::IntegrationTarget::Copilot => {
             let result = uninstall_copilot()?;
             let mut messages = Vec::new();
+            #[cfg(target_os = "linux")]
+            messages.push(format!(
+                "legacy Kitsune Copilot cleanup only; {}",
+                super::COPILOT_COVEN_GUIDANCE
+            ));
             if result.removed_hook_file {
                 messages.push(format!(
                     "removed copilot integration hook at {}",

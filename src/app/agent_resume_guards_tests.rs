@@ -43,7 +43,7 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let directory = OwnedDirectory::new();
-    let mut state = AppState::test_new();
+    let mut state = AppState::test_with_adversarial_identity_state();
     // An accidentally bypassed guard must not resolve the user's default shell
     // or launch a provider. The private directory stays owned for the test.
     state.default_shell = directory
@@ -52,7 +52,6 @@ fn fixture() -> Fixture {
         .to_str()
         .unwrap()
         .into();
-    state.workspaces = vec![crate::workspace::Workspace::test_new("resume-guards")];
     state.active = Some(0);
     state.ensure_test_terminals();
     state.host_terminal_theme = Default::default();
@@ -68,6 +67,7 @@ fn fixture() -> Fixture {
     let terminal = state.terminals.get_mut(&terminal_id).unwrap();
     terminal.cwd = directory.0.clone();
     terminal.set_persisted_agent_session(session.clone());
+    terminal.seed_restored_agent_identity(crate::detect::Agent::Codex);
     terminal.pending_agent_resume_plan = Some(plan.clone());
     terminal.launch_argv = Some(vec!["saved-launch-marker".into()]);
     terminal.respawn_shell_on_exit = true;
@@ -101,8 +101,13 @@ fn assert_intent_preserved(
     );
     assert!(terminal.respawn_shell_on_exit);
     assert!(terminal.hook_authority.is_none());
-    assert!(terminal.detected_agent.is_none());
-    assert_eq!(terminal.state, crate::detect::AgentState::Unknown);
+    assert_eq!(terminal.detected_agent(), Some(crate::detect::Agent::Codex));
+    assert_eq!(
+        terminal.historical_agent_identity(),
+        Some(crate::detect::Agent::Codex)
+    );
+    assert_eq!(terminal.foreground_agent_evidence(), None);
+    assert_eq!(terminal.state, crate::detect::AgentState::Idle);
     assert_eq!(terminal.revision, revision);
     assert_eq!(app.terminal_runtimes.len(), 0);
     assert!(!app.state.session_dirty);
@@ -216,4 +221,46 @@ fn pending_agent_resume_theme_and_empty_argv_guards_preserve_intent() {
         assert_intent_preserved(&app, &terminal_id, &session, &plan, revision);
         assert_eq!(app.pending_agent_resume_deadline, deadline);
     }
+}
+
+#[tokio::test]
+async fn inert_runtime_and_resume_command_submission_do_not_confirm_historical_identity() {
+    let Fixture {
+        mut app,
+        terminal_id,
+        session,
+        plan,
+        _directory,
+    } = fixture();
+    let revision = app.state.terminals[&terminal_id].revision;
+    let (runtime, mut input) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+    app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+    app.state.view.terminal_area = Rect::new(0, 0, 100, 30);
+    // An existing runtime wins over deferred resume intent, without a spawn.
+    assert!(app.pending_agent_resume_candidates().is_empty());
+    assert!(!app.start_pending_agent_resumes(true));
+    assert!(!app.start_pending_agent_resume_for_terminal(&terminal_id, 24, 80, true));
+    let mut command = shell_command_from_argv(&plan.argv).unwrap();
+    command.push('\r');
+    app.terminal_runtimes
+        .get(&terminal_id)
+        .unwrap()
+        .try_send_bytes(bytes::Bytes::from(command.clone()))
+        .unwrap();
+    assert_eq!(input.recv().await.unwrap().as_ref(), command.as_bytes());
+    // Transport acceptance is not a provider process probe.
+    let terminal = &app.state.terminals[&terminal_id];
+    assert_eq!(
+        terminal.historical_agent_identity(),
+        Some(crate::detect::Agent::Codex)
+    );
+    assert_eq!(terminal.foreground_agent_evidence(), None);
+    assert_eq!(terminal.state, crate::detect::AgentState::Idle);
+    assert_eq!(terminal.revision, revision);
+    assert_eq!(terminal.persisted_agent_session.as_ref(), Some(&session));
+    assert_eq!(terminal.pending_agent_resume_plan.as_ref(), Some(&plan));
+    assert!(terminal.hook_authority.is_none());
+    assert!(!app.state.session_dirty);
+    assert!(app.session_save_deadline.is_none());
+    app.state.assert_invariants_for_test();
 }

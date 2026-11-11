@@ -289,7 +289,7 @@ mod tests {
 
         let mut terminals = HashMap::new();
         let mut terminal = terminal_for_pane(&ws, survivor_pane);
-        terminal.detected_agent = Some(Agent::Codex);
+        terminal.set_fallback_agent_for_test(Some(Agent::Codex));
         terminals.insert(terminal.id.clone(), terminal);
 
         let details = ws.pane_details(&terminals);

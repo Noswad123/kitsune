@@ -153,6 +153,7 @@ pub(crate) fn codex_executable_name() -> &'static str {
     }
 }
 
+// Includes read-only inspection of retired legacy hooks on Linux.
 pub(crate) fn installed_integration_statuses() -> Vec<super::IntegrationStatus> {
     integration_specs()
         .into_iter()
@@ -169,6 +170,17 @@ pub(crate) fn integration_recommendations() -> Vec<super::IntegrationRecommendat
     integration_specs()
         .into_iter()
         .filter_map(|(target, path, expected_version)| {
+            #[cfg(target_os = "linux")]
+            if matches!(
+                target,
+                crate::api::schema::IntegrationTarget::Pi
+                    | crate::api::schema::IntegrationTarget::Claude
+                    | crate::api::schema::IntegrationTarget::Codex
+                    | crate::api::schema::IntegrationTarget::Copilot
+                    | crate::api::schema::IntegrationTarget::Opencode
+            ) {
+                return None;
+            }
             if !integration_target_supported(target) {
                 return None;
             }
@@ -190,7 +202,20 @@ pub(crate) fn integration_recommendations() -> Vec<super::IntegrationRecommendat
 pub(crate) fn outdated_installed_integrations() -> Vec<super::IntegrationStatus> {
     installed_integration_statuses()
         .into_iter()
-        .filter(|status| status.state == super::IntegrationStatusKind::Outdated)
+        .filter(|status| {
+            #[cfg(target_os = "linux")]
+            if matches!(
+                status.target,
+                crate::api::schema::IntegrationTarget::Pi
+                    | crate::api::schema::IntegrationTarget::Claude
+                    | crate::api::schema::IntegrationTarget::Codex
+                    | crate::api::schema::IntegrationTarget::Copilot
+                    | crate::api::schema::IntegrationTarget::Opencode
+            ) {
+                return false;
+            }
+            status.state == super::IntegrationStatusKind::Outdated
+        })
         .collect()
 }
 
@@ -237,6 +262,26 @@ pub(crate) fn integration_update_instructions(
     let commands: Vec<String> = targets
         .iter()
         .map(|target| {
+            #[cfg(target_os = "linux")]
+            if *target == crate::api::schema::IntegrationTarget::Pi {
+                return super::PI_COVEN_GUIDANCE.to_string();
+            }
+            #[cfg(target_os = "linux")]
+            if *target == crate::api::schema::IntegrationTarget::Claude {
+                return super::CLAUDE_COVEN_GUIDANCE.to_string();
+            }
+            #[cfg(target_os = "linux")]
+            if *target == crate::api::schema::IntegrationTarget::Codex {
+                return super::CODEX_COVEN_GUIDANCE.to_string();
+            }
+            #[cfg(target_os = "linux")]
+            if *target == crate::api::schema::IntegrationTarget::Copilot {
+                return super::COPILOT_COVEN_GUIDANCE.to_string();
+            }
+            #[cfg(target_os = "linux")]
+            if *target == crate::api::schema::IntegrationTarget::Opencode {
+                return super::OPENCODE_COVEN_GUIDANCE.to_string();
+            }
             format!(
                 "`kitsune integration install {}`",
                 integration_target_label(*target)

@@ -1,4 +1,6 @@
-use crate::api::schema::{AnnotationInfo, CommandSubmissionInfo, ResponseResult, SessionSnapshot};
+use crate::api::schema::{
+    AnnotationInfo, CommandSubmissionInfo, ProcessObservationInfo, ResponseResult, SessionSnapshot,
+};
 use crate::app::App;
 
 use super::responses::encode_success;
@@ -51,6 +53,14 @@ impl App {
                 valid_until_unix_ms: true,
             }),
             command_submission: Some(CommandSubmissionInfo { version: 1 }),
+            process_observation: crate::platform::process_observation_metadata().map(|metadata| {
+                ProcessObservationInfo {
+                    version: 1,
+                    platform: metadata.platform.into(),
+                    scope: metadata.scope.into(),
+                    selection: metadata.selection.into(),
+                }
+            }),
             integration_views: Some(
                 self.state
                     .integration_views
@@ -88,6 +98,33 @@ mod tests {
         app.state.ensure_test_terminals();
         app.state.active = Some(0);
         app
+    }
+
+    #[test]
+    fn session_snapshot_advertises_process_observation_without_native_agents() {
+        let mut app = crate::app::test_support::app_from_state(crate::app::AppState::test_new());
+        let response = app.handle_api_request(crate::api::schema::Request {
+            id: "req_observation".into(),
+            method: Method::SessionSnapshot(EmptyParams::default()),
+        });
+        let success: SuccessResponse = serde_json::from_str(&response).unwrap();
+        let ResponseResult::SessionSnapshot { snapshot } = success.result else {
+            panic!("expected session snapshot response");
+        };
+        assert!(snapshot.agents.is_empty());
+        let metadata = crate::platform::process_observation_metadata();
+        assert_eq!(
+            snapshot.process_observation,
+            metadata.map(|metadata| crate::api::schema::ProcessObservationInfo {
+                version: 1,
+                platform: metadata.platform.into(),
+                scope: metadata.scope.into(),
+                selection: metadata.selection.into(),
+            })
+        );
+        if matches!(std::env::consts::OS, "linux" | "macos" | "windows") {
+            assert_eq!(metadata.unwrap().platform, std::env::consts::OS);
+        }
     }
 
     #[test]

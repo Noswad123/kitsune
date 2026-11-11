@@ -189,7 +189,10 @@ impl App {
             });
             return encode_success(id, ResponseResult::AgentExplain { explain });
         }
-        let Some(agent) = terminal.effective_known_agent().or(terminal.detected_agent) else {
+        let Some(agent) = terminal
+            .effective_known_agent()
+            .or(terminal.detected_agent())
+        else {
             return encode_error(
                 id,
                 "agent_explain_unavailable",

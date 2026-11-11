@@ -2038,7 +2038,7 @@ mod tests {
             .terminals
             .get_mut(&alpha_terminal)
             .unwrap()
-            .detected_agent = Some(crate::detect::Agent::Codex);
+            .set_fallback_agent_for_test(Some(crate::detect::Agent::Codex));
         state.mode = Mode::Navigator;
 
         handle_navigator_key(
@@ -2081,7 +2081,7 @@ mod tests {
             .attached_terminal_id
             .clone();
         let terminal = state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.detected_agent = Some(crate::detect::Agent::OpenCode);
+        terminal.set_fallback_agent_for_test(Some(crate::detect::Agent::OpenCode));
         terminal.set_manual_label("old pane".to_string());
         state.mode = Mode::Navigator;
         state.navigator.scope = crate::app::state::NavigatorScope::Agents;

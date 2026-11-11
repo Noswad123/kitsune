@@ -95,6 +95,15 @@ pub(crate) fn available_pane_shell(child_pid: u32) -> Option<String> {
     super::available_pane_shell_from_job(child_pid, foreground_job(child_pid)?)
 }
 
+pub(crate) fn process_observation_metadata() -> Option<super::ProcessObservationMetadata> {
+    // Current acquisition walks from child/foreground-group roots and filters by PGID.
+    Some(super::ProcessObservationMetadata {
+        platform: "linux",
+        scope: "pane_foreground_cohort",
+        selection: "unclassified",
+    })
+}
+
 pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
     let tpgid = foreground_process_group_id(child_pid)?;
     let members = foreground_process_group_members(child_pid, tpgid)?;

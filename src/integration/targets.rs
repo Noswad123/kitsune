@@ -1,29 +1,37 @@
 use std::fs;
 use std::io;
+#[cfg(any(test, not(target_os = "linux")))]
 use std::path::{Path, PathBuf};
 
-use serde_json::{json, Value};
+#[cfg(any(test, not(target_os = "linux")))]
+use serde_json::json;
+use serde_json::Value;
 
+#[cfg(any(test, not(target_os = "linux")))]
 use super::command::hook_command;
+#[cfg(any(test, not(target_os = "linux")))]
 use super::config_edit::{
     build_codex_config_with_hooks, ensure_command_hook, ensure_direct_command_hook,
-    ensure_hooks_object, hooks_object_if_present, remove_direct_hook_commands,
-    remove_hook_commands,
+    ensure_hooks_object,
+};
+use super::config_edit::{
+    hooks_object_if_present, remove_direct_hook_commands, remove_hook_commands,
 };
 use super::env::{claude_dir, codex_dir, copilot_dir, opencode_dir, pi_extension_dir};
-use super::file_ops::{make_executable, remove_file_if_exists, remove_legacy_bash_hook_file};
+#[cfg(any(test, not(target_os = "linux")))]
+use super::file_ops::make_executable;
+use super::file_ops::{remove_file_if_exists, remove_legacy_bash_hook_file};
 use super::types::{
-    ClaudeInstallPaths, ClaudeUninstallResult, CodexInstallPaths, CodexUninstallResult,
-    CopilotInstallPaths, CopilotUninstallResult, OpenCodeInstallPaths, OpenCodeUninstallResult,
+    ClaudeUninstallResult, CodexUninstallResult, CopilotUninstallResult, OpenCodeUninstallResult,
     PiUninstallResult,
 };
 use super::{
-    CLAUDE_HOOK_ASSET, CLAUDE_HOOK_INSTALL_NAME, CODEX_HOOK_ASSET, CODEX_HOOK_INSTALL_NAME,
-    COPILOT_HOOK_ASSET, COPILOT_HOOK_EVENTS, COPILOT_HOOK_INSTALL_NAME,
-    COPILOT_REMOVED_LIFECYCLE_HOOK_EVENTS, OPENCODE_PLUGIN_ASSET, OPENCODE_PLUGIN_INSTALL_NAME,
-    PI_EXTENSION_ASSET, PI_EXTENSION_INSTALL_NAME,
+    CLAUDE_HOOK_INSTALL_NAME, CODEX_HOOK_INSTALL_NAME, COPILOT_HOOK_EVENTS,
+    COPILOT_HOOK_INSTALL_NAME, COPILOT_REMOVED_LIFECYCLE_HOOK_EVENTS, OPENCODE_PLUGIN_INSTALL_NAME,
+    PI_EXTENSION_INSTALL_NAME,
 };
 
+#[cfg(any(test, not(target_os = "linux")))]
 fn ensure_extension_dir(dir: &Path, agent: &str) -> io::Result<()> {
     if dir.is_dir() {
         return Ok(());
@@ -37,16 +45,20 @@ fn ensure_extension_dir(dir: &Path, agent: &str) -> io::Result<()> {
     )))
 }
 
-pub(crate) fn install_pi() -> io::Result<PathBuf> {
+// Preserve the full legacy asset for non-Linux installs and historical test fixtures.
+#[cfg(any(test, not(target_os = "linux")))]
+pub(super) fn legacy_install_pi() -> io::Result<PathBuf> {
     let dir = pi_extension_dir()?;
     ensure_extension_dir(&dir, "pi")?;
 
     let path = dir.join(PI_EXTENSION_INSTALL_NAME);
-    fs::write(&path, PI_EXTENSION_ASSET)?;
+    fs::write(&path, super::PI_EXTENSION_ASSET)?;
     Ok(path)
 }
 
-pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
+// Non-Linux compatibility until Coven has platform adapters; test fixtures only on Linux.
+#[cfg(any(test, not(target_os = "linux")))]
+pub(super) fn legacy_install_claude() -> io::Result<super::types::ClaudeInstallPaths> {
     let dir = claude_dir()?;
     if !dir.is_dir() {
         return Err(io::Error::other(format!(
@@ -59,7 +71,7 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
     fs::create_dir_all(&hooks_dir)?;
 
     let hook_path = hooks_dir.join(CLAUDE_HOOK_INSTALL_NAME);
-    fs::write(&hook_path, CLAUDE_HOOK_ASSET)?;
+    fs::write(&hook_path, super::CLAUDE_HOOK_ASSET)?;
     make_executable(&hook_path)?;
 
     let settings_path = dir.join("settings.json");
@@ -101,13 +113,15 @@ pub(crate) fn install_claude() -> io::Result<ClaudeInstallPaths> {
 
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
 
-    Ok(ClaudeInstallPaths {
+    Ok(super::types::ClaudeInstallPaths {
         hook_path,
         settings_path,
     })
 }
 
-pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
+// Non-Linux compatibility until Coven has platform adapters; test fixtures only on Linux.
+#[cfg(any(test, not(target_os = "linux")))]
+pub(super) fn legacy_install_codex() -> io::Result<super::types::CodexInstallPaths> {
     let dir = codex_dir()?;
     if !dir.is_dir() {
         return Err(io::Error::other(format!(
@@ -117,7 +131,7 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
     }
 
     let hook_path = dir.join(CODEX_HOOK_INSTALL_NAME);
-    fs::write(&hook_path, CODEX_HOOK_ASSET)?;
+    fs::write(&hook_path, super::CODEX_HOOK_ASSET)?;
     make_executable(&hook_path)?;
 
     let hooks_path = dir.join("hooks.json");
@@ -163,14 +177,16 @@ pub(crate) fn install_codex() -> io::Result<CodexInstallPaths> {
         fs::write(&config_path, new_config)?;
     }
 
-    Ok(CodexInstallPaths {
+    Ok(super::types::CodexInstallPaths {
         hook_path,
         hooks_path,
         config_path,
     })
 }
 
-pub(crate) fn install_copilot() -> io::Result<CopilotInstallPaths> {
+// Non-Linux compatibility until Coven has platform adapters; test fixtures only on Linux.
+#[cfg(any(test, not(target_os = "linux")))]
+pub(super) fn legacy_install_copilot() -> io::Result<super::types::CopilotInstallPaths> {
     let dir = copilot_dir()?;
     if !dir.is_dir() {
         return Err(io::Error::other(format!(
@@ -183,7 +199,7 @@ pub(crate) fn install_copilot() -> io::Result<CopilotInstallPaths> {
     fs::create_dir_all(&hooks_dir)?;
 
     let hook_path = hooks_dir.join(COPILOT_HOOK_INSTALL_NAME);
-    fs::write(&hook_path, COPILOT_HOOK_ASSET)?;
+    fs::write(&hook_path, super::COPILOT_HOOK_ASSET)?;
     make_executable(&hook_path)?;
 
     let settings_path = dir.join("settings.json");
@@ -218,13 +234,15 @@ pub(crate) fn install_copilot() -> io::Result<CopilotInstallPaths> {
 
     fs::write(&settings_path, serde_json::to_string_pretty(&settings)?)?;
 
-    Ok(CopilotInstallPaths {
+    Ok(super::types::CopilotInstallPaths {
         hook_path,
         settings_path,
     })
 }
 
-pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
+// Preserve the full legacy asset for non-Linux installs and historical test fixtures.
+#[cfg(any(test, not(target_os = "linux")))]
+pub(super) fn legacy_install_opencode() -> io::Result<super::types::OpenCodeInstallPaths> {
     let dir = opencode_dir()?;
     if !dir.is_dir() {
         return Err(io::Error::other(format!(
@@ -237,9 +255,9 @@ pub(crate) fn install_opencode() -> io::Result<OpenCodeInstallPaths> {
     fs::create_dir_all(&plugins_dir)?;
 
     let plugin_path = plugins_dir.join(OPENCODE_PLUGIN_INSTALL_NAME);
-    fs::write(&plugin_path, OPENCODE_PLUGIN_ASSET)?;
+    fs::write(&plugin_path, super::OPENCODE_PLUGIN_ASSET)?;
 
-    Ok(OpenCodeInstallPaths { plugin_path })
+    Ok(super::types::OpenCodeInstallPaths { plugin_path })
 }
 
 pub(crate) fn uninstall_pi() -> io::Result<PiUninstallResult> {
