@@ -2,6 +2,13 @@
 
 ## Overview
 
+Coven's [private hook-file backend matrix](../coven/HOOK_FILE_BACKEND_CONTRACT.md)
+now source-enables shared Linux/macOS file apply for all five managers. macOS is
+provisional, eligible local APFS only and not natively qualified. All old Kit
+non-Linux installers/assets/status/uninstall/recommend/update/bulk paths stay until
+native qualification; receiver privacy, discovery and full management are separate
+pending capabilities, not qualified by this backend.
+
 Decision date: **2026-10-22**. Status: **accepted target; initial read-only
 observation implemented in Coven; production opt-in terminal-border annotations
 implemented in Kitsune; explicit participant groups/roles and a foreground publisher
@@ -127,8 +134,9 @@ preserve immutable originals/rollback after uninstall. OpenCode namespaces prote
 Stop native servers/watchers before apply and restart native server after manual
 apply, not just TUI attach; no automatic restart or in-memory release. Five providers
 share unchanged five store-v1 fields/aggregate 128; receiver first because older
-binaries reject new providers, with downgrade limits. Linux apply only, Unix
-preview/receiver, macOS unvalidated, Windows unsupported. The
+binaries reject new providers, with downgrade limits. Linux and provisional
+eligible-local-APFS macOS file apply are source-enabled; macOS native qualification
+and receiver privacy remain pending, Windows unsupported. The
 [historical OpenCode scoped table](../coven/AGENT_MANAGEMENT_MIGRATION.md#opencode-validation-table)
 records Kit 111 integration/10 OpenCode overlapping checks plus six legacy-asset
 harness checks, Coven shared 20/workflows 14/Node 12 with Bun harness coverage.
@@ -170,7 +178,8 @@ a matching probe or accepted fallback. This is deliberate semantic hardening, no
 blanket behavior compatibility. No external mode, Config or wire/snapshot field
 changes, toggle/kill/hide controls ship. This is functional Coven recognition with temporary duplicate legacy
 policy, not sole ownership/full status. Five prior Linux configuration retirements
-and pending non-Linux adapters are unchanged. [Validation](../coven/AGENT_MANAGEMENT_MIGRATION.md#discovery-validation-table)
+and pending non-Linux qualification/capability gates are unchanged, not absence
+of the provisional macOS file backend. [Validation](../coven/AGENT_MANAGEMENT_MIGRATION.md#discovery-validation-table)
 records 201 focused Coven checks, 249 Kit API checks and lint/MSRV/release/package
 validation; historical OpenCode results are non-additive. Read housekeeping can ensure a workspace/shell; no
 zero-effects or live installed Kit command validation is claimed for this session.
@@ -297,7 +306,8 @@ inventory is last-reported, caller-supplied evidence, not current native identit
 readiness, completion or resume permission. Its optional independent view worker
 uses generic snapshot/`integration.view.*` after receiver readiness; Kitsune failure
 does not stop capture, and selection is read-only. See the
-[migration guide](CLAUDE_HOOK_MIGRATION.md) for Unix receiver/Linux-only apply,
+[migration guide](CLAUDE_HOOK_MIGRATION.md) for the earlier Linux retirement cut and
+[backend matrix](../coven/HOOK_FILE_BACKEND_CONTRACT.md) for provisional macOS apply,
 privacy, rollback and manual recovery boundaries.
 
 The generic block is not a broker, plugin or script host. Reorder preserves retained

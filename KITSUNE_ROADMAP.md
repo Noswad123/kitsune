@@ -18,7 +18,13 @@ explicit settings plan/install/uninstall/rollback, independent private Unix rece
 capture/redacted inventory, and optional generic-view rows. See
 [CLAUDE_HOOK_MIGRATION.md](CLAUDE_HOOK_MIGRATION.md).
 
-Pending: matching non-Linux Claude/Codex/Copilot/Pi/OpenCode adapters before retiring working Kit paths;
+Current: Coven's [shared private hook-file backend](../coven/HOOK_FILE_BACKEND_CONTRACT.md)
+source-enables explicit macOS file apply for all five managers, provisional eligible
+local APFS only, not native qualification. All old Kit non-Linux installers/assets/
+status/uninstall/recommend/update/bulk paths stay. Receiver privacy, discovery and
+full management are separate pending capabilities.
+
+Pending: native macOS qualification and remaining non-Linux capabilities before retiring working Kit paths;
 separate Djinn handling and remaining provider/source management; discovery/status and process/screen
 fallback; provider start/resume; agent-aware restore/reference ownership, dedupe
 and deferred launch; matching legacy APIs/navigation/mobile retirement. **Claude
@@ -77,7 +83,8 @@ Previews create no lock/files; actual single-file apply may create a persistent
 lock before validation. Native disable/approval/sandbox/trust remain unchanged.
 Exact `session_id`/`hook_event_name: SessionStart` receipts stay unknown even fresh,
 without aliases/inference or Claude subagent suppression. Unix transport remains
-macOS-unvalidated and Windows-unsupported; Linux apply is not all-platform support.
+macOS-unvalidated and Windows-unsupported; provisional macOS file apply does not
+qualify receiver privacy or all-platform management.
 
 The native documentation pin is not implementation/binary certification. Generated
 three-provider commands reach the real Coven receiver end to end; scoped historical
@@ -138,7 +145,8 @@ uninstall are required. Stop native servers/watchers before apply; restart nativ
 server after manual apply, not just TUI attach. No automatic restart/in-memory
 release. Five providers share unchanged five store-v1 fields/aggregate 128 cap;
 receiver first, older binaries reject new providers and downgrade is limited.
-Linux apply only; Unix preview/receiver, macOS unvalidated, Windows unsupported.
+Linux and provisional eligible-local-APFS macOS file apply are source-enabled;
+macOS native qualification/receiver privacy remain pending, Windows unsupported.
 The [historical OpenCode scoped table](../coven/AGENT_MANAGEMENT_MIGRATION.md#opencode-validation-table)
 records Kit 111 integration/10 OpenCode overlapping checks, six legacy-asset checks,
 Coven shared 20/workflows 14/Node 12 with Bun harness coverage. The historical OpenCode Coven

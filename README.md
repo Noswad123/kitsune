@@ -43,7 +43,8 @@ matching probe or accepted fallback. This is deliberate readiness/authority hard
 not blanket behavioral compatibility. No external mode, new Config, wire/API/snapshot
 field changes or toggle/kill/hide controls ship. Temporary duplicate legacy policy is not sole
 ownership/full status. Five prior Linux configuration retirements and pending
-non-Linux adapters stand. [Scoped validation](../coven/AGENT_MANAGEMENT_MIGRATION.md#discovery-validation-table)
+non-Linux qualification/capability gates stand, not absence of Coven's provisional
+macOS file backend. [Scoped validation](../coven/AGENT_MANAGEMENT_MIGRATION.md#discovery-validation-table)
 records 201 focused Coven checks, 249 Kit API checks and lint/MSRV/release/package
 validation, not added to historical OpenCode results. Read housekeeping may create
 a default workspace/shell; no live installed Kit configuration was changed. These
@@ -163,7 +164,8 @@ OpenCode namespaces and [Pi 887451b frozen compatibility](../coven/tests/pi_exte
 apply**, not just TUI attach. No automatic restart or in-memory authority release.
 Five providers retain store-v1's same five fields/aggregate 128 cap; upgrade receiver
 first, since older binaries reject new providers and stored records limit downgrade.
-Linux apply only; Unix preview/receiver is macOS-unvalidated, Windows-unsupported.
+Linux and provisional eligible-local-APFS macOS file apply are source-enabled;
+macOS native qualification/receiver privacy remain pending, Windows unsupported.
 The [historical OpenCode scoped table](../coven/AGENT_MANAGEMENT_MIGRATION.md#opencode-validation-table)
 records Kit **111 integration/10 OpenCode checks** (overlapping), plus **six legacy-asset
 harness checks**; Coven shared 20/workflows 14/Node 12 with Bun harness coverage.
@@ -219,9 +221,13 @@ configuration discovery. API callers receive `integration_install_failed` with t
 same Linux-qualified guidance; Claude is excluded from startup recommendations
 and update/bulk candidates **on Linux only**. Non-Linux production
 `legacy_install_claude`, assets/result type and recommendation/update/bulk paths
-remain until matching Coven adapters are ready. Coven hook apply is Linux-only;
-Unix preview is not a replacement mutator, its receiver is Windows-unsupported,
-and macOS capture has not been validated. See
+remain until matching Coven native qualification is complete. Coven's
+[shared private hook-file backend](../coven/HOOK_FILE_BACKEND_CONTRACT.md) now
+source-enables explicit macOS apply for all five managers, provisional eligible
+local APFS only, not natively qualified. All old non-Linux installers/assets/status/
+uninstall/recommend/update/bulk paths stay. Receiver privacy, discovery and full
+management are separate pending capabilities; macOS capture is unvalidated and
+Windows unsupported. See
 [CLAUDE_HOOK_MIGRATION.md](CLAUDE_HOOK_MIGRATION.md) for explicit
 preview/apply migration, private receiver/inventory, rollback and recovery limits.
 
