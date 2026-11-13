@@ -258,9 +258,11 @@ pub(crate) fn available_pane_shell(child_pid: u32) -> Option<String> {
 
 pub(crate) fn process_observation_metadata() -> Option<super::ProcessObservationMetadata> {
     Some(super::ProcessObservationMetadata {
+        version: 2,
         platform: "macos",
         scope: "pane_foreground_cohort",
         selection: "unclassified",
+        argument_policy: Some(super::macos_observation::ARGUMENT_POLICY),
     })
 }
 

@@ -6,8 +6,8 @@ Coven's [private hook-file backend matrix](../coven/HOOK_FILE_BACKEND_CONTRACT.m
 now source-enables shared Linux/macOS file apply for all five managers. macOS is
 provisional, eligible local APFS only and not natively qualified. All old Kit
 non-Linux installers/assets/status/uninstall/recommend/update/bulk paths stay until
-native qualification; receiver privacy, discovery and full management are separate
-pending capabilities, not qualified by this backend.
+native qualification; receiver privacy, generic acquisition and full management
+have separate qualification gates, not satisfied by this backend.
 
 Decision date: **2026-10-22**. Status: **accepted target; initial read-only
 observation implemented in Coven; production opt-in terminal-border annotations
@@ -163,32 +163,56 @@ selection and source IDs are routing, not authentication or execution authority.
 Broader interfaces remain undecided. Presentation uses
 generic terminal identities and text, not Djinn/Coven types or job interpretation.
 
-Generic process capability: optional `snapshot.process_observation` v1 reports
-Linux `pane_foreground_cohort`/`unclassified`; protocol 18 is unchanged (additive
-source API metadata). Coven's production [discovery contract](../coven/AGENT_DISCOVERY_CONTRACT.md)
-uses it for ephemeral all-22-family recognition/watch, not Kit agent APIs/hints.
-Coven rejects Windows `selected_process`/`legacy_agent_aware` and macOS first cut.
-Metadata is not authenticated platform/live attestation, a process tree/host catalog
-or native generation. No matched Kit detector retirement: `detected_agent` also
-previously coupled hook-owner confirmation, start readiness, restore/restored-idle
-and mobile/navigation. The internal [typed evidence seam](DETECTOR_EVIDENCE_SEPARATION.md)
-now separates foreground evidence, fallback publication and historical identity.
-Historical/screen-only data cannot grant native ownership; restored readiness needs
-a matching probe or accepted fallback. This is deliberate semantic hardening, not
-blanket behavior compatibility. No external mode, Config or wire/snapshot field
-changes, toggle/kill/hide controls ship. This is functional Coven recognition with temporary duplicate legacy
-policy, not sole ownership/full status. Five prior Linux configuration retirements
-and pending non-Linux qualification/capability gates are unchanged, not absence
-of the provisional macOS file backend. [Validation](../coven/AGENT_MANAGEMENT_MIGRATION.md#discovery-validation-table)
-records 201 focused Coven checks, 249 Kit API checks and lint/MSRV/release/package
-validation; historical OpenCode results are non-additive. Read housekeeping can ensure a workspace/shell; no
-zero-effects or live installed Kit command validation is claimed for this session.
-Those discovery counts are historical, not added to the seam's **1,318 distinct Kit
-checks** and separate **50 Coven cross-compatibility checks**. The evidence guide
-records completed scoped validation, strict all-target lint, final confirmation
-reruns and limits: ENOSPC-aborted workspace CLI selection, zero-match tab filter,
-and independently reproduced stale golden/test-only corrections. No full-suite or
-production UI change is claimed beyond intended evidence hardening.
+### Generic process acquisition
+
+Optional `snapshot.process_observation` advertises Linux version 1 or macOS
+version 2, both `scope: pane_foreground_cohort`, `selection: unclassified`;
+protocol 18 is unchanged. macOS requires exact
+`argument_policy: darwin_procargs2_lp64_v1`. Coven's
+[discovery contract](../coven/docs/AGENT_DISCOVERY_CONTRACT.md) admits these exact
+tuples, ignores Linux's optional marker, rejects old macOS v1 even with the marker,
+and rejects Windows `selected_process`/`legacy_agent_aware`. Windows acquisition
+remains unsupported. macOS is **source-enabled/provisional, not native runtime
+certification**. Peer labels and returned PIDs grant no local OS/PID authority.
+
+`pane.process_info` -> `platform::process_observation_job` ->
+`macos_observation` -> `macos_procargs` is a generic acquisition route, isolated
+from unchanged legacy detector macOS parsing/argv0 normalization/environment hints.
+No detector retirement follows. Linux walks rooted trees filtered by foreground
+PGID; macOS samples process-group members with BSD metadata checks around argument
+reads. Visible changes omit members; unavailable arguments leave name-only rows.
+Undetectable omissions, PID reuse, exec and argument mutation remain possible.
+Coven's `acquisition_completeness` stays `unknown`, even after successful collection;
+neither cohort is an atomic complete tree/catalog or authenticated native identity.
+
+Reviewed source: XNU `xnu-11215.81.4`, commit
+`d4514f0bc1d3f944c22d92e68b646ac3fb40d452`, `exec_save_path`,
+`exec_extract_strings`, `sysctl_procargsx`. With target LP64 established from BSD
+flags, argv starts at **`4 + round_up(L, 8)`**, not `round_up(4 + L, 8)`, where
+`L` includes the executable path's NUL. Validate zero padding, preserve empty argv0
+and later operands, read exactly argc terminated strings; no intentional
+environment parsing. Runtime mutation/stale exec data is not authenticated argv.
+Raw source cap is 1 MiB with at most six size/read attempts; capacity-filling reads
+are retried with headroom. Group listing also has six attempts, maximum 256 members.
+Decoder limits are 128 args, 4 KiB each and 64 KiB aggregate decoded argv (including
+lossy expansion). Export's stricter 64 KiB budget counts name, argv, argv0, joined
+cmdline and 3,072 bytes reserved for cwd; rejection omits argument fields.
+
+Related files: `src/platform/{mod,foreground,macos_observation,macos_procargs,macos}.rs`,
+`src/app/api/{panes,session}.rs`, `src/api/schema/session.rs`. Reference usage is
+`coven agent discover --socket ABS_KITSUNE_SOCKET --json` with an explicitly
+inspected endpoint; this is not a live validation instruction. Actual-source checks
+for both Apple Rust targets are not SDK C compilation, native link or runtime
+validation. Missing SDK `TargetConditionals.h` still blocks native validation.
+This docs-only update ran no tests/builds/live probes. Historical checks are not
+current composed totals; see the [migration record](../coven/docs/AGENT_MANAGEMENT_MIGRATION.md#discovery-validation-table).
+
+The internal [typed evidence seam](DETECTOR_EVIDENCE_SEPARATION.md) and five Linux
+configuration retirements remain separate. Historical/screen-only data cannot
+grant native ownership; restored readiness needs a matching probe or accepted
+fallback. Temporary duplicate legacy policy is not sole ownership/full status.
+No external mode/toggle/kill/hide controls, provider or receipt changes follow.
+Read housekeeping can ensure a workspace/shell; read-only is not zero effects.
 
 The separate [generic command submission API](COMMAND_SUBMISSION.md) lets explicit
 clients queue argument-encoded input to a pinned existing terminal's observed

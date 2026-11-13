@@ -7504,6 +7504,13 @@
         "ProcessObservationInfo": {
           "description": "Acquisition semantics of pane.process_info, not a new process provider.\nThis does not promise a complete process tree or stable process generations.",
           "properties": {
+            "argument_policy": {
+              "description": "Named argument-decoding policy, not native authentication, acquisition quality,\ncompleteness, or process-generation assurance. Version 2 names the reviewed\nDarwin LP64 layout; version 1 does not provide that argument guarantee.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "platform": {
               "type": "string"
             },

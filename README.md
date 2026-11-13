@@ -30,30 +30,28 @@ publisher supplies group/role text; Kitsune annotations add no workspace annotat
 group model, widgets, new panels or agent-feature extraction.
 The [prototype notes](ANNOTATION_MODEL_PROTOTYPE.md) remain historical context.
 
-Optional generic `snapshot.process_observation` v1 now reports Linux
-`pane_foreground_cohort`/`unclassified` with binary protocol 18 unchanged.
-Coven's production [discovery/watch](../coven/AGENT_DISCOVERY_CONTRACT.md) uses it
-for all-22-literal-family hints, not Kit agent APIs/hints or native status/identity.
-Coven rejects Windows `selected_process`/`legacy_agent_aware` and macOS first cut;
-metadata is not authenticated platform/live attestation or a full process catalog.
-No matching detector retirement. The internal [typed evidence seam](DETECTOR_EVIDENCE_SEPARATION.md)
-now separates foreground-owner evidence, fallback and historical identity. Restore
-history/screen-only data cannot grant native ownership; restored readiness needs a
-matching probe or accepted fallback. This is deliberate readiness/authority hardening,
-not blanket behavioral compatibility. No external mode, new Config, wire/API/snapshot
-field changes or toggle/kill/hide controls ship. Temporary duplicate legacy policy is not sole
-ownership/full status. Five prior Linux configuration retirements and pending
-non-Linux qualification/capability gates stand, not absence of Coven's provisional
-macOS file backend. [Scoped validation](../coven/AGENT_MANAGEMENT_MIGRATION.md#discovery-validation-table)
-records 201 focused Coven checks, 249 Kit API checks and lint/MSRV/release/package
-validation, not added to historical OpenCode results. Read housekeeping may create
-a default workspace/shell; no live installed Kit configuration was changed. These
-discovery counts are historical, not added to **1,318 distinct Kit seam checks**
-and separate **50 Coven cross-compatibility checks**. The evidence guide records
-completed scoped validation, strict all-target lint and final confirmation reruns,
-plus ENOSPC-aborted workspace CLI selection, a zero-match filter and reproduced
-stale golden/test-only corrections. No full-suite or new production UI behavior
-is claimed beyond intended evidence hardening.
+Optional generic `snapshot.process_observation` advertises Linux v1 or macOS v2,
+both `pane_foreground_cohort`/`unclassified`, with protocol 18 unchanged. macOS v2
+names exact `argument_policy: darwin_procargs2_lp64_v1`. Coven's
+[discovery/watch](../coven/docs/AGENT_DISCOVERY_CONTRACT.md) admits these tuples for
+all-22-literal-family hints, ignoring Linux's optional marker, rejecting old macOS
+v1 even with the marker, and rejecting Windows `selected_process`/`legacy_agent_aware`.
+macOS is **source-enabled/provisional, not native runtime certification**.
+Generic `pane.process_info` uses isolated `macos_observation`/`macos_procargs`;
+legacy detector parsing and environment hints remain unchanged. No detector
+retirement or provider/receipt contract change follows.
+
+Peer labels/PIDs grant no local OS/PID authority. Coven reports
+`acquisition_completeness: unknown`: mutable arguments and unreadable/failed
+acquisition can leave undetectable omissions. Linux rooted-tree and macOS
+process-group sampling are different best-effort cohorts, not complete catalogs.
+See [app boundaries](APP_BOUNDARIES.md#generic-process-acquisition) for reviewed
+XNU layout, bounds and source files. Actual Apple Rust-target source-checks are
+not SDK C/native link/runtime validation; missing SDK `TargetConditionals.h` still
+blocks native validation. No builds, tests or live endpoint use occurred in this
+documentation update. Historical [evidence-seam validation](DETECTOR_EVIDENCE_SEPARATION.md)
+is separate, not a current acquisition total. Read housekeeping may create a
+default workspace/shell; the five Linux configuration retirements stay unchanged.
 
 ## Integrations: generic presentation and messaging
 
@@ -225,8 +223,11 @@ remain until matching Coven native qualification is complete. Coven's
 [shared private hook-file backend](../coven/HOOK_FILE_BACKEND_CONTRACT.md) now
 source-enables explicit macOS apply for all five managers, provisional eligible
 local APFS only, not natively qualified. All old non-Linux installers/assets/status/
-uninstall/recommend/update/bulk paths stay. Receiver privacy, discovery and full
-management are separate pending capabilities; macOS capture is unvalidated and
+uninstall/recommend/update/bulk paths stay. Coven receiver privacy now has shared
+source-enabled admission, provisional local APFS on macOS, **not native
+qualification**; see [private storage and endpoint limits](../coven/docs/AGENT_PRIVATE_STORAGE_CONTRACT.md).
+macOS capture remains natively unvalidated; generic discovery is provisional,
+full management pending and
 Windows unsupported. See
 [CLAUDE_HOOK_MIGRATION.md](CLAUDE_HOOK_MIGRATION.md) for explicit
 preview/apply migration, private receiver/inventory, rollback and recovery limits.

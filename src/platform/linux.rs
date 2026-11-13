@@ -98,9 +98,11 @@ pub(crate) fn available_pane_shell(child_pid: u32) -> Option<String> {
 pub(crate) fn process_observation_metadata() -> Option<super::ProcessObservationMetadata> {
     // Current acquisition walks from child/foreground-group roots and filters by PGID.
     Some(super::ProcessObservationMetadata {
+        version: 1,
         platform: "linux",
         scope: "pane_foreground_cohort",
         selection: "unclassified",
+        argument_policy: None,
     })
 }
 

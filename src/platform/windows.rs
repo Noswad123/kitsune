@@ -238,9 +238,11 @@ pub fn current_process_is_detached_server_daemon() -> bool {
 pub(crate) fn process_observation_metadata() -> Option<super::ProcessObservationMetadata> {
     // foreground_job selects a candidate using the legacy agent classifier.
     Some(super::ProcessObservationMetadata {
+        version: 1,
         platform: "windows",
         scope: "selected_process",
         selection: "legacy_agent_aware",
+        argument_policy: None,
     })
 }
 

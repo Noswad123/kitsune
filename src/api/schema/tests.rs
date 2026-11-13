@@ -1028,23 +1028,29 @@ fn session_snapshot_process_observation_is_optional_and_round_trips() {
 
     // Check every advertised contract even when testing on Linux. Windows must
     // never be described as neutral while its candidate selection is agent-aware.
-    for (platform, scope, selection, source) in [
+    for (version, platform, scope, selection, argument_policy, source) in [
         (
+            1,
             "linux",
             "pane_foreground_cohort",
             "unclassified",
+            None,
             include_str!("../../platform/linux.rs"),
         ),
         (
+            2,
             "macos",
             "pane_foreground_cohort",
             "unclassified",
+            Some(crate::platform::macos_observation::ARGUMENT_POLICY),
             include_str!("../../platform/macos.rs"),
         ),
         (
+            1,
             "windows",
             "selected_process",
             "legacy_agent_aware",
+            None,
             include_str!("../../platform/windows.rs"),
         ),
     ] {
@@ -1055,9 +1061,21 @@ fn session_snapshot_process_observation_is_optional_and_round_trips() {
         ] {
             assert!(source.contains(&format!("{key}: \"{value}\"")));
         }
-        let descriptor = serde_json::json!({
-            "version": 1, "platform": platform, "scope": scope, "selection": selection
+        assert!(source.contains(&format!("version: {version},")));
+        if argument_policy.is_some() {
+            assert!(
+                source.contains("argument_policy: Some(super::macos_observation::ARGUMENT_POLICY)")
+            );
+        } else {
+            assert!(source.contains("argument_policy: None"));
+        }
+        let mut descriptor = serde_json::json!({
+            "version": version, "platform": platform, "scope": scope, "selection": selection
         });
+        if let Some(policy) = argument_policy {
+            assert_eq!(policy, "darwin_procargs2_lp64_v1");
+            descriptor["argument_policy"] = policy.into();
+        }
         let mut snapshot = snapshot.clone();
         snapshot.process_observation = Some(serde_json::from_value(descriptor.clone()).unwrap());
         let json = serde_json::to_value(&snapshot).unwrap();
@@ -1067,6 +1085,14 @@ fn session_snapshot_process_observation_is_optional_and_round_trips() {
             snapshot
         );
     }
+    // Old descriptors remain readable, without acquiring the v2 guarantee.
+    let old: ProcessObservationInfo = serde_json::from_value(serde_json::json!({
+        "version": 1, "platform": "macos", "scope": "pane_foreground_cohort",
+        "selection": "unclassified"
+    }))
+    .unwrap();
+    assert_eq!(old.argument_policy, None);
+    assert_eq!(old.version, 1);
 }
 
 #[test]

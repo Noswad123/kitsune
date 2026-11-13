@@ -27,6 +27,11 @@ pub struct ProcessObservationInfo {
     pub platform: String,
     pub scope: String,
     pub selection: String,
+    /// Named argument-decoding policy, not native authentication, acquisition quality,
+    /// completeness, or process-generation assurance. Version 2 names the reviewed
+    /// Darwin LP64 layout; version 1 does not provide that argument guarantee.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub argument_policy: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]

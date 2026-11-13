@@ -205,37 +205,14 @@ impl App {
             return encode_error(id, "pane_not_found", "pane not found");
         };
         let shell_pid = runtime.child_pid();
-        let foreground_job = shell_pid.and_then(crate::detect::foreground_job);
-        let foreground_process_group_id = foreground_job.as_ref().map(|job| job.process_group_id);
-        let foreground_processes = foreground_job
-            .map(|job| {
-                job.processes
-                    .into_iter()
-                    .map(|process| PaneProcessInfoProcess {
-                        pid: process.pid,
-                        name: process.name,
-                        argv0: process.argv0,
-                        argv: process.argv,
-                        cmdline: process.cmdline,
-                        cwd: crate::platform::process_cwd(process.pid)
-                            .map(|cwd| cwd.display().to_string()),
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+        let process_info = process_info_projection(
+            public_pane_id,
+            shell_pid,
+            shell_pid.and_then(crate::platform::process_observation_job),
+            crate::platform::process_cwd,
+        );
 
-        encode_success(
-            id,
-            ResponseResult::PaneProcessInfo {
-                process_info: PaneProcessInfo {
-                    pane_id: public_pane_id,
-                    shell_pid,
-                    foreground_process_group_id,
-                    tty: None,
-                    foreground_processes,
-                },
-            },
-        )
+        encode_success(id, ResponseResult::PaneProcessInfo { process_info })
     }
 
     pub(super) fn handle_pane_neighbor(
@@ -1875,6 +1852,35 @@ fn split_path_id(idx: usize, path: &[bool]) -> String {
     format!("split_{idx}_{path}")
 }
 
+fn process_info_projection(
+    pane_id: String,
+    shell_pid: Option<u32>,
+    job: Option<crate::platform::ForegroundJob>,
+    mut cwd: impl FnMut(u32) -> Option<std::path::PathBuf>,
+) -> PaneProcessInfo {
+    PaneProcessInfo {
+        pane_id,
+        shell_pid,
+        foreground_process_group_id: job.as_ref().map(|job| job.process_group_id),
+        tty: None,
+        foreground_processes: job
+            .map(|job| {
+                job.processes
+                    .into_iter()
+                    .map(|process| PaneProcessInfoProcess {
+                        pid: process.pid,
+                        name: process.name,
+                        argv0: process.argv0,
+                        argv: process.argv,
+                        cmdline: process.cmdline,
+                        cwd: cwd(process.pid).map(|cwd| cwd.display().to_string()),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+    }
+}
+
 fn invalid_agent(id: String) -> String {
     encode_error(id, "invalid_agent", "agent label must not be empty")
 }
@@ -1888,6 +1894,99 @@ mod tests {
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
+
+    #[test]
+    fn process_info_projection_preserves_generic_rows_without_classification() {
+        use crate::platform::{ForegroundJob, ForegroundProcess};
+        let argv = vec!["/opt/bin/-node".into(), "".into(), "two  words".into()];
+        let job = ForegroundJob {
+            process_group_id: 42,
+            processes: vec![
+                ForegroundProcess {
+                    pid: 43,
+                    name: "node".into(),
+                    argv0: Some("/opt/bin/-node".into()),
+                    cmdline: Some(argv.join(" ")),
+                    argv: Some(argv.clone()),
+                },
+                ForegroundProcess {
+                    pid: 44,
+                    name: "claude".into(),
+                    argv0: None,
+                    argv: None,
+                    cmdline: None,
+                },
+            ],
+        };
+        let mut queried = Vec::new();
+        let info = process_info_projection("pane".into(), Some(41), Some(job), |pid| {
+            queried.push(pid);
+            (pid == 43).then(|| "/fixture".into())
+        });
+        assert_eq!(queried, [43, 44]);
+        assert_eq!(info.foreground_process_group_id, Some(42));
+        assert_eq!(info.foreground_processes[0].argv, Some(argv));
+        let encoded = encode_success(
+            "fixture".into(),
+            ResponseResult::PaneProcessInfo {
+                process_info: info.clone(),
+            },
+        );
+        let decoded: SuccessResponse = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(
+            decoded.result,
+            ResponseResult::PaneProcessInfo { process_info: info }
+        );
+        let json: serde_json::Value = serde_json::from_str(&encoded).unwrap();
+        assert!(!encoded.contains("provider_class"));
+        assert!(!encoded.contains("agent_hint"));
+        assert_eq!(
+            json["result"]["process_info"]["foreground_processes"][1],
+            serde_json::json!({"pid": 44, "name": "claude"})
+        );
+    }
+
+    #[test]
+    fn process_info_handler_routes_only_through_generic_facade() {
+        let source = include_str!("panes.rs");
+        let handler = source
+            .split("pub(super) fn handle_pane_process_info(")
+            .nth(1)
+            .unwrap()
+            .split("pub(super) fn handle_pane_neighbor(")
+            .next()
+            .unwrap();
+        assert!(handler.contains("shell_pid.and_then(crate::platform::process_observation_job)"));
+        assert!(handler.contains("process_info_projection("));
+        assert!(!handler.contains("crate::detect::"));
+        assert!(!handler.contains("process_agent_hint"));
+    }
+
+    #[test]
+    fn process_info_projection_keeps_frozen_v1_bytes() {
+        let info = process_info_projection(
+            "pane".into(),
+            Some(41),
+            Some(crate::platform::ForegroundJob {
+                process_group_id: 42,
+                processes: vec![crate::platform::ForegroundProcess {
+                    pid: 43,
+                    name: "node".into(),
+                    argv0: Some("node".into()),
+                    argv: Some(vec!["node".into(), "script.js".into()]),
+                    cmdline: Some("node script.js".into()),
+                }],
+            }),
+            |_| Some("/fixture".into()),
+        );
+        assert_eq!(
+            serde_json::to_string(&info).unwrap(),
+            r#"{"pane_id":"pane","shell_pid":41,"foreground_process_group_id":42,"foreground_processes":[{"pid":43,"name":"node","argv0":"node","argv":["node","script.js"],"cmdline":"node script.js","cwd":"/fixture"}]}"#
+        );
+        let empty = process_info_projection("pane".into(), None, None, |_| panic!("no job"));
+        assert_eq!(empty.foreground_process_group_id, None);
+        assert!(empty.foreground_processes.is_empty());
+    }
 
     fn app_with_test_workspace() -> (App, String) {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();

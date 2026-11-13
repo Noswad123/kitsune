@@ -55,10 +55,11 @@ impl App {
             command_submission: Some(CommandSubmissionInfo { version: 1 }),
             process_observation: crate::platform::process_observation_metadata().map(|metadata| {
                 ProcessObservationInfo {
-                    version: 1,
+                    version: metadata.version,
                     platform: metadata.platform.into(),
                     scope: metadata.scope.into(),
                     selection: metadata.selection.into(),
+                    argument_policy: metadata.argument_policy.map(Into::into),
                 }
             }),
             integration_views: Some(
@@ -116,10 +117,11 @@ mod tests {
         assert_eq!(
             snapshot.process_observation,
             metadata.map(|metadata| crate::api::schema::ProcessObservationInfo {
-                version: 1,
+                version: metadata.version,
                 platform: metadata.platform.into(),
                 scope: metadata.scope.into(),
                 selection: metadata.selection.into(),
+                argument_policy: metadata.argument_policy.map(Into::into),
             })
         );
         if matches!(std::env::consts::OS, "linux" | "macos" | "windows") {

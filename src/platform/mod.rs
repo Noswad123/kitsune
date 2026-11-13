@@ -3,26 +3,32 @@
 //! Centralizes OS-dependent behavior behind a clean boundary so core
 //! modules don't scatter `#[cfg]` branches through product logic.
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ForegroundProcess {
-    pub pid: u32,
-    pub name: String,
-    pub argv0: Option<String>,
-    pub argv: Option<Vec<String>>,
-    pub cmdline: Option<String>,
+mod foreground;
+pub use foreground::{ForegroundJob, ForegroundProcess};
+
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod macos_observation;
+#[cfg(any(target_os = "macos", test))]
+pub(crate) mod macos_procargs;
+
+/// Generic API observation; legacy detection keeps its own acquisition path.
+#[cfg(target_os = "macos")]
+pub fn process_observation_job(child_pid: u32) -> Option<ForegroundJob> {
+    macos_observation::foreground_job(child_pid)
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ForegroundJob {
-    pub process_group_id: u32,
-    pub processes: Vec<ForegroundProcess>,
+#[cfg(not(target_os = "macos"))]
+pub fn process_observation_job(child_pid: u32) -> Option<ForegroundJob> {
+    foreground_job(child_pid)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ProcessObservationMetadata {
+    pub version: u32,
     pub platform: &'static str,
     pub scope: &'static str,
     pub selection: &'static str,
+    pub argument_policy: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
