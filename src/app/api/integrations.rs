@@ -9,6 +9,13 @@ impl App {
         id: String,
         params: crate::api::schema::IntegrationInstallParams,
     ) -> String {
+        if self.state.external_agent_management {
+            return encode_error(
+                id,
+                "external_agent_management",
+                "legacy integration installation is disabled",
+            );
+        }
         let target = params.target;
         let messages = match crate::integration::install_target(target) {
             Ok(messages) => messages,

@@ -142,6 +142,9 @@ impl App {
         ev: AppEvent,
         #[cfg(test)] respawn_runtime: Option<crate::terminal::TerminalRuntime>,
     ) {
+        if self.state.excludes_legacy_agent_event(&ev) {
+            return;
+        }
         // Only the currently attached runtime can supply detector evidence. Do not
         // let an old queued observation bind its token to a replacement runtime.
         if let AppEvent::DetectorUpdate { pane_id, epoch, .. } = &ev {

@@ -154,7 +154,15 @@ scope passed 236 focused Rust checks and lint/MSRV/build/package checks, with
 receipt-timing limits recorded; earlier Pi totals are not additive. No installed-native operational
 or cross-platform certification is claimed.
 
-Generic process capability is implemented as optional `snapshot.process_observation`
+**Historical first-discovery cut (before 2026-11-12):** the paragraph below records
+that cut, not current external-mode or macOS admission. The later
+[normal workflow](INTEGRATION_VIEWS.md#optional-startup-runtime-and-external-ownership)
+implements startup-only external ownership, suppressing legacy status/detectors
+and automatic resume even on helper failure; full extraction/native macOS
+qualification remain open. Current generic macOS admission is documented in
+[app boundaries](APP_BOUNDARIES.md#generic-process-acquisition).
+
+Generic process capability was implemented as optional `snapshot.process_observation`
 v1: Linux `pane_foreground_cohort`/`unclassified`, additive source API metadata with
 protocol 18 unchanged. Coven's production [discovery/watch](../coven/AGENT_DISCOVERY_CONTRACT.md)
 recognizes all 22 literal families without Kit agent APIs/hints, native identity

@@ -144,6 +144,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn external_agent_management_keeps_manual_generic_command_submission() {
+        let mut state = crate::app::AppState::test_with_adversarial_identity_state();
+        state.external_agent_management = true;
+        let mut app = crate::app::test_support::app_from_state(state);
+        let pane = app.state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = app.state.terminal_id_for_pane(0, pane).unwrap();
+        let params = PaneSubmitCommandParams {
+            pane_id: app.public_pane_id(0, pane).unwrap(),
+            expected_terminal_id: terminal_id.to_string(),
+            argv: vec![
+                std::env::current_exe()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned(),
+                "literal".into(),
+            ],
+        };
+        let (runtime, mut rx) = TerminalRuntime::test_with_channel_capacity(80, 24, 1);
+        app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+        let result = response(&app, params, shell());
+        assert_eq!(result["result"]["type"], "pane_command_submitted");
+        assert!(!rx.try_recv().unwrap().is_empty());
+        assert!(rx.try_recv().is_err());
+        assert!(app.state.terminals[&terminal_id]
+            .effective_agent_label()
+            .is_none());
+        app.state.assert_invariants_for_test();
+    }
+
+    #[tokio::test]
     async fn command_submission_preserves_literal_arguments_and_one_bracketed_frame_without_agent_state(
     ) {
         let (app, mut params, mut rx) = fixture();

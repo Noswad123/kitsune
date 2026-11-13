@@ -153,14 +153,17 @@ impl Config {
             }
             Err(err) => {
                 warn!(err = %err, "config read error, using defaults");
+                let mut config = Self::default();
+                config.integrations.external_agent_management_requested = true;
                 return LoadedConfig {
-                    config: Self::default(),
-                    diagnostics: vec![format!("config read error: {err}; using defaults")],
+                    config,
+                    diagnostics: vec![format!("config read error: {err}; using defaults; external agent ownership retained fail-closed")],
                     invalid_sections: Vec::new(),
                 };
             }
         };
 
+        let external_agent_management_requested = startup_external_agent_management(&content);
         let mut optional_section_errors = Vec::new();
         let parsed = deserialize_with_ignored::<Config, _>(toml::Deserializer::new(&content))
             .or_else(|err| {
@@ -195,6 +198,8 @@ impl Config {
             });
         match parsed {
             Ok((mut config, ignored_keys)) => {
+                config.integrations.external_agent_management_requested =
+                    external_agent_management_requested;
                 let (unknown_sections, mut diagnostics) =
                     unknown_top_level_sections_from_str(&content);
                 diagnostics.extend(unknown_config_key_diagnostics(
@@ -222,7 +227,11 @@ impl Config {
                 }
                 if config.invalid_integrations_diagnostic().is_some() {
                     config.integrations.sources.clear();
+                    config.integrations.runtime = None;
                     invalid_sections.push("integrations".into());
+                }
+                if external_agent_management_requested && config.integrations.runtime.is_none() {
+                    diagnostics.push("integration reporting disabled; external agent ownership retained fail-closed".into());
                 }
                 LoadedConfig {
                     config,
@@ -232,14 +241,39 @@ impl Config {
             }
             Err(err) => {
                 warn!(err = %err, "config parse error, using defaults");
+                let mut config = Self::default();
+                config.integrations.external_agent_management_requested =
+                    external_agent_management_requested;
+                let mut diagnostics = vec![format!("config parse error: {err}; using defaults")];
+                if external_agent_management_requested {
+                    diagnostics.push("integration reporting disabled; external agent ownership retained fail-closed".into());
+                }
                 LoadedConfig {
-                    config: Self::default(),
-                    diagnostics: vec![format!("config parse error: {err}; using defaults")],
+                    config,
+                    diagnostics,
                     invalid_sections: Vec::new(),
                 }
             }
         }
     }
+}
+
+fn startup_external_agent_management(content: &str) -> bool {
+    let Ok(value) = content.parse::<toml::Value>() else {
+        // An unreadable ownership request cannot authorize legacy execution.
+        return true;
+    };
+    let Some(runtime) = value
+        .get("integrations")
+        .and_then(|integrations| integrations.get("runtime"))
+    else {
+        return false;
+    };
+    runtime
+        .clone()
+        .try_into::<super::IntegrationRuntimeConfig>()
+        .map(|runtime| runtime.external_agent_management)
+        .unwrap_or(true)
 }
 
 pub(super) fn resolve_config_relative_path(path: &Path) -> PathBuf {
@@ -308,11 +342,7 @@ pub fn load_live_config() -> Result<LoadedConfig, Vec<String>> {
     let content = match read_optional_config(&path) {
         Ok(Some(content)) => content,
         Ok(None) => {
-            return Ok(LoadedConfig {
-                config: Config::default(),
-                diagnostics: Vec::new(),
-                invalid_sections: Vec::new(),
-            });
+            return load_live_config_from_str("");
         }
         Err(err) => {
             return Err(vec![format!(
@@ -361,10 +391,21 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut invalid_sections,
         |section| config.integrations = section,
     );
-    if config.invalid_integrations_diagnostic().is_some() {
-        diagnostics
-            .push("invalid integrations.sources; keeping previous [integrations] settings".into());
+    config.integrations.external_agent_management_requested =
+        startup_external_agent_management(content);
+    if let Some(diagnostic) = config.invalid_integrations_diagnostic() {
+        diagnostics.push(format!(
+            "{diagnostic}; keeping previous [integrations] settings"
+        ));
         invalid_sections.push("integrations".into());
+    }
+    if let Some(startup) = super::STARTUP_INTEGRATIONS.get() {
+        preserve_startup_runtime(
+            &mut config,
+            startup,
+            &mut diagnostics,
+            &mut invalid_sections,
+        );
     }
 
     if let Some(value) = table.get("onboarding") {
@@ -473,6 +514,34 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         diagnostics,
         invalid_sections,
     })
+}
+
+fn preserve_startup_runtime(
+    config: &mut Config,
+    startup: &IntegrationsConfig,
+    diagnostics: &mut Vec<String>,
+    invalid_sections: &mut Vec<String>,
+) {
+    if config.integrations.runtime != startup.runtime
+        || config.integrations.external_agent_management_requested
+            != startup.external_agent_management_requested
+        || startup
+            .runtime
+            .as_ref()
+            .is_some_and(|runtime| !config.integrations.sources.contains(&runtime.source))
+    {
+        diagnostics.push("integrations.runtime is startup-only; server restart required; keeping previous [integrations] settings".into());
+        if !invalid_sections
+            .iter()
+            .any(|section| section == "integrations")
+        {
+            invalid_sections.push("integrations".into());
+        }
+        config.integrations.sources = startup.sources.clone();
+    }
+    config.integrations.runtime = startup.runtime.clone();
+    config.integrations.external_agent_management_requested =
+        startup.external_agent_management_requested;
 }
 
 fn unknown_top_level_sections_from_str(content: &str) -> (Vec<String>, Vec<String>) {
@@ -904,6 +973,248 @@ mod tests {
         }
     }
 
+    fn runtime_config() -> Config {
+        toml::from_str(
+            r#"
+[integrations]
+sources = ['example']
+[integrations.runtime]
+source = 'example'
+command = ['/absolute/helper', 'run', '$literal', '~/literal']
+report_command = ['/absolute/reporter', 'report', 'argument with spaces']
+external_agent_management = true
+"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn integration_runtime_config_is_explicit_bounded_literal_argv() {
+        let config = runtime_config();
+        assert!(config.invalid_integrations_diagnostic().is_none());
+        let runtime = config.integrations.runtime.unwrap();
+        assert_eq!(runtime.command[2..], ["$literal", "~/literal"]);
+        assert!(runtime.external_agent_management);
+        for argv in [
+            vec![],
+            vec!["helper".into()],
+            vec!["~/helper".into()],
+            vec!["$HOME/helper".into()],
+            vec!["/helper".into(), "".into()],
+            vec!["/helper".into(), "nul\0byte".into()],
+            vec!["/helper".into(); 65],
+            vec!["/helper".into(), "x".repeat(4097)],
+            vec![
+                "/helper".into(),
+                "x".repeat(4096),
+                "y".repeat(4096),
+                "z".repeat(4096),
+                "w".repeat(4096),
+            ],
+        ] {
+            for report in [false, true] {
+                let mut config = runtime_config();
+                let runtime = config.integrations.runtime.as_mut().unwrap();
+                if report {
+                    runtime.report_command = argv.clone();
+                } else {
+                    runtime.command = argv.clone();
+                }
+                assert!(
+                    config.invalid_integrations_diagnostic().is_some(),
+                    "{argv:?}"
+                );
+            }
+        }
+        let mut config = runtime_config();
+        config.integrations.sources.clear();
+        assert!(config.invalid_integrations_diagnostic().is_some());
+        config.integrations.sources = vec!["other".into()];
+        assert!(config.invalid_integrations_diagnostic().is_some());
+        assert!(Config::default().integrations.runtime.is_none());
+    }
+
+    #[test]
+    fn integration_runtime_invalid_startup_fails_closed() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for runtime in ["source = 'missing'\ncommand = ['/helper']\nreport_command = ['/report']",
+            "source = 'example'\ncommand = ['relative']\nreport_command = ['/report']",
+            "source = 'example'\ncommand = ['/helper']\nreport_command = []",
+            "source = 'example'\ncommand = false",
+            "source = 'example'\ncommand = ['/helper']\nreport_command = ['/report']\nexternal_agent_managment = true",
+        ] {
+            fixture.write(&format!("[integrations]\nsources = ['example']\n[integrations.runtime]\n{runtime}"));
+            let loaded = Config::load();
+            assert!(loaded.config.integrations.runtime.is_none());
+            assert!(loaded.config.integrations.sources.is_empty());
+            assert_eq!(loaded.invalid_sections, ["integrations"]);
+            assert!(!loaded.diagnostics.is_empty());
+        }
+    }
+
+    #[test]
+    fn integration_runtime_reload_preserves_startup_ownership_and_route() {
+        let startup = runtime_config().integrations;
+        for mut proposed in [Config::default(), runtime_config(), runtime_config()] {
+            if let Some(runtime) = proposed.integrations.runtime.as_mut() {
+                runtime.external_agent_management = false;
+            }
+            let mut diagnostics = vec![];
+            let mut invalid = vec![];
+            preserve_startup_runtime(&mut proposed, &startup, &mut diagnostics, &mut invalid);
+            assert_eq!(proposed.integrations.runtime, startup.runtime);
+            assert_eq!(proposed.integrations.sources, startup.sources);
+            assert_eq!(invalid, ["integrations"]);
+            assert!(diagnostics[0].contains("restart required"));
+        }
+        let mut proposed = runtime_config();
+        proposed.integrations.sources.clear();
+        let mut diagnostics = vec![];
+        let mut invalid = vec![];
+        preserve_startup_runtime(&mut proposed, &startup, &mut diagnostics, &mut invalid);
+        assert_eq!(proposed.integrations.sources, startup.sources);
+        assert_eq!(invalid, ["integrations"]);
+
+        let mut proposed = runtime_config();
+        let disabled = IntegrationsConfig::default();
+        preserve_startup_runtime(&mut proposed, &disabled, &mut diagnostics, &mut invalid);
+        assert!(proposed.integrations.runtime.is_none());
+        assert!(proposed.integrations.sources.is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn integration_runtime_invalid_config_keeps_frozen_ownership_and_saved_refs() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for content in [
+            "[integrations]\nsources = ['example']\n[integrations.runtime]\nsource = 'example'\ncommand = ['relative']\nreport_command = ['/report']\nexternal_agent_management = true",
+            "[integrations]\nsources = ['other']\n[integrations.runtime]\nsource = 'example'\ncommand = ['/helper']\nreport_command = ['/report']\nexternal_agent_management = true",
+            "[integrations]\nsources = false\n[integrations.runtime]\nsource = 'example'\ncommand = ['/helper']\nreport_command = ['/report']\nexternal_agent_management = true",
+            "[integrations]\nruntime = false",
+            "[integrations.runtime]\nexternal_agent_management = true\ncommand = false",
+            "[integrations.runtime]\nexternal_agent_management = 'true'",
+            "[integrations.runtime\nexternal_agent_management = true",
+        ] {
+            fixture.write(content);
+            let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "config::io::tests::integration_runtime_invalid_frozen_restore_fixture", "--ignored", "--nocapture"])
+                .env("KITSUNE_TEST_INVALID_RUNTIME_FIXTURE", "1")
+                .env("PATH", "")
+                .spawn().unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+            let status = loop {
+                if let Some(status) = child.try_wait().unwrap() { break status; }
+                if std::time::Instant::now() >= deadline {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    panic!("frozen ownership fixture timed out: {content}");
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            };
+            assert!(status.success(), "{content}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ignore = "spawned in isolation to exercise the production OnceLock"]
+    fn integration_runtime_invalid_frozen_restore_fixture() {
+        assert_eq!(
+            std::env::var("KITSUNE_TEST_INVALID_RUNTIME_FIXTURE").as_deref(),
+            Ok("1")
+        );
+        let loaded = Config::load();
+        assert!(loaded.config.integrations.runtime.is_none());
+        assert!(loaded
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("external agent ownership retained")));
+        crate::config::freeze_integration_runtime(&loaded.config);
+        assert!(crate::config::external_agent_management());
+        assert!(crate::config::integration_runtime().is_none());
+        let mut command = portable_pty::CommandBuilder::new("/bin/cat");
+        crate::integration::apply_pane_base_env(&mut command);
+        assert_eq!(
+            command.get_env("KITSUNE_AGENT_MANAGEMENT"),
+            Some(std::ffi::OsStr::new("external"))
+        );
+        assert!(command.get_env("KITSUNE_INTEGRATION_SOURCE").is_none());
+        assert!(command
+            .get_env("KITSUNE_INTEGRATION_REPORT_COMMAND")
+            .is_none());
+
+        // Exercise real restore with resume enabled and historical native references.
+        let cwd = std::env::temp_dir();
+        let tabs: Vec<_> = ["opencode", "claude", "codex"].into_iter().map(|agent| serde_json::json!({
+            "layout": {"Pane": 0}, "zoomed": false,
+            "panes": {"0": {"cwd": cwd, "agent_name": "historical", "managed_agent_kind": agent,
+                "agent_session": {"source": format!("kitsune:{agent}"), "agent": agent, "kind": "id", "value": "saved-reference"}}}
+        })).collect();
+        let snapshot: crate::persist::SessionSnapshot = serde_json::from_value(serde_json::json!({
+            "version": 3, "active": 0, "selected": 0,
+            "workspaces": [{"identity_cwd": cwd, "tabs": tabs}]
+        }))
+        .unwrap();
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let (events, _rx) = tokio::sync::mpsc::channel(64);
+            let (_, terminals, runtimes) = crate::persist::restore(
+                &snapshot,
+                None,
+                24,
+                80,
+                0,
+                "/bin/cat",
+                crate::config::ShellModeConfig::NonLogin,
+                true,
+                events,
+                std::sync::Arc::new(tokio::sync::Notify::new()),
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            );
+            let runtime_count = runtimes.len();
+            for runtime in runtimes.into_values() {
+                runtime.shutdown();
+            }
+            assert_eq!(terminals.len(), 3);
+            assert_eq!(
+                runtime_count, 3,
+                "restore must spawn plain terminals, not queued native resumes"
+            );
+            for terminal in terminals.values() {
+                assert!(terminal.pending_agent_resume_plan.is_none());
+                assert!(terminal.detected_agent().is_none());
+                assert!(terminal.hook_authority.is_none());
+                assert!(terminal.agent_name.is_none());
+                assert_eq!(
+                    terminal
+                        .persisted_agent_session
+                        .as_ref()
+                        .unwrap()
+                        .session_ref
+                        .value,
+                    "saved-reference"
+                );
+            }
+        });
+        let reloaded = load_live_config_from_str("").unwrap();
+        assert!(
+            reloaded
+                .config
+                .integrations
+                .external_agent_management_requested
+        );
+        assert!(reloaded
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.contains("restart required")));
+        assert!(crate::config::external_agent_management());
+    }
+
     #[test]
     fn integration_views_structural_startup_errors_are_isolated_from_other_settings() {
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
@@ -1200,7 +1511,18 @@ mod tests {
             assert_eq!(loaded.config.keys.prefix, "ctrl+b");
             assert!(!loaded.config.ui.sidebar_start_collapsed);
             assert!(loaded.invalid_sections.is_empty());
-            assert_eq!(loaded.diagnostics.len(), 1);
+            let ownership_unknown = content.parse::<toml::Value>().is_err();
+            assert_eq!(loaded.diagnostics.len(), 1 + usize::from(ownership_unknown));
+            assert_eq!(
+                loaded
+                    .config
+                    .integrations
+                    .external_agent_management_requested,
+                ownership_unknown
+            );
+            if ownership_unknown {
+                assert!(loaded.diagnostics[1].contains("external agent ownership retained"));
+            }
             assert!(loaded.diagnostics[0].starts_with("config parse error:"));
             assert!(loaded.diagnostics[0].ends_with("using defaults"));
         }
@@ -1397,6 +1719,12 @@ mod tests {
         std::env::set_var(CONFIG_PATH_ENV_VAR, &path);
 
         let startup = Config::load();
+        assert!(
+            startup
+                .config
+                .integrations
+                .external_agent_management_requested
+        );
         assert!(startup
             .diagnostics
             .iter()

@@ -509,6 +509,7 @@ impl App {
         let (theme_palette, theme_name) = resolve_effective_theme(&theme_runtime, None);
 
         let mut state = AppState {
+            external_agent_management: crate::config::external_agent_management(),
             annotations: crate::annotations::AnnotationState::new(
                 config.annotations.sources.clone(),
             )
@@ -1262,6 +1263,9 @@ impl App {
     }
 
     pub(crate) fn install_recommended_integrations(&mut self) {
+        if self.state.external_agent_management {
+            return;
+        }
         let targets = self
             .state
             .integration_recommendations

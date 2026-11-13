@@ -2798,7 +2798,23 @@ impl AppState {
         changed
     }
 
+    pub(crate) fn excludes_legacy_agent_event(&self, event: &AppEvent) -> bool {
+        self.external_agent_management
+            && matches!(
+                event,
+                AppEvent::DetectorUpdate { .. }
+                    | AppEvent::StateChanged { .. }
+                    | AppEvent::HookStateReported { .. }
+                    | AppEvent::AgentSessionReported { .. }
+                    | AppEvent::HookAuthorityCleared { .. }
+                    | AppEvent::HookAgentReleased { .. }
+            )
+    }
+
     pub fn handle_app_event(&mut self, event: AppEvent) -> Vec<PaneStateUpdate> {
+        if self.excludes_legacy_agent_event(&event) {
+            return Vec::new();
+        }
         match event {
             AppEvent::PaneDied { pane_id } => {
                 self.handle_pane_died(pane_id);
@@ -3006,6 +3022,9 @@ impl AppState {
         &mut self,
         event: AppEvent,
     ) -> (Vec<PaneStateUpdate>, bool) {
+        if self.excludes_legacy_agent_event(&event) {
+            return (Vec::new(), false);
+        }
         let AppEvent::HookAgentReleased {
             pane_id,
             source,
@@ -3037,6 +3056,9 @@ impl AppState {
         epoch: Option<crate::terminal::evidence::DetectorEpoch>,
         now: Instant,
     ) -> Option<PaneStateUpdate> {
+        if self.external_agent_management {
+            return None;
+        }
         self.update_terminal_state(pane_id, |terminal| {
             Some(terminal.synchronize_detector_epoch(epoch, now))
         })
@@ -3113,6 +3135,9 @@ impl AppState {
     }
 
     pub(crate) fn next_managed_agent_deadline(&self) -> Option<Instant> {
+        if self.external_agent_management {
+            return None;
+        }
         self.terminals
             .values()
             .filter_map(crate::terminal::TerminalState::next_managed_agent_deadline)
@@ -3120,6 +3145,9 @@ impl AppState {
     }
 
     pub(crate) fn reconcile_managed_agents_at(&mut self, now: Instant) -> Vec<(usize, PaneId)> {
+        if self.external_agent_management {
+            return Vec::new();
+        }
         let mut changed_terminals = std::collections::HashSet::new();
         for (terminal_id, terminal) in &mut self.terminals {
             if terminal.reconcile_managed_agent_at(now, false) {
@@ -3150,6 +3178,9 @@ impl AppState {
         &mut self,
         pane_id: PaneId,
     ) -> Option<PaneStateUpdate> {
+        if self.external_agent_management {
+            return None;
+        }
         let observed_at = std::time::Instant::now();
         let update = self.update_terminal_state(pane_id, |terminal| {
             let agent = terminal

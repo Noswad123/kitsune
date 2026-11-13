@@ -12,6 +12,158 @@ use crate::terminal::evidence::{FallbackObservation, ForegroundObservation};
 use crate::terminal::{TerminalId, TerminalRuntime};
 
 // Avoid App::new: these tests need no application config loading or runtimes.
+#[test]
+fn external_agent_management_rejects_legacy_api_even_with_coven_source() {
+    let mut state = AppState::test_with_adversarial_identity_state();
+    state.external_agent_management = true;
+    let mut app = app_from_state(state);
+    let raw_pane = app.state.workspaces[0].tabs[0].root_pane;
+    let pane_id = app.public_pane_id(0, raw_pane).unwrap();
+    let terminal_id = app.state.workspaces[0]
+        .terminal_id(raw_pane)
+        .unwrap()
+        .clone();
+    let revision = app.state.terminals[&terminal_id].revision;
+    for source in ["kitsune:djinn", "coven", "coven.agent-management.v1"] {
+        let params = serde_json::json!({
+            "pane_id": pane_id, "source": source, "agent": "djinn",
+            "state": "working", "agent_session_id": "must-not-become-authority", "seq": 999
+        });
+        let responses = [
+            app.handle_pane_report_agent(
+                "external".into(),
+                serde_json::from_value(params.clone()).unwrap(),
+            ),
+            app.handle_pane_report_agent_session(
+                "external".into(),
+                serde_json::from_value(params.clone()).unwrap(),
+            ),
+            app.handle_pane_release_agent(
+                "external".into(),
+                serde_json::from_value(params).unwrap(),
+            ),
+        ];
+        for response in responses {
+            let response: serde_json::Value = serde_json::from_str(&response).unwrap();
+            assert_eq!(response["error"]["code"], "external_agent_management");
+        }
+        let terminal = &app.state.terminals[&terminal_id];
+        assert_eq!(terminal.revision, revision);
+        assert!(terminal.hook_authority.is_none());
+        assert!(terminal.persisted_agent_session.is_none());
+        assert!(terminal.detected_agent().is_none());
+        app.state.assert_invariants_for_test();
+    }
+}
+
+#[test]
+fn external_agent_management_ignores_queued_evidence_without_runtime_or_fallback() {
+    use crate::events::AppEvent;
+    let mut state = AppState::test_with_adversarial_identity_state();
+    state.external_agent_management = true;
+    let pane_id = state.workspaces[0].tabs[0].root_pane;
+    let terminal_id = state.workspaces[0].terminal_id(pane_id).unwrap().clone();
+    let session = PersistedAgentSession {
+        source: "kitsune:djinn".into(),
+        agent: "djinn".into(),
+        session_ref: AgentSessionRef::id("historical-only").unwrap(),
+    };
+    state
+        .terminals
+        .get_mut(&terminal_id)
+        .unwrap()
+        .set_persisted_agent_session(session.clone());
+    state.session_dirty = false;
+    let revision = state.terminals[&terminal_id].revision;
+    let now = Instant::now();
+    let mut app = app_from_state(state);
+    for via_app in [false, true] {
+        let events = [
+            AppEvent::HookStateReported {
+                pane_id,
+                source: "coven".into(),
+                agent_label: "djinn".into(),
+                state: AgentState::Working,
+                message: None,
+                seq: Some(999),
+                session_ref: Some(AgentSessionRef::id("new-session").unwrap()),
+            },
+            AppEvent::AgentSessionReported {
+                pane_id,
+                source: "coven".into(),
+                agent_label: "djinn".into(),
+                seq: Some(999),
+                session_ref: Some(AgentSessionRef::id("new-session").unwrap()),
+                session_start_source: None,
+            },
+            AppEvent::DetectorUpdate {
+                pane_id,
+                epoch: crate::terminal::evidence::DetectorEpoch::new(),
+                foreground: Some(ForegroundObservation::Confirmed {
+                    agent: Agent::Djinn,
+                    process_group_id: None,
+                }),
+                fallback: Some(FallbackObservation {
+                    agent: Some(Agent::Djinn),
+                    state: AgentState::Working,
+                    visible_blocker: false,
+                    visible_working: true,
+                }),
+                observed_at: now,
+            },
+            AppEvent::StateChanged {
+                pane_id,
+                agent: Some(Agent::Djinn),
+                state: AgentState::Blocked,
+                visible_blocker: true,
+                visible_working: false,
+                process_exited: false,
+                observed_at: now,
+            },
+            AppEvent::HookAuthorityCleared {
+                pane_id,
+                source: None,
+                seq: Some(1000),
+            },
+            AppEvent::HookAgentReleased {
+                pane_id,
+                source: session.source.clone(),
+                agent_label: session.agent.clone(),
+                known_agent: Some(Agent::Djinn),
+                seq: Some(1001),
+                session_ref: Some(session.session_ref.clone()),
+            },
+        ];
+        for event in events {
+            if via_app {
+                app.handle_internal_event(event);
+            } else {
+                assert!(app
+                    .state
+                    .handle_app_event_with_release_outcome(event)
+                    .0
+                    .is_empty());
+            }
+            let terminal = &app.state.terminals[&terminal_id];
+            assert_eq!(terminal.revision, revision);
+            assert_eq!(terminal.persisted_agent_session.as_ref(), Some(&session));
+            assert!(terminal.hook_authority.is_none());
+            assert!(terminal.detected_agent().is_none());
+            assert!(terminal.foreground_agent_evidence().is_none());
+            assert!(!app.state.session_dirty);
+            app.state.assert_invariants_for_test();
+        }
+    }
+    assert!(app
+        .state
+        .publish_pane_process_exit_if_agent(pane_id)
+        .is_none());
+    assert!(app.state.reconcile_managed_agents_at(now).is_empty());
+    assert!(app.state.next_managed_agent_deadline().is_none());
+    assert_eq!(app.terminal_runtimes.len(), 0);
+    assert!(app.state.external_agent_management);
+}
+
 fn fixture(agent: &str) -> (App, String, TerminalId, PersistedAgentSession) {
     let mut state = AppState::test_new();
     state.workspaces = vec![crate::workspace::Workspace::test_new("ownership")];

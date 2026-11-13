@@ -1185,6 +1185,13 @@ impl App {
         id: String,
         params: PaneReportAgentParams,
     ) -> String {
+        if self.state.external_agent_management {
+            return encode_error(
+                id,
+                "external_agent_management",
+                "legacy agent reports are disabled",
+            );
+        }
         let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
@@ -1214,6 +1221,13 @@ impl App {
         id: String,
         params: PaneReportAgentSessionParams,
     ) -> String {
+        if self.state.external_agent_management {
+            return encode_error(
+                id,
+                "external_agent_management",
+                "legacy agent reports are disabled",
+            );
+        }
         let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
@@ -1416,6 +1430,13 @@ impl App {
         id: String,
         params: PaneClearAgentAuthorityParams,
     ) -> String {
+        if self.state.external_agent_management {
+            return encode_error(
+                id,
+                "external_agent_management",
+                "legacy agent reports are disabled",
+            );
+        }
         let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };
@@ -1433,6 +1454,13 @@ impl App {
         id: String,
         params: PaneReleaseAgentParams,
     ) -> String {
+        if self.state.external_agent_management {
+            return encode_error(
+                id,
+                "external_agent_management",
+                "legacy agent reports are disabled",
+            );
+        }
         let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
         };

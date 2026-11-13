@@ -259,6 +259,38 @@ pub struct AnnotationsConfig {
 #[serde(default)]
 pub struct IntegrationsConfig {
     pub sources: Vec<String>,
+    pub runtime: Option<IntegrationRuntimeConfig>,
+    // Ownership must survive rejection of the independently validated route.
+    #[serde(skip)]
+    pub(crate) external_agent_management_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IntegrationRuntimeConfig {
+    pub source: String,
+    pub command: Vec<String>,
+    pub report_command: Vec<String>,
+    #[serde(default)]
+    pub external_agent_management: bool,
+}
+
+impl IntegrationRuntimeConfig {
+    pub(crate) fn valid_for_sources(&self, sources: &[String]) -> bool {
+        sources.contains(&self.source)
+            && Self::valid_argv(&self.command)
+            && Self::valid_argv(&self.report_command)
+    }
+
+    pub(crate) fn valid_argv(argv: &[String]) -> bool {
+        !argv.is_empty()
+            && argv.len() <= 64
+            && argv
+                .iter()
+                .all(|arg| !arg.is_empty() && arg.len() <= 4096 && !arg.contains('\0'))
+            && argv.iter().map(String::len).sum::<usize>() <= 16384
+            && std::path::Path::new(&argv[0]).is_absolute()
+    }
 }
 
 impl Config {
@@ -266,6 +298,10 @@ impl Config {
         crate::integration_views::validate_sources(&self.integrations.sources)
             .err()
             .map(|_| "invalid integrations.sources: select at most 8 unique ASCII IDs (1-64 bytes, letters, digits, -_.); integrations disabled".to_string())
+            .or_else(|| self.integrations.runtime.as_ref().and_then(|runtime| {
+                (!runtime.valid_for_sources(&self.integrations.sources)).then(||
+                    "invalid integrations.runtime: source must be explicitly enabled; commands require bounded nonempty literal argv with absolute executables; integrations disabled".into())
+            }))
     }
 }
 

@@ -18,6 +18,35 @@ pub(crate) const COPILOT_HOME_ENV_VAR: &str = "COPILOT_HOME";
 pub(crate) fn apply_pane_base_env(cmd: &mut CommandBuilder) {
     cmd.env(crate::product::BIN_PATH_ENV_VAR, binary_path_env_value());
     cmd.env(crate::api::SOCKET_PATH_ENV_VAR, crate::api::socket_path());
+    apply_runtime_env(
+        cmd,
+        crate::config::integration_runtime(),
+        crate::config::external_agent_management(),
+    );
+}
+
+fn apply_runtime_env(
+    cmd: &mut CommandBuilder,
+    runtime: Option<&crate::config::IntegrationRuntimeConfig>,
+    external_agent_management: bool,
+) {
+    // Never let a nested/disabled server inherit its parent's reporting route.
+    for key in [
+        "KITSUNE_INTEGRATION_SOURCE",
+        "KITSUNE_INTEGRATION_REPORT_COMMAND",
+        "KITSUNE_AGENT_MANAGEMENT",
+    ] {
+        cmd.env_remove(key);
+    }
+    if let Some(runtime) = runtime {
+        cmd.env("KITSUNE_INTEGRATION_SOURCE", &runtime.source);
+        if let Ok(command) = serde_json::to_string(&runtime.report_command) {
+            cmd.env("KITSUNE_INTEGRATION_REPORT_COMMAND", command);
+        }
+    }
+    if external_agent_management {
+        cmd.env("KITSUNE_AGENT_MANAGEMENT", "external");
+    }
 }
 
 pub(crate) fn binary_path_env_value() -> String {
@@ -301,5 +330,59 @@ mod tests {
             .get_env(crate::api::SOCKET_PATH_ENV_VAR)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn integration_runtime_env_replaces_nested_routes_and_round_trips_argv() {
+        let mut cmd = CommandBuilder::new("shell");
+        let mut runtime = crate::config::IntegrationRuntimeConfig {
+            source: "example".into(),
+            command: vec!["/helper".into()],
+            report_command: vec!["/report".into(), "space quote \" $HOME ~/literal".into()],
+            external_agent_management: true,
+        };
+        for key in [
+            "KITSUNE_INTEGRATION_SOURCE",
+            "KITSUNE_INTEGRATION_REPORT_COMMAND",
+            "KITSUNE_AGENT_MANAGEMENT",
+        ] {
+            cmd.env(key, "inherited-parent-route");
+        }
+        apply_runtime_env(&mut cmd, Some(&runtime), true);
+        assert_eq!(
+            cmd.get_env("KITSUNE_INTEGRATION_SOURCE"),
+            Some(OsStr::new("example"))
+        );
+        assert_eq!(
+            cmd.get_env("KITSUNE_AGENT_MANAGEMENT"),
+            Some(OsStr::new("external"))
+        );
+        let argv: Vec<String> = serde_json::from_str(
+            cmd.get_env("KITSUNE_INTEGRATION_REPORT_COMMAND")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(argv, runtime.report_command);
+        runtime.external_agent_management = false;
+        apply_runtime_env(&mut cmd, Some(&runtime), false);
+        assert_eq!(cmd.get_env("KITSUNE_AGENT_MANAGEMENT"), None);
+        assert!(cmd.get_env("KITSUNE_INTEGRATION_SOURCE").is_some());
+        apply_runtime_env(&mut cmd, None, false);
+        for key in [
+            "KITSUNE_INTEGRATION_SOURCE",
+            "KITSUNE_INTEGRATION_REPORT_COMMAND",
+            "KITSUNE_AGENT_MANAGEMENT",
+        ] {
+            assert_eq!(cmd.get_env(key), None);
+        }
+        apply_runtime_env(&mut cmd, None, true);
+        assert_eq!(
+            cmd.get_env("KITSUNE_AGENT_MANAGEMENT"),
+            Some(OsStr::new("external"))
+        );
+        assert_eq!(cmd.get_env("KITSUNE_INTEGRATION_SOURCE"), None);
+        assert_eq!(cmd.get_env("KITSUNE_INTEGRATION_REPORT_COMMAND"), None);
     }
 }

@@ -23,6 +23,7 @@ use super::{
 
 struct AgentRestoreState<'a> {
     enabled: bool,
+    external_agent_management: bool,
     resumed_sessions: &'a mut HashSet<String>,
 }
 
@@ -501,6 +502,7 @@ fn restore_tab(
         let startup = {
             let mut agent_restore = AgentRestoreState {
                 enabled: runtime_context.resume_agents_on_restore,
+                external_agent_management: crate::config::external_agent_management(),
                 resumed_sessions: resumed_agent_sessions,
             };
             pane_restore_startup(saved_agent_session, saved_history, &mut agent_restore)
@@ -629,11 +631,17 @@ fn restore_tab(
                     terminal.set_persisted_agent_session(session);
                 }
                 match (saved_agent_name, saved_managed_agent) {
-                    (Some(agent_name), Some(agent)) if was_imported => {
+                    (Some(agent_name), Some(agent))
+                        if was_imported && !crate::config::external_agent_management() =>
+                    {
                         terminal.restore_managed_agent(agent_name, agent)
                     }
                     (Some(_), Some(_)) => {}
-                    (Some(agent_name), None) if was_imported => terminal.set_agent_name(agent_name),
+                    (Some(agent_name), None)
+                        if was_imported && !crate::config::external_agent_management() =>
+                    {
+                        terminal.set_agent_name(agent_name)
+                    }
                     (Some(_), None) => {}
                     (None, _) => {}
                 }
@@ -725,8 +733,12 @@ fn pane_restore_startup<'a>(
     // resumable agent session and resume is enabled, do not replay saved pane
     // presentation history into that terminal, even when this pane is a
     // duplicate suppressed by session de-duplication.
-    let restore_plan =
-        session.and_then(|session| restore_plan_for_snapshot(session, agent_restore.enabled));
+    let restore_plan = session.and_then(|session| {
+        restore_plan_for_snapshot(
+            session,
+            agent_restore.enabled && !agent_restore.external_agent_management,
+        )
+    });
     let has_native_agent_restore = restore_plan.is_some();
     // Reserve before spawning so later panes in the same restore pass cannot
     // launch the same native agent session. The caller rolls this reservation
@@ -1095,6 +1107,7 @@ mod tests {
                 Some(&history),
                 &mut AgentRestoreState {
                     enabled,
+                    external_agent_management: false,
                     resumed_sessions: &mut resumed,
                 },
             );
@@ -1135,6 +1148,7 @@ mod tests {
                 Some(&history),
                 &mut AgentRestoreState {
                     enabled: true,
+                    external_agent_management: false,
                     resumed_sessions: &mut resumed,
                 },
             );
@@ -1169,6 +1183,7 @@ mod tests {
                 Some(&history),
                 &mut AgentRestoreState {
                     enabled: true,
+                    external_agent_management: false,
                     resumed_sessions: &mut resumed,
                 },
             );
@@ -1199,6 +1214,7 @@ mod tests {
         let mut resumed = HashSet::new();
         let mut agent_restore = AgentRestoreState {
             enabled: true,
+            external_agent_management: false,
             resumed_sessions: &mut resumed,
         };
 
@@ -1224,6 +1240,7 @@ mod tests {
         let mut resumed = HashSet::new();
         let mut agent_restore = AgentRestoreState {
             enabled: true,
+            external_agent_management: false,
             resumed_sessions: &mut resumed,
         };
 
@@ -1252,6 +1269,7 @@ mod tests {
         let mut resumed = HashSet::new();
         let mut agent_restore = AgentRestoreState {
             enabled: false,
+            external_agent_management: false,
             resumed_sessions: &mut resumed,
         };
 
@@ -1261,6 +1279,52 @@ mod tests {
         assert_eq!(startup.initial_history_ansi, Some("RESTORED_HISTORY\r\n"));
         assert!(!startup.duplicate_agent_session);
         assert!(resumed.is_empty());
+    }
+
+    #[test]
+    fn external_agent_management_restore_preserves_only_reference_and_history() {
+        for agent in ["codex", "claude", "djinn", "opencode", "hermes"] {
+            let session = PaneAgentSessionSnapshot {
+                source: format!("kitsune:{agent}"),
+                agent: agent.into(),
+                kind: crate::agent_resume::AgentSessionRefKind::Id,
+                value: "historical-session".into(),
+            };
+            let history = PaneHistorySnapshot {
+                ansi: "terminal history\r\n".into(),
+                lines: 1,
+            };
+            let mut resumed = HashSet::new();
+            for _ in 0..2 {
+                let startup = pane_restore_startup(
+                    Some(&session),
+                    Some(&history),
+                    &mut AgentRestoreState {
+                        enabled: true,
+                        external_agent_management: true,
+                        resumed_sessions: &mut resumed,
+                    },
+                );
+                assert!(startup.restore_plan.is_none());
+                assert!(startup.reserved_agent_session.is_none());
+                assert!(!startup.duplicate_agent_session);
+                assert_eq!(startup.initial_history_ansi, Some(history.ansi.as_str()));
+                assert!(resumed.is_empty());
+                let mut terminal = TerminalState::new(TerminalId::alloc(), "/".into());
+                terminal.set_persisted_agent_session(
+                    restored_terminal_agent_session(
+                        Some(&session),
+                        startup.duplicate_agent_session,
+                    )
+                    .unwrap(),
+                );
+                assert!(terminal.persisted_agent_session.is_some());
+                assert!(terminal.detected_agent().is_none());
+                assert!(terminal.hook_authority.is_none());
+                assert!(terminal.pending_agent_resume_plan.is_none());
+                assert!(terminal.agent_name.is_none());
+            }
+        }
     }
 
     #[test]

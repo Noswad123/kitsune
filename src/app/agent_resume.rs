@@ -20,6 +20,9 @@ struct PendingAgentResumeCandidate {
 
 impl App {
     pub(crate) fn has_pending_agent_resumes(&self) -> bool {
+        if self.state.external_agent_management {
+            return false;
+        }
         self.state
             .terminals
             .values()
@@ -80,6 +83,9 @@ impl App {
     }
 
     fn pending_agent_resume_candidates(&self) -> Vec<PendingAgentResumeCandidate> {
+        if self.state.external_agent_management {
+            return Vec::new();
+        }
         let terminal_area = self.state.view.terminal_area;
         if terminal_area.width == 0 || terminal_area.height == 0 {
             return Vec::new();
@@ -216,6 +222,9 @@ impl App {
         allow_empty_theme: bool,
     ) -> bool {
         let host_terminal_theme = self.state.host_terminal_theme;
+        if self.state.external_agent_management {
+            return false;
+        }
         if host_terminal_theme.is_empty() && !allow_empty_theme {
             return false;
         }

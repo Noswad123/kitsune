@@ -2,6 +2,21 @@
 
 ## Overview
 
+**Normal-invocation opt-in implemented (2026-11-12):** users keep invoking native
+agents normally after explicit startup/runtime and provider setup. Kit owns only
+the generic server-side helper lifecycle and presentation; Coven interprets
+bounded, attributed plain observations. No Coven launcher, group/artifact join,
+old agent widgets/focus/sidebar model, mobile completion cues or pane/PID/native
+attestation is required or implied. See [runtime configuration](INTEGRATION_VIEWS.md#optional-startup-runtime-and-external-ownership)
+and [Coven's setup/semantics](../coven/docs/NORMAL_AGENT_WORKFLOW.md).
+External ownership suppresses all legacy status/detectors and automatic agent
+resume even on helper failure or fail-closed invalid/unreadable startup config.
+There is no automatic helper restart or live fallback; runtime/rollback handoff
+requires server restart, new panes and provider reload. Dedicated external Coven
+workspaces/private receiver sockets and existing user configuration are manually
+managed, never auto-installed/migrated. Default-mode compatibility below remains;
+full migration and native macOS qualification remain open.
+
 Coven's [private hook-file backend matrix](../coven/HOOK_FILE_BACKEND_CONTRACT.md)
 now source-enables shared Linux/macOS file apply for all five managers. macOS is
 provisional, eligible local APFS only and not natively qualified. All old Kit
@@ -44,7 +59,8 @@ The initial Coven observation bridge did not extract these features. The later
 [Claude hook cut](CLAUDE_HOOK_MIGRATION.md) retires only Linux new Claude
 installation/recommendations/updates. Non-Linux production installer/assets/result
 type and recommendation/update/bulk paths remain until matching Coven adapters.
-Process/screen fallback and agent restore remain on all platforms too. The authoritative all-provider matrix and
+Process/screen fallback and agent restore remain in legacy/default mode, but are
+suppressed in external mode. The authoritative all-provider matrix and
 next-transfer queue are in Coven's `AGENT_MANAGEMENT_MIGRATION.md`
 ([optional sibling link](../coven/AGENT_MANAGEMENT_MIGRATION.md)).
 
@@ -211,7 +227,9 @@ The internal [typed evidence seam](DETECTOR_EVIDENCE_SEPARATION.md) and five Lin
 configuration retirements remain separate. Historical/screen-only data cannot
 grant native ownership; restored readiness needs a matching probe or accepted
 fallback. Temporary duplicate legacy policy is not sole ownership/full status.
-No external mode/toggle/kill/hide controls, provider or receipt changes follow.
+That historical acquisition/evidence cut (before 2026-11-12) added no external
+mode/toggle/kill/hide controls or provider/receipt changes; the later normal
+workflow separately adds explicit external ownership.
 Read housekeeping can ensure a workspace/shell; read-only is not zero effects.
 
 The separate [generic command submission API](COMMAND_SUBMISSION.md) lets explicit
@@ -316,8 +334,8 @@ manual build-label example is in [ANNOTATIONS.md](ANNOTATIONS.md).
 | New OpenCode reference plugin | Linux: Coven explicit existing plugin/plugins root placement and exact opt-in full-v9 migration; Kit new install/recommend/update/bulk retired. Non-Linux full legacy paths preserved. |
 | Independent OpenCode references | Coven Unix strict created/updated envelope; root DTO references only, unknown even fresh. Server exact-directory-instance scope, not full management or native activation proof. |
 | Independent Claude receipt inventory | Coven Unix private receiver; Windows unsupported, macOS not validated. Not equivalent non-Linux hook-configuration support. |
-| Agent detection, agent APIs, navigator/attention and mobile surfaces | Legacy compatibility remains; move management interpretation/model into Coven and retire matching surfaces incrementally. |
-| Native references, agent restore/resume and remaining lifecycle hooks | Still Kitsune, including Claude process/screen fallback and restore; move to Coven adapters with subsystem-specific removal gates. |
+| Agent detection, agent APIs, navigator/attention and mobile surfaces | Legacy/default compatibility remains; external mode suppresses legacy status authority/detectors. Coven plain rows do not replace old widgets/focus/mobile semantics. Broader retirement is pending. |
+| Native references, agent restore/resume and remaining lifecycle hooks | Legacy/default policy remains; external mode preserves references/history without automatic agent resume. Broader Coven restore adapters still need subsystem-specific gates. |
 | `integration.install` / `integration.uninstall`, fixed `IntegrationTarget`, legacy hook settings | All six target entries, status/uninstall/old ingress remain on all platforms. Claude/Codex/Copilot/Pi/OpenCode new installation remains non-Linux; legacy UI settings remain for other providers/platforms. Separate from generic provider registration. |
 
 The confirmed target is **all** provider/source management on **all platforms**,

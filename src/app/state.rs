@@ -1404,6 +1404,8 @@ pub(crate) struct PaneFocusTarget {
 /// All application state — pure data, no channels or async runtime.
 /// Testable without PTYs or a tokio runtime.
 pub struct AppState {
+    /// Frozen startup ownership policy, independent of external runtime health.
+    pub(crate) external_agent_management: bool,
     pub(crate) annotations: crate::annotations::AnnotationState,
     pub(crate) next_annotation_deadline: Option<std::time::Instant>,
     pub terminals:
@@ -1779,6 +1781,7 @@ impl AppState {
     /// Create an AppState for testing — no channels, no PTYs.
     pub fn test_new() -> Self {
         Self {
+            external_agent_management: false,
             terminals: std::collections::HashMap::new(),
             annotations: crate::annotations::AnnotationState::default(),
             next_annotation_deadline: None,

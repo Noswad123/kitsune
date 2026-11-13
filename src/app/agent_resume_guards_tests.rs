@@ -117,6 +117,28 @@ fn assert_intent_preserved(
 }
 
 #[test]
+fn external_agent_management_suppresses_even_queued_resume_execution() {
+    let Fixture {
+        mut app,
+        terminal_id,
+        session,
+        plan,
+        ..
+    } = fixture();
+    app.state.external_agent_management = true;
+    let revision = app.state.terminals[&terminal_id].revision;
+    app.state.view.terminal_area = Rect::new(0, 0, 80, 24);
+    app.pending_agent_resume_deadline = Some(Instant::now());
+    app.sync_pending_agent_resume_deadline(Instant::now());
+    assert!(app.pending_agent_resume_deadline.is_none());
+    assert!(!app.has_pending_agent_resumes());
+    assert!(app.pending_agent_resume_candidates().is_empty());
+    assert!(!app.start_pending_agent_resumes(true));
+    assert!(!app.start_pending_agent_resume_for_terminal(&terminal_id, 24, 80, true));
+    assert_intent_preserved(&app, &terminal_id, &session, &plan, revision);
+}
+
+#[test]
 fn pending_agent_resume_deadline_tracks_geometry_without_extending_wait() {
     let Fixture {
         mut app,

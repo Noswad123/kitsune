@@ -6,7 +6,8 @@ The desktop **persistent lower side-menu section** is `Integrations` by default,
 with a vertical list of user-configured applications and the locally selected
 application's plain label/detail rows. Kitsune routes selection intents; each
 application owns what its rows mean. For Coven, that means Coven group/participant
-declarations and read-only details—not Kitsune's detected-agent inventory.
+declarations or normal-workflow observations and read-only details—not Kitsune's
+detected-agent inventory.
 
 This is a functional first ownership bridge, not completed agent extraction.
 Legacy detection, agent APIs, restore, attention, mobile and other agent-aware
@@ -61,6 +62,76 @@ Kitsune/user still control sizing, collapse/split layout, scrolling and colors.
 External data cannot supply scripts, pane targets, executable callbacks, widgets,
 arbitrary markup or native status icons. Labels/details are escaped and clipped.
 Source attribution is displayed but **is not authentication**.
+
+### Optional startup runtime and external ownership
+
+`sources` alone is presentation-only. The separate `[integrations.runtime]` opts
+into one generic attached helper in **server/client mode only** (`--no-session`
+refuses runtime/external ownership). Fields are `source`, `command`,
+`report_command` and `external_agent_management` (default false); unknown runtime
+fields refuse. The source must be explicitly enabled. Commands are literal argv,
+not shell strings: absolute executable, 1–64 nonempty arguments, at most 4096 bytes
+per argument/16384 aggregate, no NUL. No PATH, `~` or environment expansion.
+
+For Coven, prefer the [normal setup workflow](../coven/docs/NORMAL_AGENT_WORKFLOW.md#example-usage):
+
+```sh
+coven integration plan
+coven integration enable --apply
+```
+
+Review the plan, restart Kit, open new panes and reload providers; Djinn needs an
+updated native full-TUI build. Coven setup preserves unrelated config and sources,
+selects the current Coven executable and private state, and generates literal
+runtime/reporter argv. Kit supplies its actual API address; Coven bootstraps the
+per-address workspace/receiver privately. No user `init`, socket pinning or
+repeated state-root flags are required. Provider hooks/extensions still require
+explicit setup with `--from-kitsune`; there is no automatic install or native
+policy/trust override. See [setup/undo and manual handoff](../coven/docs/INTEGRATION_SETUP_CONTRACT.md)
+and [versioned provider routes](../coven/docs/PROVIDER_ENVIRONMENT_ROUTES.md).
+
+Raw TOML and fixed `agent run`/`--socket` commands remain advanced interfaces.
+Only the manual route requires a preinitialized workspace/private socket parent
+and matching receiver pins. Preserve config/preimages and stop affected providers
+and server before a deliberate ownership handoff. Setup refuses an unmanaged
+runtime, including an earlier manual snippet; it cannot adopt or force-overwrite it.
+
+The server starts the helper after API readiness, holds its piped stdin open,
+and on shutdown closes stdin, waits 500 ms, then kills/reaps if needed. There is
+no automatic helper restart or legacy fallback. New panes receive
+`KITSUNE_INTEGRATION_SOURCE`, JSON literal argv in
+`KITSUNE_INTEGRATION_REPORT_COMMAND`, and, in external mode,
+`KITSUNE_AGENT_MANAGEMENT=external`. Disabled/nested routes strip inherited values.
+Runtime/ownership changes are startup-only: restart the server, create new panes
+and reload/restart native providers that already loaded plugins/hooks. Reload
+retains the startup route and diagnoses restart-required changes.
+
+External mode suppresses **all legacy agent-status authority, detector tasks and
+automatic agent resume**, including imported/deferred restore, even on helper
+failure. History/references are not fresh evidence or permission to execute.
+Requested external ownership survives an invalid reporting route; undecodable
+runtime ownership settings, malformed startup TOML or unreadable startup config
+also retain external ownership fail-closed, with reporting disabled rather than
+legacy restore; missing config uses defaults. Terminals remain usable. Helper
+degradation expires its view lease; deliberate repair/restart is required. Rollback
+is an explicit ownership/configuration handoff followed by server restart/new
+panes/provider reload, never a live fallback. Generated Coven setup isolates exact
+API addresses automatically; fixed socket collisions still refuse, not adopt.
+Unreleased crash/partial state requires inspection/manual recovery, not automatic
+cleanup or restart healing. The Coven contract documents the 64-instance cap,
+private filesystem admission and socket-path length bounds. `integration disable
+--apply` restores only the exact managed preimage and refuses later user edits;
+it does not stop a live helper or undo provider configuration.
+
+Select **Coven** explicitly for Coven-attributed plain rows. These do not populate
+old agent-status widgets, pane focus/sidebar agent models or mobile completions.
+Coven's normal facts expire within 30 seconds independently of the five-second
+view lease: repaint/metadata do not refresh them, sequence gaps invalidate retained
+facts, and cancellations clear only matching pending requests. Retention/tombstones
+are bounded, not universal replay protection. Sessions remain unbound/unattested.
+Djinn needs an updated native full-TUI build; Codex/Copilot/Pi/OpenCode reference
+capture stays unknown even when configured. See the Coven guide for exact semantics,
+Claude last-report bounds and remaining native macOS qualification.
 
 ### Discovery and JSON API v1
 

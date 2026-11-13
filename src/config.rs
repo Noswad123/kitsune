@@ -20,9 +20,9 @@ pub use self::{
     },
     model::{
         validated_sidebar_bounds, AgentPanelSortConfig, Config, ConfigReloadReport,
-        ConfigReloadStatus, HostCursorModeConfig, IntegrationsConfig, NewTerminalCwdConfig,
-        ShellModeConfig, SidebarCollapsedModeConfig, ToastClipboardPosition, ToastConfig,
-        ToastDelivery, ToastKitsunePosition, MAX_TOAST_DELAY_SECONDS,
+        ConfigReloadStatus, HostCursorModeConfig, IntegrationRuntimeConfig, IntegrationsConfig,
+        NewTerminalCwdConfig, ShellModeConfig, SidebarCollapsedModeConfig, ToastClipboardPosition,
+        ToastConfig, ToastDelivery, ToastKitsunePosition, MAX_TOAST_DELAY_SECONDS,
     },
     sidebar::{
         AgentSidebarToken, AgentsSidebarConfig, SidebarConfig, SidebarTokenStyle,
@@ -39,6 +39,40 @@ pub const CONFIG_PATH_ENV_VAR: &str = crate::product::CONFIG_PATH_ENV_VAR;
 pub const DEFAULT_SCROLLBACK_LIMIT_BYTES: usize = 10_000_000;
 pub const DEFAULT_MOUSE_SCROLL_LINES: usize = 3;
 pub const DEFAULT_MOBILE_WIDTH_THRESHOLD: u16 = 64;
+
+static STARTUP_INTEGRATIONS: std::sync::OnceLock<IntegrationsConfig> = std::sync::OnceLock::new();
+
+/// Freeze before constructing the server App or any PTYs. Never read live config here.
+pub(crate) fn freeze_integration_runtime(config: &Config) {
+    let external_agent_management_requested =
+        config.integrations.external_agent_management_requested
+            || config
+                .integrations
+                .runtime
+                .as_ref()
+                .is_some_and(|runtime| runtime.external_agent_management);
+    let mut integrations = if config.invalid_integrations_diagnostic().is_none() {
+        IntegrationsConfig {
+            sources: config.integrations.sources.clone(),
+            runtime: config.integrations.runtime.clone(),
+            external_agent_management_requested,
+        }
+    } else {
+        IntegrationsConfig::default()
+    };
+    integrations.external_agent_management_requested = external_agent_management_requested;
+    let _ = STARTUP_INTEGRATIONS.set(integrations);
+}
+
+pub(crate) fn integration_runtime() -> Option<&'static IntegrationRuntimeConfig> {
+    STARTUP_INTEGRATIONS.get()?.runtime.as_ref()
+}
+
+pub(crate) fn external_agent_management() -> bool {
+    STARTUP_INTEGRATIONS
+        .get()
+        .is_some_and(|integrations| integrations.external_agent_management_requested)
+}
 
 #[cfg(test)]
 pub(crate) fn app_dir_name() -> &'static str {

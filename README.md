@@ -55,6 +55,41 @@ default workspace/shell; the five Linux configuration retirements stay unchanged
 
 ## Integrations: generic presentation and messaging
 
+### Normal native-agent invocation (one-time opt-in)
+
+For the optional [normal workflow](../coven/docs/NORMAL_AGENT_WORKFLOW.md), review
+and apply setup with a compatible Coven binary:
+
+```sh
+coven integration plan
+coven integration enable --apply
+```
+
+Then restart Kit, open new panes, select **Coven** in Integrations and invoke
+`djinn`, `codex`, `copilot`, etc. normally. Djinn needs an updated native full-TUI
+build; other providers need separate explicit hook/extension setup in the guide.
+No Coven launcher/group/artifact join, manual workspace initialization or socket
+coordination is needed. [Setup defaults and recovery](../coven/docs/INTEGRATION_SETUP_CONTRACT.md)
+cover the selected startup config/current Coven executable/private state;
+absolute path overrides are optional. Debug Kit uses the same `kitsune` config
+directory, not `kitsune-dev`. Existing unmanaged runtimes require a manual handoff,
+not adoption/overwrite. No provider auto-install or native trust override occurs.
+
+The generic helper is server-only (`--no-session` refuses). External ownership
+suppresses all legacy agent-status/detector and automatic-resume paths even on
+helper failure or invalid/unreadable startup config, without legacy fallback.
+Runtime changes, degraded-helper recovery and rollback require deliberate server
+restart; activation also needs new panes/provider reload. No automatic helper
+restart; generated bootstrap isolates concurrent Kit API addresses automatically.
+Crash/partial state refuses reuse and needs deliberate manual recovery, not
+self-healing. Guarded `coven integration disable --apply` restores only the exact
+managed preimage; later edits refuse, and ownership handoff still needs restart.
+Select **Coven** for attributed plain rows, not old status widgets, pane focus/
+sidebar agents or mobile completions. Facts expire within 30 seconds independently
+of the five-second lease; sessions are unbound/unattested. Djinn needs an updated
+native full-TUI build; reference-only providers remain unknown. Default legacy
+compatibility remains; full migration/native macOS qualification is not claimed.
+
 The desktop lower side menu is a generic [Integrations block](INTEGRATION_VIEWS.md),
 not an agent panel. With no providers it shows `No integrations configured` and
 never falls back to detected agents. Manually configure `[integrations]` with
@@ -65,7 +100,7 @@ five-second leases, frames and selection queues. Missing/expired apps show
 `Unavailable`; other producers and terminals keep working.
 
 Coven's `group present` supplies its own group/participant model without Kitsune
-interpreting agents or roles. This changes only default desktop lower-menu
+interpreting agents or roles. This presentation-only path changes default desktop lower-menu
 presentation, not all legacy detection, APIs, mobile UI, hooks or restore behavior.
 The obsolete `[external_view]` config is diagnosed/ignored, not automatically
 rewritten. See the contract for discovery, bounds and at-most-once, non-authorizing

@@ -79,6 +79,14 @@ use std::fs;
 
 const LIVE_HANDOFF_RESPONSE_WRITE_TIMEOUT: Duration = Duration::from_secs(6);
 
+fn integration_handoff_failure(err: io::Error, runtime_stopped: bool) -> io::Error {
+    if runtime_stopped {
+        io::Error::other(format!("{err}; integration runtime degraded: helper stopped for handoff; server restart required"))
+    } else {
+        err
+    }
+}
+
 fn wait_for_live_handoff_response_write(
     response_write_complete: Option<std::sync::mpsc::Receiver<()>>,
 ) {
@@ -242,6 +250,7 @@ const CLIENT_ACCEPT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 /// The headless server — runs the kitsune event loop without a real terminal.
 pub struct HeadlessServer {
     app: app::App,
+    integration_runtime: Option<crate::server::integration_runtime::IntegrationRuntime>,
     #[cfg(unix)]
     api_tx: Option<api::ApiRequestSender>,
     // Kept on every platform so dropping HeadlessServer owns API server shutdown.
@@ -441,6 +450,7 @@ impl HeadlessServer {
         let _ = api_tx;
         Ok(Self {
             app,
+            integration_runtime: None,
             #[cfg(unix)]
             api_tx,
             api_server,
@@ -480,6 +490,19 @@ impl HeadlessServer {
     /// - Renders virtually and streams frames to clients
     pub async fn run(&mut self) -> io::Result<()> {
         crate::logging::startup("server");
+        if self.api_server.is_some() {
+            if let Some(config) = config::integration_runtime() {
+                match crate::server::integration_runtime::IntegrationRuntime::spawn(
+                    config,
+                    &api::socket_path(),
+                ) {
+                    Ok(runtime) => self.integration_runtime = Some(runtime),
+                    Err(err) => {
+                        warn!(%err, "integration runtime failed to start; no retry or legacy fallback")
+                    }
+                }
+            }
+        }
 
         // Register SIGINT handler for graceful shutdown.
         let should_quit = self.should_quit.clone();
@@ -1199,6 +1222,9 @@ impl HeadlessServer {
             return Err(err);
         }
 
+        // Stop the old presenter before the replacement can bind public sockets.
+        let runtime_stopped = self.integration_runtime.is_some();
+        drop(self.integration_runtime.take());
         if let Some(api_server) = &self.api_server {
             let _ = api_server.remove_socket_file_if_owned();
         } else {
@@ -1213,14 +1239,17 @@ impl HeadlessServer {
                 }
                 Err(restore_err) => {
                     self.rollback_handoff_before_commit(&socket_path, &paused_terminal_ids);
-                    return Err(io::Error::other(format!(
+                    return Err(integration_handoff_failure(io::Error::other(format!(
                         "handoff replacement server did not become ready: {err}; old server could not restore public sockets: {restore_err}"
-                    )));
+                    )), runtime_stopped));
                 }
             }
-            return Err(io::Error::other(format!(
-                "handoff replacement server did not become ready: {err}"
-            )));
+            return Err(integration_handoff_failure(
+                io::Error::other(format!(
+                    "handoff replacement server did not become ready: {err}"
+                )),
+                runtime_stopped,
+            ));
         }
         if let Err(err) = crate::server::handoff::report_committed(&mut stream) {
             crate::server::handoff::cleanup_failed_import_child(&mut import_child);
@@ -1230,12 +1259,12 @@ impl HeadlessServer {
                 }
                 Err(restore_err) => {
                     self.rollback_handoff_before_commit(&socket_path, &paused_terminal_ids);
-                    return Err(io::Error::other(format!(
+                    return Err(integration_handoff_failure(io::Error::other(format!(
                         "handoff replacement server was ready, but commit failed: {err}; old server could not restore public sockets: {restore_err}"
-                    )));
+                    )), runtime_stopped));
                 }
             }
-            return Err(err);
+            return Err(integration_handoff_failure(err, runtime_stopped));
         }
 
         for (terminal_id, runtime) in self.app.terminal_runtimes.drain_for_handoff() {
@@ -2013,6 +2042,9 @@ impl HeadlessServer {
     ///
     /// Returns true if the event changed visual state (requiring a re-render).
     fn handle_internal_event_with_forwarding(&mut self, ev: AppEvent) -> bool {
+        if self.app.state.excludes_legacy_agent_event(&ev) {
+            return false;
+        }
         match &ev {
             AppEvent::ClipboardWrite { content } => {
                 // Clipboard writes are client-local side effects. Forward them only to
@@ -4058,6 +4090,7 @@ impl HeadlessServer {
     /// close client connections, remove socket files, and clean up.
     fn complete_shutdown(&mut self) -> io::Result<()> {
         info!("completing server shutdown");
+        drop(self.integration_runtime.take());
 
         // Send ServerShutdown to all remaining clients.
         if !self.clients.is_empty() {
@@ -4137,6 +4170,7 @@ fn events_for_app_routing(
 
 impl Drop for HeadlessServer {
     fn drop(&mut self) {
+        drop(self.integration_runtime.take());
         let staged_files = self
             .clients
             .drain()
@@ -4250,6 +4284,7 @@ pub fn run_server() -> io::Result<()> {
     }
 
     let loaded_config = config::Config::load();
+    config::freeze_integration_runtime(&loaded_config.config);
     let (api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
     let event_hub = api::EventHub::default();
 
@@ -4354,6 +4389,7 @@ fn take_startup_cwd() -> Option<PathBuf> {
 #[cfg(unix)]
 fn run_handoff_import_server(socket_path: &Path, token: &str) -> io::Result<()> {
     let loaded_config = config::Config::load();
+    config::freeze_integration_runtime(&loaded_config.config);
     let mut received = crate::server::handoff::receive(socket_path, token)?;
     crate::server::handoff::log_import_result(received.manifest.panes.len());
 
@@ -4485,6 +4521,33 @@ mod tests {
         test_headless_server_with_event_hub(api::EventHub::default())
     }
 
+    #[test]
+    fn integration_runtime_handoff_failure_public_diagnostic_requires_restart() {
+        for stage in [
+            "replacement not ready",
+            "commit failed",
+            "socket rollback failed",
+        ] {
+            let error = integration_handoff_failure(io::Error::other(stage), true);
+            let response = serde_json::to_value(api::schema::ErrorResponse {
+                id: "handoff".into(),
+                error: api::schema::ErrorBody {
+                    code: "handoff_failed".into(),
+                    message: error.to_string(),
+                },
+            })
+            .unwrap();
+            let message = response["error"]["message"].as_str().unwrap();
+            assert!(message.contains(stage));
+            assert!(message.contains("integration runtime degraded"));
+            assert!(message.contains("server restart required"));
+            assert_eq!(
+                integration_handoff_failure(io::Error::other(stage), false).to_string(),
+                stage
+            );
+        }
+    }
+
     fn test_headless_server_with_event_hub(event_hub: api::EventHub) -> HeadlessServer {
         let config = crate::config::Config::default();
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -4524,6 +4587,7 @@ mod tests {
 
         HeadlessServer {
             app,
+            integration_runtime: None,
             #[cfg(unix)]
             api_tx: None,
             api_server: None,
@@ -5897,44 +5961,49 @@ next_tab = ""
 
     #[test]
     fn terminal_attach_client_exits_when_attached_pane_dies() {
-        let mut server = test_headless_server();
-        let workspace = crate::workspace::Workspace::test_new("attached");
-        let pane_id = workspace.tabs[0].root_pane;
-        server.app.state.workspaces = vec![workspace];
-        server.app.state.ensure_test_terminals();
-        let terminal_id = server.app.state.workspaces[0]
-            .pane_state(pane_id)
-            .expect("pane")
-            .attached_terminal_id
-            .to_string();
-        let (writer, control_rx, _render_rx) = test_client_writer();
+        for external in [false, true] {
+            let mut server = test_headless_server();
+            server.app.state.external_agent_management = external;
+            let workspace = crate::workspace::Workspace::test_new("attached");
+            let pane_id = workspace.tabs[0].root_pane;
+            server.app.state.workspaces = vec![workspace];
+            server.app.state.ensure_test_terminals();
+            let terminal_id = server.app.state.workspaces[0]
+                .pane_state(pane_id)
+                .expect("pane")
+                .attached_terminal_id
+                .to_string();
+            let (writer, control_rx, _render_rx) = test_client_writer();
 
-        assert!(server.handle_server_event(ServerEvent::ClientConnected {
-            client_id: 7,
-            cols: 80,
-            rows: 24,
-            cell_width_px: 0,
-            cell_height_px: 0,
-            render_encoding: RenderEncoding::TerminalAnsi,
-            keybindings: None,
-            direct_attach_requested: true,
-            writer,
-        }));
-        assert!(
-            server.handle_server_event(ServerEvent::ClientAttachTerminal {
+            assert!(server.handle_server_event(ServerEvent::ClientConnected {
                 client_id: 7,
-                terminal_id: terminal_id.clone(),
-                takeover: false,
-            })
-        );
-        assert_eq!(server.terminal_attach_owners.get(&terminal_id), Some(&7));
+                cols: 80,
+                rows: 24,
+                cell_width_px: 0,
+                cell_height_px: 0,
+                render_encoding: RenderEncoding::TerminalAnsi,
+                keybindings: None,
+                direct_attach_requested: true,
+                writer,
+            }));
+            assert!(
+                server.handle_server_event(ServerEvent::ClientAttachTerminal {
+                    client_id: 7,
+                    terminal_id: terminal_id.clone(),
+                    takeover: false,
+                })
+            );
+            assert_eq!(server.terminal_attach_owners.get(&terminal_id), Some(&7));
 
-        assert!(server.handle_internal_event_with_forwarding(AppEvent::PaneDied { pane_id }));
+            assert!(server.handle_internal_event_with_forwarding(AppEvent::PaneDied { pane_id }));
 
-        assert!(!server.clients.contains_key(&7));
-        assert!(!server.terminal_attach_owners.contains_key(&terminal_id));
-        let reason = read_server_shutdown_reason(control_rx.recv().expect("shutdown message"));
-        assert_eq!(reason, Some(format!("terminal {terminal_id} exited")));
+            assert!(!server.clients.contains_key(&7));
+            assert!(!server.terminal_attach_owners.contains_key(&terminal_id));
+            let reason = read_server_shutdown_reason(control_rx.recv().expect("shutdown message"));
+            assert_eq!(reason, Some(format!("terminal {terminal_id} exited")));
+            assert!(server.app.find_pane(pane_id).is_none());
+            server.app.state.assert_invariants_for_test();
+        }
     }
 
     #[test]
@@ -6201,6 +6270,220 @@ next_tab = ""
         assert_eq!(server.app.state.next_annotation_deadline, None);
         assert!(!server.app.expire_due_annotations(deadline));
         server.app.state.assert_invariants_for_test();
+    }
+
+    #[tokio::test]
+    async fn external_agent_management_headless_boundary_rejects_all_legacy_events() {
+        use crate::agent_resume::{AgentSessionRef, PersistedAgentSession};
+        use crate::detect::{Agent, AgentState};
+        use crate::terminal::evidence::{FallbackObservation, ForegroundObservation};
+
+        let mut state = crate::app::AppState::test_with_adversarial_identity_state();
+        state.external_agent_management = true;
+        state.local_sound_playback = false;
+        state.toast_config.delivery = config::ToastDelivery::System;
+        state.toast_config.delay_seconds = 0;
+        state.outer_terminal_focus = Some(false);
+        let pane_id = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+        let session = PersistedAgentSession {
+            source: "kitsune:djinn".into(),
+            agent: "djinn".into(),
+            session_ref: AgentSessionRef::id("historical-only").unwrap(),
+        };
+        state
+            .terminals
+            .get_mut(&terminal_id)
+            .unwrap()
+            .set_persisted_agent_session(session.clone());
+        state.session_dirty = false;
+        state.assert_invariants_for_test();
+        let mut server =
+            test_headless_server_with_app(crate::app::test_support::app_from_state(state));
+        let runtime =
+            crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"agent screen");
+        let epoch = runtime.detector_epoch();
+        server
+            .app
+            .terminal_runtimes
+            .insert(terminal_id.clone(), runtime);
+        let (writer, control_rx, render_rx) = test_client_writer();
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (100, 30),
+                crate::kitty_graphics::HostCellSize::default(),
+                crate::terminal_theme::TerminalTheme::default(),
+                Some(true),
+                1,
+                RenderEncoding::SemanticFrame,
+                Some(writer),
+            ),
+        );
+        server.foreground_client_id = Some(1);
+        // Synchronizing this client before rejecting an event would change these values.
+        let size = server.effective_size;
+        let toast = server.app.state.toast.clone();
+        let seen = server.app.state.workspaces[0]
+            .pane_state(pane_id)
+            .unwrap()
+            .seen;
+        let terminal = &server.app.state.terminals[&terminal_id];
+        let status = (
+            terminal.state,
+            terminal.fallback_state,
+            terminal.revision,
+            terminal.last_agent_state_change_seq,
+        );
+        let event_count = server.app.event_hub.events_after(0).len();
+        server.app.render_dirty.store(false, Ordering::Release);
+        let now = Instant::now();
+        for source in ["kitsune:djinn", "coven", "coven.agent-management.v1"] {
+            let events = [
+                AppEvent::HookStateReported {
+                    pane_id,
+                    source: source.into(),
+                    agent_label: "djinn".into(),
+                    state: AgentState::Working,
+                    message: Some("spoofed status".into()),
+                    seq: Some(999),
+                    session_ref: Some(AgentSessionRef::id("replacement").unwrap()),
+                },
+                AppEvent::AgentSessionReported {
+                    pane_id,
+                    source: source.into(),
+                    agent_label: "djinn".into(),
+                    seq: Some(1000),
+                    session_ref: Some(AgentSessionRef::id("replacement").unwrap()),
+                    session_start_source: Some("spoofed".into()),
+                },
+                AppEvent::HookAuthorityCleared {
+                    pane_id,
+                    source: Some(source.into()),
+                    seq: Some(1001),
+                },
+                AppEvent::HookAuthorityCleared {
+                    pane_id,
+                    source: None,
+                    seq: Some(1002),
+                },
+                AppEvent::HookAgentReleased {
+                    pane_id,
+                    source: source.into(),
+                    agent_label: "djinn".into(),
+                    known_agent: Some(Agent::Djinn),
+                    seq: Some(1003),
+                    session_ref: Some(session.session_ref.clone()),
+                },
+                AppEvent::DetectorUpdate {
+                    pane_id,
+                    epoch,
+                    foreground: Some(ForegroundObservation::Confirmed {
+                        agent: Agent::Djinn,
+                        process_group_id: Some(42),
+                    }),
+                    fallback: Some(FallbackObservation {
+                        agent: Some(Agent::Djinn),
+                        state: AgentState::Working,
+                        visible_blocker: false,
+                        visible_working: true,
+                    }),
+                    observed_at: now,
+                },
+                AppEvent::DetectorUpdate {
+                    pane_id,
+                    epoch,
+                    foreground: Some(ForegroundObservation::Exited {
+                        agent: Agent::Djinn,
+                    }),
+                    fallback: None,
+                    observed_at: now,
+                },
+                AppEvent::StateChanged {
+                    pane_id,
+                    agent: Some(Agent::Djinn),
+                    state: AgentState::Blocked,
+                    visible_blocker: true,
+                    visible_working: false,
+                    process_exited: false,
+                    observed_at: now,
+                },
+                AppEvent::StateChanged {
+                    pane_id,
+                    agent: Some(Agent::Djinn),
+                    state: AgentState::Idle,
+                    visible_blocker: false,
+                    visible_working: false,
+                    process_exited: true,
+                    observed_at: now,
+                },
+            ];
+            for event in events {
+                assert!(server.app.state.excludes_legacy_agent_event(&event));
+                assert!(!server.handle_internal_event_with_forwarding(event));
+                let terminal = &server.app.state.terminals[&terminal_id];
+                assert_eq!(
+                    (
+                        terminal.state,
+                        terminal.fallback_state,
+                        terminal.revision,
+                        terminal.last_agent_state_change_seq
+                    ),
+                    status
+                );
+                assert_eq!(terminal.persisted_agent_session.as_ref(), Some(&session));
+                assert!(terminal.hook_authority.is_none());
+                assert!(terminal.detected_agent().is_none());
+                assert!(terminal.foreground_agent_evidence().is_none());
+                assert!(terminal.pending_agent_resume_plan.is_none());
+                assert_eq!(server.app.state.toast, toast);
+                assert_eq!(
+                    server.app.state.workspaces[0]
+                        .pane_state(pane_id)
+                        .unwrap()
+                        .seen,
+                    seen
+                );
+                assert_eq!(server.app.state.outer_terminal_focus, Some(false));
+                assert_eq!(server.effective_size, size);
+                assert!(!server.app.state.session_dirty);
+                assert!(!server.app.render_dirty.load(Ordering::Acquire));
+                assert!(server
+                    .app
+                    .state
+                    .next_pending_agent_notification_deadline()
+                    .is_none());
+                assert_eq!(server.app.event_hub.events_after(0).len(), event_count);
+                assert!(control_rx.try_recv().is_err());
+                assert!(render_rx.try_recv().is_err());
+                server.app.state.assert_invariants_for_test();
+            }
+        }
+        shutdown_test_runtimes(&mut server);
+    }
+
+    #[test]
+    fn headless_cwd_forwarding_works_in_default_and_external_modes() {
+        for external in [false, true] {
+            let mut state = crate::app::AppState::test_with_adversarial_identity_state();
+            state.external_agent_management = external;
+            let pane_id = state.workspaces[0].tabs[0].root_pane;
+            let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
+            state.terminals.get_mut(&terminal_id).unwrap().cwd = PathBuf::from("/");
+            state.session_dirty = false;
+            let mut server =
+                test_headless_server_with_app(crate::app::test_support::app_from_state(state));
+            server.app.render_dirty.store(false, Ordering::Release);
+            let cwd = std::env::temp_dir();
+            server.handle_internal_event_with_forwarding(AppEvent::TerminalCwdReported {
+                pane_id,
+                cwd: cwd.clone(),
+            });
+            assert_eq!(server.app.state.terminals[&terminal_id].cwd, cwd);
+            assert!(server.app.state.session_dirty);
+            assert!(server.app.render_dirty.load(Ordering::Acquire));
+            server.app.state.assert_invariants_for_test();
+        }
     }
 
     #[tokio::test]
@@ -9283,65 +9566,69 @@ next_tab = ""
 
     #[test]
     fn clipboard_write_targets_foreground_client_only() {
-        let mut server = test_headless_server();
-        let (background_tx, background_control_rx, _background_rx) = test_client_writer();
-        let (foreground_tx, foreground_control_rx, _foreground_rx) = test_client_writer();
+        for external in [false, true] {
+            let mut server = test_headless_server();
+            server.app.state.external_agent_management = external;
+            let (background_tx, background_control_rx, _background_rx) = test_client_writer();
+            let (foreground_tx, foreground_control_rx, _foreground_rx) = test_client_writer();
 
-        server.clients.insert(
-            1,
-            ClientConnection::new(
-                (120, 40),
-                crate::kitty_graphics::HostCellSize::default(),
-                crate::terminal_theme::TerminalTheme::default(),
-                None,
+            server.clients.insert(
                 1,
-                RenderEncoding::SemanticFrame,
-                Some(background_tx),
-            ),
-        );
-        server.clients.insert(
-            2,
-            ClientConnection::new(
-                (80, 24),
-                crate::kitty_graphics::HostCellSize::default(),
-                crate::terminal_theme::TerminalTheme::default(),
-                None,
+                ClientConnection::new(
+                    (120, 40),
+                    crate::kitty_graphics::HostCellSize::default(),
+                    crate::terminal_theme::TerminalTheme::default(),
+                    None,
+                    1,
+                    RenderEncoding::SemanticFrame,
+                    Some(background_tx),
+                ),
+            );
+            server.clients.insert(
                 2,
-                RenderEncoding::SemanticFrame,
-                Some(foreground_tx),
-            ),
-        );
-        server.foreground_client_id = Some(2);
-        server.sync_foreground_client_state();
+                ClientConnection::new(
+                    (80, 24),
+                    crate::kitty_graphics::HostCellSize::default(),
+                    crate::terminal_theme::TerminalTheme::default(),
+                    None,
+                    2,
+                    RenderEncoding::SemanticFrame,
+                    Some(foreground_tx),
+                ),
+            );
+            server.foreground_client_id = Some(2);
+            server.sync_foreground_client_state();
 
-        let changed = server.handle_internal_event_with_forwarding(AppEvent::ClipboardWrite {
-            content: b"test".to_vec(),
-        });
+            let changed = server.handle_internal_event_with_forwarding(AppEvent::ClipboardWrite {
+                content: b"test".to_vec(),
+            });
 
-        assert!(changed);
-        assert_eq!(
-            server
-                .app
-                .state
-                .copy_feedback
-                .as_ref()
-                .map(|feedback| feedback.message.as_str()),
-            Some("copied to clipboard")
-        );
-        match read_server_message(
-            foreground_control_rx
-                .recv_timeout(Duration::from_millis(100))
-                .expect("foreground clipboard message"),
-        ) {
-            ServerMessage::Clipboard { data } => assert_eq!(data, "dGVzdA=="),
-            other => panic!("expected clipboard message, got {other:?}"),
+            assert!(changed);
+            assert_eq!(
+                server
+                    .app
+                    .state
+                    .copy_feedback
+                    .as_ref()
+                    .map(|feedback| feedback.message.as_str()),
+                Some("copied to clipboard")
+            );
+            match read_server_message(
+                foreground_control_rx
+                    .recv_timeout(Duration::from_millis(100))
+                    .expect("foreground clipboard message"),
+            ) {
+                ServerMessage::Clipboard { data } => assert_eq!(data, "dGVzdA=="),
+                other => panic!("expected clipboard message, got {other:?}"),
+            }
+            assert!(
+                background_control_rx
+                    .recv_timeout(Duration::from_millis(50))
+                    .is_err(),
+                "background client should not receive clipboard writes"
+            );
+            server.app.state.assert_invariants_for_test();
         }
-        assert!(
-            background_control_rx
-                .recv_timeout(Duration::from_millis(50))
-                .is_err(),
-            "background client should not receive clipboard writes"
-        );
     }
 
     #[test]

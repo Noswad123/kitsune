@@ -450,6 +450,18 @@ fn exit_if_nested_disabled(config: &config::Config) {
     }
 }
 
+fn validate_monolithic_integrations(config: &config::Config) -> io::Result<()> {
+    if config.integrations.runtime.is_some()
+        || config.integrations.external_agent_management_requested
+    {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "--no-session does not support integrations.runtime or external agent management; use server/client mode (omit --no-session)",
+        ));
+    }
+    Ok(())
+}
+
 fn main() -> io::Result<()> {
     let cli_name = crate::product::cli_name();
     let raw_args: Vec<String> = std::env::args().collect();
@@ -688,6 +700,7 @@ fn main() -> io::Result<()> {
 
     // --- Monolithic mode (--no-session escape hatch) ---
     // This is the pre-mission single-process behavior.
+    validate_monolithic_integrations(&loaded_config.config)?;
 
     init_logging();
 
@@ -804,6 +817,40 @@ fn main() -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn monolithic_integrations_allow_default_and_presentation_only_sources() {
+        assert!(validate_monolithic_integrations(&config::Config::default()).is_ok());
+        let config = toml::from_str("[integrations]\nsources = ['external']\n").unwrap();
+        assert!(validate_monolithic_integrations(&config).is_ok());
+    }
+
+    #[test]
+    fn monolithic_integrations_refuse_runtime_with_or_without_external_ownership() {
+        for external in [false, true] {
+            let config = toml::from_str(&format!(
+                "[integrations]\nsources = ['external']\n\
+                 [integrations.runtime]\nsource = 'external'\n\
+                 command = ['/not-executed/runtime']\n\
+                 report_command = ['/not-executed/reporter']\n\
+                 external_agent_management = {external}\n"
+            ))
+            .unwrap();
+            let error = validate_monolithic_integrations(&config).unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+            assert!(error.to_string().contains("omit --no-session"));
+        }
+    }
+
+    #[test]
+    fn monolithic_integrations_refuse_external_request_after_route_rejection() {
+        let mut config = config::Config::default();
+        config.integrations.external_agent_management_requested = true;
+        assert!(config.integrations.runtime.is_none());
+        let error = validate_monolithic_integrations(&config).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
+        assert!(error.to_string().contains("external agent management"));
+    }
 
     #[test]
     fn nested_kitsune_blocks_when_env_is_set() {

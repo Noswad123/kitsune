@@ -159,6 +159,12 @@ pub(crate) enum AgentDetection {
     Disabled,
 }
 
+impl AgentDetection {
+    fn permits_task(self, external_agent_management: bool) -> bool {
+        self == Self::Enabled && !external_agent_management
+    }
+}
+
 fn active_pending_release(
     pending_release: &Mutex<Option<PendingAgentRelease>>,
     now: std::time::Instant,
@@ -1898,16 +1904,22 @@ impl PaneRuntime {
         let full_lifecycle_authority_active = Arc::new(AtomicBool::new(false));
         let detector_epoch = DetectorEpoch::new();
         let detect_wake_notify = Arc::new(Notify::new());
-        let (detect_handle, detect_reset_notify, pending_release) = spawn_basic_detection_task(
-            pane_id,
-            detector_epoch,
-            detect_wake_notify.clone(),
-            child_pid.clone(),
-            terminal.clone(),
-            detection_content_seq.clone(),
-            full_lifecycle_authority_active.clone(),
-            events,
-        );
+        let (detect_handle, detect_reset_notify, pending_release) =
+            if !AgentDetection::Enabled.permits_task(crate::config::external_agent_management()) {
+                (None, Arc::new(Notify::new()), Arc::new(Mutex::new(None)))
+            } else {
+                let (handle, reset, release) = spawn_basic_detection_task(
+                    pane_id,
+                    detector_epoch,
+                    detect_wake_notify.clone(),
+                    child_pid.clone(),
+                    terminal.clone(),
+                    detection_content_seq.clone(),
+                    full_lifecycle_authority_active.clone(),
+                    events,
+                );
+                (Some(handle), reset, release)
+            };
 
         Ok(Self {
             pane_id,
@@ -1925,7 +1937,7 @@ impl PaneRuntime {
             detect_wake_notify,
             pending_release,
             preserve_processes_on_drop: true,
-            detect_handle: Some(detect_handle),
+            detect_handle,
         })
     }
 
@@ -1946,6 +1958,12 @@ impl PaneRuntime {
         agent_detection: AgentDetection,
     ) -> std::io::Result<Self> {
         crate::logging::pane_spawn_started(pane_id.raw(), rows, cols, scrollback_limit_bytes);
+        let agent_detection =
+            if agent_detection.permits_task(crate::config::external_agent_management()) {
+                agent_detection
+            } else {
+                AgentDetection::Disabled
+            };
         let detector_epoch = DetectorEpoch::new();
 
         let (response_tx, _response_rx) = mpsc::channel::<Bytes>(1);
@@ -2960,6 +2978,14 @@ impl PaneRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_agent_management_never_permits_detector_task() {
+        assert!(AgentDetection::Enabled.permits_task(false));
+        assert!(!AgentDetection::Disabled.permits_task(false));
+        assert!(!AgentDetection::Enabled.permits_task(true));
+        assert!(!AgentDetection::Disabled.permits_task(true));
+    }
 
     mod detector_producer_tests {
         include!("pane/detector_producer_tests.rs");
