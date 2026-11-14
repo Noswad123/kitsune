@@ -137,8 +137,8 @@ to the local compiler requirement have their own
 been selected or shipped.
 
 ```bash
-cargo build --bin kitsune
-./target/debug/kitsune
+just dev-build
+just run
 ```
 
 The local helper justfile installs the debug binary into the scoped development
@@ -152,6 +152,21 @@ just install
 
 Use `INSTALL_DIR="/your/dev/bin" just install` to override the destination explicitly.
 The development directory is not added to `PATH`; use the full path to select it.
+
+`just dev-build`, `just run`, and `just install` validate Zig before compiling.
+An explicit `ZIG` must point to Zig 0.15.2; an invalid override fails rather than
+silently selecting another compiler. With `ZIG` unset, these recipes use Zig
+0.15.2 on `PATH`, or discover an already installed Homebrew `zig@0.15` via
+`brew --prefix zig@0.15`. They never install or update toolchains. If neither is
+available, install the matching compiler separately and set `ZIG` to its path.
+Direct Cargo commands still require a compatible `zig` on `PATH` or explicit `ZIG`.
+
+These recipes use Cargo's reported executable, including custom `CARGO_TARGET_DIR`
+and configured build targets. Installation signs a staged file in the destination
+directory and atomically replaces the old binary, so a running executable is not
+truncated and build/signing failures leave the previous install intact. Installing
+does not restart an existing server. `just run` clears inherited Kitsune socket
+overrides and `KITSUNE_ENV`.
 
 ## Kitty graphics
 

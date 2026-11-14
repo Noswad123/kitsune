@@ -12,23 +12,15 @@ check-tests:
 
 # Build a signed debug binary for local development, matching the old makefile `build`
 dev-build:
-    @echo "🔨 Building {{app_name}}..."
-    cargo build --bin {{app_name}}
-    scripts/sign_dev_binary.sh target/debug/{{app_name}}
+    python3 scripts/dev.py build
 
 # Run the debug binary with inherited Kitsune socket/runtime env cleared
-run: dev-build
-    env -u KITSUNE_SOCKET_PATH -u KITSUNE_CLIENT_SOCKET_PATH -u KITSUNE_ENV \
-        ./target/debug/{{app_name}}
+run:
+    python3 scripts/dev.py run
 
 # Install the signed debug binary to INSTALL_DIR, defaulting to ~/.local/libexec/arcana-dev/kitsune/bin
-install: dev-build
-    @install_dir="${INSTALL_DIR:-$HOME/.local/libexec/arcana-dev/kitsune/bin}"; \
-    echo "📦 Installing to $install_dir"; \
-    mkdir -p "$install_dir"; \
-    cp target/debug/{{app_name}} "$install_dir/{{app_name}}"; \
-    scripts/sign_dev_binary.sh "$install_dir/{{app_name}}"; \
-    echo "✅ Installed. Run with: \"$install_dir/{{app_name}}\""
+install:
+    python3 scripts/dev.py install
 
 # Run the focused bin test loop from the old makefile `test`
 test-bin:
@@ -74,7 +66,7 @@ ci filter='all()': lint
 
 # Run maintenance script tests
 maintenance-test:
-    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty
+    python3 -m unittest scripts.test_agent_detection_manifest_check scripts.test_changelog scripts.test_vendor_libghostty_vt scripts.test_vendor_portable_pty scripts.test_dev
 
 # Check formatting, lint, and tests for the host Linux/macOS platform without provisioning targets
 check: ci
