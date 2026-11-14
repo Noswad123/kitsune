@@ -1,5 +1,6 @@
 use crossterm::event::{KeyCode, KeyModifiers};
 
+mod coven;
 mod io;
 mod keybinds;
 mod model;
@@ -44,28 +45,44 @@ static STARTUP_INTEGRATIONS: std::sync::OnceLock<IntegrationsConfig> = std::sync
 
 /// Freeze before constructing the server App or any PTYs. Never read live config here.
 pub(crate) fn freeze_integration_runtime(config: &Config) {
+    STARTUP_INTEGRATIONS.get_or_init(|| resolve_startup_integrations(config));
+}
+
+fn resolve_startup_integrations(config: &Config) -> IntegrationsConfig {
     let external_agent_management_requested =
         config.integrations.external_agent_management_requested
             || config
                 .integrations
                 .runtime
                 .as_ref()
-                .is_some_and(|runtime| runtime.external_agent_management);
+                .is_some_and(|runtime| runtime.external_agent_management)
+            || config.integrations.implicit_coven();
     let mut integrations = if config.invalid_integrations_diagnostic().is_none() {
         IntegrationsConfig {
             sources: config.integrations.sources.clone(),
             runtime: config.integrations.runtime.clone(),
+            coven: config.integrations.coven.clone(),
+            resolved_runtime: None,
             external_agent_management_requested,
         }
     } else {
         IntegrationsConfig::default()
     };
     integrations.external_agent_management_requested = external_agent_management_requested;
-    let _ = STARTUP_INTEGRATIONS.set(integrations);
+    integrations.resolved_runtime = integrations.runtime.clone();
+    if integrations.implicit_coven() {
+        match coven::resolve() {
+            Ok(runtime) => integrations.resolved_runtime = Some(runtime),
+            Err(err) => tracing::warn!(
+                "Coven unavailable: {err}; external ownership retained; fix and restart server"
+            ),
+        }
+    }
+    integrations
 }
 
 pub(crate) fn integration_runtime() -> Option<&'static IntegrationRuntimeConfig> {
-    STARTUP_INTEGRATIONS.get()?.runtime.as_ref()
+    STARTUP_INTEGRATIONS.get()?.resolved_runtime.as_ref()
 }
 
 pub(crate) fn external_agent_management() -> bool {

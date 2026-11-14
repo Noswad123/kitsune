@@ -260,9 +260,30 @@ pub struct AnnotationsConfig {
 pub struct IntegrationsConfig {
     pub sources: Vec<String>,
     pub runtime: Option<IntegrationRuntimeConfig>,
+    pub coven: CovenConfig,
+    #[serde(skip)]
+    pub(crate) resolved_runtime: Option<IntegrationRuntimeConfig>,
     // Ownership must survive rejection of the independently validated route.
     #[serde(skip)]
     pub(crate) external_agent_management_requested: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CovenConfig {
+    pub auto_start: bool,
+}
+
+impl Default for CovenConfig {
+    fn default() -> Self {
+        Self { auto_start: true }
+    }
+}
+
+impl IntegrationsConfig {
+    pub(crate) fn implicit_coven(&self) -> bool {
+        self.runtime.is_none() && self.coven.auto_start && self.sources.iter().any(|s| s == "coven")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

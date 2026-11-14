@@ -230,7 +230,10 @@ impl Config {
                     config.integrations.runtime = None;
                     invalid_sections.push("integrations".into());
                 }
-                if external_agent_management_requested && config.integrations.runtime.is_none() {
+                if external_agent_management_requested
+                    && config.integrations.runtime.is_none()
+                    && !config.integrations.implicit_coven()
+                {
                     diagnostics.push("integration reporting disabled; external agent ownership retained fail-closed".into());
                 }
                 LoadedConfig {
@@ -263,17 +266,30 @@ fn startup_external_agent_management(content: &str) -> bool {
         // An unreadable ownership request cannot authorize legacy execution.
         return true;
     };
-    let Some(runtime) = value
-        .get("integrations")
-        .and_then(|integrations| integrations.get("runtime"))
-    else {
+    let Some(integrations) = value.get("integrations") else {
         return false;
     };
-    runtime
-        .clone()
-        .try_into::<super::IntegrationRuntimeConfig>()
-        .map(|runtime| runtime.external_agent_management)
-        .unwrap_or(true)
+    if let Some(runtime) = integrations.get("runtime") {
+        return runtime
+            .clone()
+            .try_into::<super::IntegrationRuntimeConfig>()
+            .map(|runtime| runtime.external_agent_management)
+            .unwrap_or(true);
+    }
+    let coven_source = integrations
+        .get("sources")
+        .and_then(toml::Value::as_array)
+        .is_some_and(|sources| {
+            sources
+                .iter()
+                .any(|source| source.as_str() == Some("coven"))
+        });
+    coven_source
+        && integrations
+            .get("coven")
+            .and_then(|coven| coven.get("auto_start"))
+            .and_then(toml::Value::as_bool)
+            != Some(false)
 }
 
 pub(super) fn resolve_config_relative_path(path: &Path) -> PathBuf {
@@ -523,6 +539,8 @@ fn preserve_startup_runtime(
     invalid_sections: &mut Vec<String>,
 ) {
     if config.integrations.runtime != startup.runtime
+        || config.integrations.coven != startup.coven
+        || config.integrations.implicit_coven() != startup.implicit_coven()
         || config.integrations.external_agent_management_requested
             != startup.external_agent_management_requested
         || startup
@@ -540,6 +558,7 @@ fn preserve_startup_runtime(
         config.integrations.sources = startup.sources.clone();
     }
     config.integrations.runtime = startup.runtime.clone();
+    config.integrations.coven = startup.coven.clone();
     config.integrations.external_agent_management_requested =
         startup.external_agent_management_requested;
 }
@@ -973,6 +992,85 @@ mod tests {
         }
     }
 
+    #[test]
+    fn integration_runtime_coven_raw_ownership_and_rejected_config() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for (extra, external, enabled) in [
+            ("", true, true),
+            ("[integrations.coven]\nauto_start = false", false, false),
+            ("[integrations.coven]\nauto_start = 'false'", true, false),
+            ("[integrations.coven]\nauto_start = true\nunknown = 1", true, false),
+            ("runtime = false", true, false),
+            ("[integrations.runtime]\nsource = 'coven'\ncommand = ['relative']\nreport_command = ['/report']\nexternal_agent_management = false", false, false),
+            ("[integrations.runtime]\nsource = 'coven'\ncommand = ['/helper']\nreport_command = ['/report']\nexternal_agent_management = false", false, false),
+        ] {
+            let content = format!("[integrations]\nsources = ['coven']\n{extra}");
+            fixture.write(&content);
+            assert_eq!(startup_external_agent_management(&content), external, "{extra}");
+            let loaded = Config::load();
+            assert_eq!(loaded.config.integrations.external_agent_management_requested, external, "{extra}");
+            assert_eq!(loaded.config.integrations.implicit_coven(), enabled, "{extra}");
+            if !loaded.invalid_sections.is_empty() {
+                assert!(loaded.config.integrations.sources.is_empty());
+                assert!(loaded.config.integrations.runtime.is_none());
+            }
+        }
+        fixture.write("[integrations]\nsources = ['coven', 1]");
+        let loaded = Config::load();
+        assert!(
+            loaded
+                .config
+                .integrations
+                .external_agent_management_requested
+        );
+        assert!(!loaded.config.integrations.implicit_coven());
+        fixture.write("[integrations]\nsources = ['coven']\n[ui]\nmouse = 'invalid'");
+        assert!(
+            Config::load()
+                .config
+                .integrations
+                .external_agent_management_requested
+        );
+    }
+
+    #[test]
+    fn integration_runtime_coven_reload_preserves_startup_without_discovery() {
+        let parse = |text: &str| {
+            let mut config: Config = toml::from_str(text).unwrap();
+            config.integrations.external_agent_management_requested =
+                startup_external_agent_management(text);
+            config
+        };
+        let implicit = "[integrations]\nsources = ['coven']";
+        let disabled =
+            "[integrations]\nsources = ['coven']\n[integrations.coven]\nauto_start = false";
+        let explicit = "[integrations]\nsources = ['coven']\n[integrations.runtime]\nsource = 'coven'\ncommand = ['/not-run']\nreport_command = ['/not-run']";
+        for (startup_text, proposed_text, rejected) in [
+            (implicit, implicit, false),
+            (implicit, disabled, true),
+            (disabled, implicit, true),
+            ("", implicit, true),
+            (implicit, "", true),
+            (implicit, explicit, true),
+            (explicit, implicit, true),
+            ("", "[integrations]\nsources = ['arbitrary']", false),
+        ] {
+            let startup = parse(startup_text).integrations;
+            let mut proposed = parse(proposed_text);
+            let mut diagnostics = Vec::new();
+            let mut invalid = Vec::new();
+            preserve_startup_runtime(&mut proposed, &startup, &mut diagnostics, &mut invalid);
+            assert_eq!(
+                !invalid.is_empty(),
+                rejected,
+                "{startup_text} -> {proposed_text}"
+            );
+            assert_eq!(proposed.integrations.runtime, startup.runtime);
+            assert_eq!(proposed.integrations.coven, startup.coven);
+        }
+    }
+
     fn runtime_config() -> Config {
         toml::from_str(
             r#"
@@ -1089,6 +1187,8 @@ external_agent_management = true
         let _guard = crate::config::test_config_env_lock().lock().unwrap();
         let fixture = AnnotationConfigFixture::new();
         for content in [
+            "[integrations]\nsources = ['coven']\nruntime = false",
+            "[integrations]\nsources = ['coven']\n[integrations.runtime]\nsource = 'coven'\ncommand = ['relative']\nreport_command = ['/report']\nexternal_agent_management = true",
             "[integrations]\nsources = ['example']\n[integrations.runtime]\nsource = 'example'\ncommand = ['relative']\nreport_command = ['/report']\nexternal_agent_management = true",
             "[integrations]\nsources = ['other']\n[integrations.runtime]\nsource = 'example'\ncommand = ['/helper']\nreport_command = ['/report']\nexternal_agent_management = true",
             "[integrations]\nsources = false\n[integrations.runtime]\nsource = 'example'\ncommand = ['/helper']\nreport_command = ['/report']\nexternal_agent_management = true",

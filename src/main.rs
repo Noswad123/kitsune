@@ -452,6 +452,7 @@ fn exit_if_nested_disabled(config: &config::Config) {
 
 fn validate_monolithic_integrations(config: &config::Config) -> io::Result<()> {
     if config.integrations.runtime.is_some()
+        || config.integrations.implicit_coven()
         || config.integrations.external_agent_management_requested
     {
         return Err(io::Error::new(
@@ -823,6 +824,13 @@ mod tests {
         assert!(validate_monolithic_integrations(&config::Config::default()).is_ok());
         let config = toml::from_str("[integrations]\nsources = ['external']\n").unwrap();
         assert!(validate_monolithic_integrations(&config).is_ok());
+        let config = toml::from_str(
+            "[integrations]\nsources = ['coven']\n[integrations.coven]\nauto_start = false",
+        )
+        .unwrap();
+        assert!(validate_monolithic_integrations(&config).is_ok());
+        let config = toml::from_str("[integrations]\nsources = ['coven']").unwrap();
+        assert!(validate_monolithic_integrations(&config).is_err());
     }
 
     #[test]

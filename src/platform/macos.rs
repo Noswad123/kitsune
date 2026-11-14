@@ -1218,3 +1218,71 @@ printf '%s\n' "$@" > "$KITSUNE_NOTIFY_ARGS"
         assert!(argv[2].contains("/tmp/kitsune scrollback.txt"));
     }
 }
+pub(crate) fn coven_executable(path: &std::path::Path, native: bool) -> bool {
+    use std::{io::Read, os::unix::fs::PermissionsExt};
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    let mode = metadata.permissions().mode();
+    if !metadata.is_file() || mode & 0o111 == 0 {
+        return false;
+    }
+    let Ok(path_cstr) = std::ffi::CString::new(path.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // Ask Darwin for effective-credential access rather than approximating ACLs.
+    if unsafe {
+        libc::faccessat(
+            libc::AT_FDCWD,
+            path_cstr.as_ptr(),
+            libc::X_OK,
+            libc::AT_EACCESS,
+        )
+    } != 0
+    {
+        return false;
+    }
+    if !native {
+        return true;
+    }
+    if mode & 0o022 != 0 {
+        return false;
+    }
+    let mut magic = [0; 4];
+    std::fs::File::open(path)
+        .and_then(|mut file| file.read_exact(&mut magic))
+        .is_ok()
+        && matches!(
+            u32::from_be_bytes(magic),
+            0xfeedface
+                | 0xfeedfacf
+                | 0xcefaedfe
+                | 0xcffaedfe
+                | 0xcafebabe
+                | 0xbebafeca
+                | 0xcafebabf
+                | 0xbfbafeca
+        )
+}
+
+pub(crate) fn prepare_coven_doctor(command: &mut std::process::Command) -> std::io::Result<()> {
+    use std::os::unix::process::CommandExt;
+    command.process_group(0);
+    Ok(())
+}
+
+pub(crate) fn nonblocking_coven_stdout(stdout: &std::process::ChildStdout) -> std::io::Result<()> {
+    use std::os::fd::AsRawFd;
+    let fd = stdout.as_raw_fd();
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+pub(crate) fn kill_coven_doctor_group(pid: u32) {
+    unsafe {
+        libc::kill(-(pid as i32), libc::SIGKILL);
+    }
+}

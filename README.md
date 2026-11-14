@@ -57,21 +57,29 @@ default workspace/shell; the five Linux configuration retirements stay unchanged
 
 ### Normal native-agent invocation (one-time opt-in)
 
-For the optional [normal workflow](../coven/docs/NORMAL_AGENT_WORKFLOW.md), review
-and apply setup with a compatible Coven binary:
+For the optional [normal workflow](../coven/docs/NORMAL_AGENT_WORKFLOW.md), enable
+Coven with compatible Kitsune/Coven builds:
 
-```sh
-coven integration plan
-coven integration enable --apply
+```toml
+[integrations]
+sources = ["coven"]
 ```
+
+Kitsune invokes `coven doctor status --json` through startup PATH, negotiates
+versioned capabilities and retains the selected native executable/default root.
+No runtime command arrays are required. Existing explicit runtime blocks override
+these defaults; they are not silently migrated. Unknown source IDs remain
+presentation-only. `[integrations.coven] auto_start = false` preserves that older
+behavior for manual Coven publishers, disabling the implicit runtime and inferred
+ownership. See [startup semantics](INTEGRATION_VIEWS.md).
 
 Then restart Kit, open new panes, select **Coven** in Integrations and invoke
 `djinn`, `codex`, `copilot`, etc. normally. Djinn needs an updated native full-TUI
 build; other providers need separate explicit hook/extension setup in the guide.
 No Coven launcher/group/artifact join, manual workspace initialization or socket
-coordination is needed. [Setup defaults and recovery](../coven/docs/INTEGRATION_SETUP_CONTRACT.md)
-cover the selected startup config/current Coven executable/private state;
-absolute path overrides are optional. Debug Kit uses the same `kitsune` config
+coordination is needed. The optional `coven integration plan` / `enable --apply`
+[managed setup](../coven/docs/INTEGRATION_SETUP_CONTRACT.md) retains advanced
+explicit executable/root pinning and guarded undo. Debug Kit uses the same `kitsune` config
 directory, not `kitsune-dev`. Existing unmanaged runtimes require a manual handoff,
 not adoption/overwrite. No provider auto-install or native trust override occurs.
 
@@ -100,7 +108,9 @@ five-second leases, frames and selection queues. Missing/expired apps show
 `Unavailable`; other producers and terminals keep working.
 
 Coven's `group present` supplies its own group/participant model without Kitsune
-interpreting agents or roles. This presentation-only path changes default desktop lower-menu
+interpreting agents or roles. Use `[integrations.coven] auto_start = false` and no
+explicit runtime for that manual publisher rather than starting two Coven owners.
+This presentation-only path changes default desktop lower-menu
 presentation, not all legacy detection, APIs, mobile UI, hooks or restore behavior.
 The obsolete `[external_view]` config is diagnosed/ignored, not automatically
 rewritten. See the contract for discovery, bounds and at-most-once, non-authorizing

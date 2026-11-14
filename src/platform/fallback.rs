@@ -117,3 +117,20 @@ pub fn read_clipboard_image() -> Option<ClipboardImage> {
 pub fn show_desktop_notification(_title: &str, _body: Option<&str>) -> std::io::Result<bool> {
     Ok(false)
 }
+pub(crate) fn coven_executable(_path: &std::path::Path, _native: bool) -> bool {
+    false
+}
+
+pub(crate) fn prepare_coven_doctor(_command: &mut std::process::Command) -> std::io::Result<()> {
+    Err(std::io::Error::other(
+        "automatic Coven runtime is supported only on Linux and macOS",
+    ))
+}
+
+pub(crate) fn nonblocking_coven_stdout(_stdout: &std::process::ChildStdout) -> std::io::Result<()> {
+    Err(std::io::Error::other(
+        "automatic Coven runtime is unsupported",
+    ))
+}
+
+pub(crate) fn kill_coven_doctor_group(_pid: u32) {}

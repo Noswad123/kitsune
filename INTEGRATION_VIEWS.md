@@ -63,17 +63,57 @@ External data cannot supply scripts, pane targets, executable callbacks, widgets
 arbitrary markup or native status icons. Labels/details are escaped and clipped.
 Source attribution is displayed but **is not authentication**.
 
-### Optional startup runtime and external ownership
+### Coven defaults and optional explicit startup runtime
 
-`sources` alone is presentation-only. The separate `[integrations.runtime]` opts
-into one generic attached helper in **server/client mode only** (`--no-session`
-refuses runtime/external ownership). Fields are `source`, `command`,
+Enabling the recognized `coven` source now opts into its default attached runtime
+and external agent ownership in **server/client mode only** (`--no-session`
+refuses runtime/external ownership):
+
+```toml
+[integrations]
+sources = ["coven"]
+```
+
+At startup, before constructing PTYs, Kitsune finds the first executable `coven`
+on absolute PATH entries and invokes literal `doctor status --json`. This is a
+read-only compatibility handshake, not a live health check: require
+`coven.doctor-status.v1`, integration-runtime v1 and native-event-reporting v1,
+not a particular application version. The subprocess has a three-second total
+deadline, 16,384-byte stdout limit, closed stdin, discarded stderr and no inherited
+`KITSUNE_*` variables. Failed negotiation does not try later PATH candidates.
+
+The returned canonical safe native executable and absolute default root become
+frozen literal runtime/reporter argv. This resolves Arcana/public dispatchers to
+the selected dev/Brew payload without weakening Coven's reporter identity checks
+or hardcoding package paths. Later PATH/Arcana selection changes do not redirect
+an active server; restart to select again. A native pathname is not an immutable
+build-generation pin. Discovery never creates state or installs provider hooks.
+See the [doctor contract](../coven/docs/DOCTOR_STATUS_CONTRACT.md).
+
+Unknown source IDs remain presentation-only. **Compatibility change:** older
+source-only Coven configuration was also presentation-only. Manual publishers can
+retain that behavior explicitly:
+
+```toml
+[integrations.coven]
+auto_start = false
+```
+
+This disables the implicit runtime and inferred ownership, not an explicit runtime
+override. Adding/removing implicit Coven or changing this opt-out is startup-only;
+selector clicks still only change presentation. Negotiation failure retains
+requested external ownership and logs `Coven unavailable` with restart guidance;
+it never restores legacy detection or automatic resume.
+
+The advanced `[integrations.runtime]` overrides the preset **as a whole**, including
+the opt-out; invalid explicit settings never fall back to discovery. Fields are `source`, `command`,
 `report_command` and `external_agent_management` (default false); unknown runtime
 fields refuse. The source must be explicitly enabled. Commands are literal argv,
 not shell strings: absolute executable, 1–64 nonempty arguments, at most 4096 bytes
 per argument/16384 aggregate, no NUL. No PATH, `~` or environment expansion.
 
-For Coven, prefer the [normal setup workflow](../coven/docs/NORMAL_AGENT_WORKFLOW.md#example-usage):
+For advanced Coven executable/root pinning, the retained
+[managed setup workflow](../coven/docs/NORMAL_AGENT_WORKFLOW.md#example-usage) is:
 
 ```sh
 coven integration plan
@@ -89,6 +129,8 @@ repeated state-root flags are required. Provider hooks/extensions still require
 explicit setup with `--from-kitsune`; there is no automatic install or native
 policy/trust override. See [setup/undo and manual handoff](../coven/docs/INTEGRATION_SETUP_CONTRACT.md)
 and [versioned provider routes](../coven/docs/PROVIDER_ENVIRONMENT_ROUTES.md).
+Existing explicit runtime blocks and setup receipts are never automatically
+migrated to source-only configuration. Source-only startup needs no setup receipt.
 
 Raw TOML and fixed `agent run`/`--socket` commands remain advanced interfaces.
 Only the manual route requires a preinitialized workspace/private socket parent
@@ -116,12 +158,15 @@ legacy restore; missing config uses defaults. Terminals remain usable. Helper
 degradation expires its view lease; deliberate repair/restart is required. Rollback
 is an explicit ownership/configuration handoff followed by server restart/new
 panes/provider reload, never a live fallback. Generated Coven setup isolates exact
-API addresses automatically; fixed socket collisions still refuse, not adopt.
+API addresses automatically in either startup mode; fixed socket collisions still refuse, not adopt.
 Unreleased crash/partial state requires inspection/manual recovery, not automatic
 cleanup or restart healing. The Coven contract documents the 64-instance cap,
 private filesystem admission and socket-path length bounds. `integration disable
 --apply` restores only the exact managed preimage and refuses later user edits;
 it does not stop a live helper or undo provider configuration.
+An exact restored preimage may itself enable automatic source-only Coven; disable
+warns rather than silently altering that preimage. Complete the explicit ownership
+handoff and opt out if necessary.
 
 Select **Coven** explicitly for Coven-attributed plain rows. These do not populate
 old agent-status widgets, pane focus/sidebar agent models or mobile completions.
