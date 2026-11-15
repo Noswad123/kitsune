@@ -353,6 +353,8 @@ fn api_method_name(method: &Method) -> &'static str {
         Method::ClientWindowTitleSet(_) => "client.window_title.set",
         Method::ClientWindowTitleClear(_) => "client.window_title.clear",
         Method::SessionSnapshot(_) => "session.snapshot",
+        Method::TerminalInspect(_) => "terminal.inspect",
+        Method::TerminalFocus(_) => "terminal.focus",
         Method::ViewOpen(_) => "integration.view.open",
         Method::ViewReplace(_) => "integration.view.replace",
         Method::ViewPoll(_) => "integration.view.poll",

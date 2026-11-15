@@ -20,6 +20,9 @@ mod panes;
 mod responses;
 mod session;
 mod tabs;
+mod terminal_navigation;
+#[cfg(test)]
+mod terminal_navigation_tests;
 mod workspaces;
 mod worktrees;
 
@@ -1023,6 +1026,10 @@ impl App {
                 );
             }
             Method::SessionSnapshot(_) => return self.handle_session_snapshot(request.id),
+            Method::TerminalInspect(params) => {
+                return self.handle_terminal_inspect(request.id, params)
+            }
+            Method::TerminalFocus(params) => return self.handle_terminal_focus(request.id, params),
             Method::ViewOpen(params) => return self.handle_view_open(request.id, params),
             Method::ViewReplace(params) => return self.handle_view_replace(request.id, params),
             Method::ViewPoll(params) => return self.handle_view_poll(request.id, params),

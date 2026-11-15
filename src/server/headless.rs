@@ -1055,9 +1055,6 @@ impl HeadlessServer {
         self.app.state.host_cell_size = host_cell_size;
         apply_keybindings(&mut self.app, &keybindings);
         self.sync_visible_server_config_diagnostic(uses_local_keybindings);
-        if outer_terminal_focus == Some(true) {
-            self.app.state.mark_active_tab_seen();
-        }
         self.app.set_host_terminal_appearance_state(
             host_terminal_appearance,
             host_terminal_appearance_explicit,
@@ -2646,6 +2643,15 @@ impl HeadlessServer {
             self.reload_server_config(false);
         } else {
             self.sync_foreground_client_state();
+        }
+        // Cached focus is not evidence of attention after API navigation. Only
+        // routed full-client interaction acknowledges the now-visible tab.
+        if interaction
+            && source_is_full_app
+            && self.foreground_client_id == Some(client_id)
+            && self.foreground_client_outer_focus() == Some(true)
+        {
+            self.app.state.mark_active_tab_seen();
         }
 
         if self.app.state.detach_requested {
@@ -4519,6 +4525,200 @@ mod tests {
 
     fn test_headless_server() -> HeadlessServer {
         test_headless_server_with_event_hub(api::EventHub::default())
+    }
+
+    #[tokio::test]
+    async fn terminal_navigation_dispatch_does_not_acknowledge_client_attention() {
+        use api::schema::{Method, Request, TerminalFocusParams, TerminalInspectParams};
+        let mut state = AppState::test_with_adversarial_identity_state();
+        let pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, pane).unwrap();
+        for ws in &mut state.workspaces {
+            for tab in &mut ws.tabs {
+                for pane in tab.panes.values_mut() {
+                    pane.seen = false;
+                }
+            }
+        }
+        let mut app = crate::app::test_support::app_from_state(state);
+        let (runtime, mut input) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        let generation = runtime.runtime_generation().to_owned();
+        app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+        let mut server = test_headless_server_with_app(app);
+        server.clients.insert(
+            1,
+            ClientConnection::new(
+                (80, 24),
+                Default::default(),
+                Default::default(),
+                Some(true),
+                1,
+                RenderEncoding::SemanticFrame,
+                None,
+            ),
+        );
+        server.foreground_client_id = Some(1);
+        for method in [
+            Method::TerminalInspect(TerminalInspectParams {
+                terminal_id: terminal_id.to_string(),
+            }),
+            Method::TerminalFocus(TerminalFocusParams {
+                terminal_id: terminal_id.to_string(),
+                expected_runtime_generation: "stale".into(),
+            }),
+            Method::TerminalFocus(TerminalFocusParams {
+                terminal_id: terminal_id.to_string(),
+                expected_runtime_generation: generation,
+            }),
+        ] {
+            let (respond_to, response) = std::sync::mpsc::channel();
+            server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+                request: Request {
+                    id: "navigation".into(),
+                    method,
+                },
+                respond_to,
+                response_write_complete: None,
+            });
+            assert!(response.try_recv().is_ok());
+            assert!(server
+                .app
+                .state
+                .workspaces
+                .iter()
+                .flat_map(|ws| &ws.tabs)
+                .flat_map(|tab| tab.panes.values())
+                .all(|pane| !pane.seen));
+            assert!(input.try_recv().is_err());
+            assert!(server.app.event_hub.events_after(0).is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn terminal_navigation_polling_preserves_unseen_and_allows_only_focus_protocol_bytes() {
+        use api::schema::{Method, Request, TerminalFocusParams, ViewOpenParams, ViewOwnerParams};
+        for external in [false, true] {
+            for reporting in [false, true] {
+                let mut state = AppState::test_with_adversarial_identity_state();
+                state.external_agent_management = external;
+                let source = state.workspaces[0].focused_pane_id().unwrap();
+                let target_tab = state.workspaces[0].tabs.len() - 1;
+                assert_ne!(state.workspaces[0].active_tab, target_tab);
+                assert!(state.workspaces[0].tabs[target_tab].panes.len() > 1);
+                let target = state.workspaces[0].tabs[target_tab].root_pane;
+                let source_id = state.terminal_id_for_pane(0, source).unwrap();
+                let target_id = state.terminal_id_for_pane(0, target).unwrap();
+                state.integration_views = crate::integration_views::IntegrationViewsState::new(
+                    vec!["test.source".into()],
+                );
+                let opened = state
+                    .integration_views
+                    .open(
+                        &ViewOpenParams {
+                            source: "test.source".into(),
+                            version: 1,
+                        },
+                        Instant::now(),
+                    )
+                    .unwrap();
+                let owner = ViewOwnerParams {
+                    source: "test.source".into(),
+                    lease: opened.lease,
+                    epoch: opened.epoch,
+                };
+                let mut app = crate::app::test_support::app_from_state(state);
+                let (source_runtime, mut source_input) =
+                    crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+                let (target_runtime, mut target_input) =
+                    crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+                if reporting {
+                    source_runtime.test_process_pty_bytes(b"\x1b[?1004h");
+                    target_runtime.test_process_pty_bytes(b"\x1b[?1004h");
+                }
+                let generation = target_runtime.runtime_generation().to_owned();
+                app.terminal_runtimes.insert(source_id, source_runtime);
+                app.terminal_runtimes
+                    .insert(target_id.clone(), target_runtime);
+                let mut server = test_headless_server_with_app(app);
+                server.clients.insert(1, test_app_client(Some(true), 1));
+                server.foreground_client_id = Some(1);
+                server.sync_foreground_client_state();
+                server.app.sync_focus_events();
+                if reporting {
+                    assert_eq!(source_input.try_recv().unwrap(), b"\x1b[I".as_slice());
+                }
+                for tab in &mut server.app.state.workspaces[0].tabs {
+                    for pane in tab.panes.values_mut() {
+                        pane.seen = false;
+                    }
+                }
+                for (step, (method, expected_type)) in [
+                    (
+                        Method::TerminalFocus(TerminalFocusParams {
+                            terminal_id: target_id.to_string(),
+                            expected_runtime_generation: generation,
+                        }),
+                        "terminal_focused",
+                    ),
+                    (
+                        Method::SessionSnapshot(Default::default()),
+                        "session_snapshot",
+                    ),
+                    (Method::ViewPoll(owner), "view_intents"),
+                ]
+                .into_iter()
+                .enumerate()
+                {
+                    let (respond_to, response) = std::sync::mpsc::channel();
+                    server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+                        request: Request {
+                            id: "polling".into(),
+                            method,
+                        },
+                        respond_to,
+                        response_write_complete: None,
+                    });
+                    let response: serde_json::Value =
+                        serde_json::from_str(&response.try_recv().unwrap()).unwrap();
+                    assert_eq!(response["id"], "polling");
+                    assert_eq!(response["result"]["type"], expected_type);
+                    // Exercise the ordinary post-dispatch path, not just the API handler.
+                    server.app.sync_focus_events();
+                    if step == 0 && reporting {
+                        assert_eq!(source_input.try_recv().unwrap(), b"\x1b[O".as_slice());
+                        assert_eq!(target_input.try_recv().unwrap(), b"\x1b[I".as_slice());
+                    }
+                    assert!(source_input.try_recv().is_err());
+                    assert!(target_input.try_recv().is_err());
+                    assert_eq!(server.app.state.workspaces[0].active_tab, target_tab);
+                    assert!(server
+                        .app
+                        .state
+                        .workspaces
+                        .iter()
+                        .flat_map(|ws| &ws.tabs)
+                        .flat_map(|tab| tab.panes.values())
+                        .all(|pane| !pane.seen));
+                    server.app.state.assert_invariants_for_test();
+                }
+                // A real client interaction still acknowledges the visible tab. An
+                // unheld key release avoids injecting any shell/provider command.
+                server.handle_server_event(ServerEvent::ClientInputEvents {
+                    client_id: 1,
+                    events: vec![crate::protocol::ClientInputEvent::Key {
+                        code: crate::protocol::ClientKeyCode::Char('x'),
+                        modifiers: 0,
+                        kind: crate::protocol::ClientKeyKind::Release,
+                    }],
+                });
+                assert!(server.app.state.workspaces[0].tabs[target_tab]
+                    .panes
+                    .values()
+                    .all(|pane| pane.seen));
+                assert!(source_input.try_recv().is_err());
+                assert!(target_input.try_recv().is_err());
+            }
+        }
     }
 
     #[test]

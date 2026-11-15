@@ -996,6 +996,7 @@ fn session_snapshot_request_and_response_round_trip() {
                 command_submission: None,
                 process_observation: None,
                 integration_views: None,
+                terminal_navigation: None,
                 focused_workspace_id: None,
                 focused_tab_id: None,
                 focused_pane_id: None,

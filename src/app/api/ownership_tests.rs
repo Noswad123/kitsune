@@ -12,6 +12,136 @@ use crate::terminal::evidence::{FallbackObservation, ForegroundObservation};
 use crate::terminal::{TerminalId, TerminalRuntime};
 
 // Avoid App::new: these tests need no application config loading or runtimes.
+#[tokio::test]
+async fn external_agent_management_rejects_agent_start_before_validation_without_side_effects() {
+    use crate::api::schema::{AgentStartParams, ErrorResponse, Method, Request};
+    use crate::app::agents::AgentStartError;
+    use std::time::Duration;
+
+    for with_runtime in [false, true] {
+        let mut state = AppState::test_with_adversarial_identity_state();
+        state.external_agent_management = true;
+        let pane = state.workspaces[0].tabs[0].root_pane;
+        let terminal_id = state.terminal_id_for_pane(0, pane).unwrap();
+        let session = PersistedAgentSession {
+            source: "kitsune:djinn".into(),
+            agent: "djinn".into(),
+            session_ref: AgentSessionRef::id("historical-only").unwrap(),
+        };
+        let terminal = state.terminals.get_mut(&terminal_id).unwrap();
+        terminal.set_persisted_agent_session(session.clone());
+        terminal.pending_agent_resume_plan =
+            crate::agent_resume::plan(&session.source, &session.agent, &session.session_ref);
+        assert!(terminal.pending_agent_resume_plan.is_some());
+        terminal.set_manual_label("shell-history".into());
+        terminal.launch_argv = Some(vec!["saved-launch-marker".into()]);
+        terminal.respawn_shell_on_exit = true;
+        let other = state
+            .terminals
+            .values_mut()
+            .find(|terminal| terminal.id != terminal_id)
+            .unwrap();
+        other.begin_managed_agent(
+            "taken".into(),
+            Agent::Pi,
+            Instant::now(),
+            Duration::from_secs(3),
+            Duration::from_secs(30),
+        );
+        let mut app = app_from_state(state);
+        app.no_session = false;
+        let pane_id = app.public_pane_id(0, pane).unwrap();
+        let (runtime, mut input) = TerminalRuntime::test_with_channel_capacity(80, 24, 2);
+        runtime
+            .try_send_bytes(bytes::Bytes::from_static(b"existing-input"))
+            .unwrap();
+        if with_runtime {
+            app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+        }
+        let snapshot = |app: &App| {
+            app.state
+                .terminals
+                .iter()
+                .map(|(id, terminal)| {
+                    (
+                        id.clone(),
+                        (
+                            terminal.revision,
+                            terminal.agent_name.clone(),
+                            terminal.manual_label.clone(),
+                            terminal.persisted_agent_session.clone(),
+                            terminal.pending_agent_resume_plan.clone(),
+                            terminal.managed_agent_kind(),
+                            terminal.managed_agent_launch_pending(),
+                            terminal.managed_agent_interactive_ready(),
+                            terminal.next_managed_agent_deadline(),
+                            terminal.state,
+                            terminal.hook_authority.clone(),
+                            terminal.launch_argv.clone(),
+                        ),
+                    )
+                })
+                .collect::<std::collections::HashMap<_, _>>()
+        };
+        let before = snapshot(&app);
+        for dirty in [false, true] {
+            app.state.session_dirty = dirty;
+            for (name, kind, target, args, timeout_ms) in [
+                ("worker", "pi", pane_id.as_str(), vec![], None),
+                ("Invalid Name", "pi", pane_id.as_str(), vec![], None),
+                ("worker", "unknown", pane_id.as_str(), vec![], None),
+                ("worker", "pi", "w999:p999", vec![], None),
+                ("worker", "pi", "malformed", vec![], None),
+                ("taken", "pi", pane_id.as_str(), vec![], None),
+                ("worker", "pi", pane_id.as_str(), vec!["bad\n".into()], None),
+                ("worker", "pi", pane_id.as_str(), vec![], Some(1)),
+            ] {
+                for via_api in [false, true] {
+                    let params = AgentStartParams {
+                        name: name.into(),
+                        kind: kind.into(),
+                        pane_id: target.into(),
+                        args: args.clone(),
+                        timeout_ms,
+                    };
+                    let error = if via_api {
+                        let response = app.handle_api_request(Request {
+                            id: "external-start".into(),
+                            method: Method::AgentStart(params),
+                        });
+                        let response: ErrorResponse = serde_json::from_str(&response).unwrap();
+                        assert_eq!(response.id, "external-start");
+                        response.error
+                    } else {
+                        let Err(error) = app.start_agent(params) else {
+                            panic!("external ownership must reject direct start");
+                        };
+                        assert!(matches!(error, AgentStartError::ExternalAgentManagement));
+                        app.agent_start_error_body(error)
+                    };
+                    assert_eq!(error.code, "external_agent_management");
+                    assert!(error.message.contains("disabled under external ownership"));
+                    assert!(error.message.contains("native provider"));
+                    assert!(error.message.contains("Coven-supported explicit commands"));
+                    assert_eq!(snapshot(&app), before);
+                    assert!(app.state.terminals[&terminal_id].respawn_shell_on_exit);
+                    assert_eq!(app.state.session_dirty, dirty);
+                    assert!(app.session_save_deadline.is_none());
+                    assert!(app.session_save_thread.is_none());
+                    assert!(app.event_hub.events_after(0).is_empty());
+                    assert!(app.event_rx.try_recv().is_err());
+                    assert_eq!(input.len(), 1);
+                    assert_eq!(app.terminal_runtimes.len(), usize::from(with_runtime));
+                    assert!(app.state.external_agent_management);
+                    app.state.assert_invariants_for_test();
+                }
+            }
+        }
+        assert_eq!(input.try_recv().unwrap(), b"existing-input".as_slice());
+        assert!(input.try_recv().is_err());
+    }
+}
+
 #[test]
 fn external_agent_management_rejects_legacy_api_even_with_coven_source() {
     let mut state = AppState::test_with_adversarial_identity_state();

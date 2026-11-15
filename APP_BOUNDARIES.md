@@ -31,6 +31,11 @@ implemented in Coven; Coven Claude/Codex/Copilot hook and Pi/OpenCode reference-
 implemented; native group status/scheduling, automatic following, complete extraction,
 and workspace annotations remain open**.
 Keep three independently useful apps rather than tightly coupling them.
+The [remaining adoption decisions](../coven/docs/KITSUNE_RETIREMENT_FEATURE_DECISIONS.md)
+track only missing user-facing residuals, not capabilities Coven already provides.
+The first bounded retirement cut rejects legacy `agent.start` under external
+ownership before command submission or managed-state mutation; standalone legacy
+start remains until its separate retirement. Generic terminal controls remain.
 
 | App | Target responsibility |
 | --- | --- |

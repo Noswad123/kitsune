@@ -24,6 +24,8 @@ pub(crate) fn request_skips_default_workspace(request: &Request) -> bool {
     matches!(
         &request.method,
         Method::ServerStop(_)
+            | Method::TerminalInspect(_)
+            | Method::TerminalFocus(_)
             | Method::ServerLiveHandoff(_)
             | Method::ViewOpen(_)
             | Method::ViewReplace(_)
@@ -36,6 +38,7 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
     matches!(
         &request.method,
         Method::ServerReloadConfig(_)
+            | Method::TerminalFocus(_)
             | Method::ViewOpen(_)
             | Method::ViewReplace(_)
             | Method::ViewPoll(_)

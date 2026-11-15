@@ -38,6 +38,21 @@ pub struct ErrorBody {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ResponseResult {
+    TerminalInspected {
+        terminal_id: String,
+        runtime_generation: Option<String>,
+        availability: super::TerminalAvailability,
+        workspace_id: Option<String>,
+        tab_id: Option<String>,
+        pane_id: Option<String>,
+    },
+    TerminalFocused {
+        terminal_id: String,
+        runtime_generation: String,
+        workspace_id: String,
+        tab_id: String,
+        pane_id: String,
+    },
     Pong {
         version: String,
         protocol: u32,

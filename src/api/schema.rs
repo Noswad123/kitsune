@@ -10,6 +10,7 @@ pub mod response;
 pub mod server;
 pub mod session;
 pub mod tabs;
+pub mod terminal_navigation;
 pub mod workspaces;
 pub mod worktrees;
 
@@ -23,6 +24,7 @@ pub use response::*;
 pub use server::*;
 pub use session::{AnnotationInfo, CommandSubmissionInfo, ProcessObservationInfo, SessionSnapshot};
 pub use tabs::*;
+pub use terminal_navigation::*;
 pub use workspaces::*;
 pub use worktrees::*;
 
@@ -63,6 +65,10 @@ pub enum Method {
     ClientWindowTitleClear(EmptyParams),
     #[serde(rename = "session.snapshot")]
     SessionSnapshot(EmptyParams),
+    #[serde(rename = "terminal.inspect")]
+    TerminalInspect(TerminalInspectParams),
+    #[serde(rename = "terminal.focus")]
+    TerminalFocus(TerminalFocusParams),
     #[serde(rename = "integration.view.open")]
     ViewOpen(ViewOpenParams),
     #[serde(rename = "integration.view.replace")]

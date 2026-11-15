@@ -144,6 +144,9 @@ impl App {
         &mut self,
         params: AgentStartParams,
     ) -> Result<(crate::api::schema::AgentInfo, Vec<String>), AgentStartError> {
+        if self.state.external_agent_management {
+            return Err(AgentStartError::ExternalAgentManagement);
+        }
         let name = params.name;
         if !valid_agent_name(&name) {
             return Err(AgentStartError::InvalidName);
@@ -229,6 +232,10 @@ impl App {
         err: AgentStartError,
     ) -> crate::api::schema::ErrorBody {
         match err {
+            AgentStartError::ExternalAgentManagement => crate::api::schema::ErrorBody {
+                code: "external_agent_management".into(),
+                message: "Legacy agent start is disabled under external ownership; use native provider commands or Coven-supported explicit commands instead".into(),
+            },
             AgentStartError::InvalidName => crate::api::schema::ErrorBody {
                 code: "invalid_agent_name".into(),
                 message: INVALID_AGENT_NAME_MESSAGE.into(),
@@ -440,6 +447,7 @@ fn live_runtime_agent(runtime: &crate::terminal::TerminalRuntime) -> Option<crat
 }
 
 pub(super) enum AgentStartError {
+    ExternalAgentManagement,
     InvalidName,
     UnsupportedKind(String),
     InvalidArgument,

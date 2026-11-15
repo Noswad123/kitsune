@@ -1028,6 +1028,7 @@ pub struct PaneRuntime {
     child_pid: Arc<AtomicU32>,
     reported_cwd: Arc<Mutex<Option<std::path::PathBuf>>>,
     child_wait_completed: Option<Arc<AtomicBool>>,
+    imported_pty_exited: Option<Arc<AtomicBool>>,
     kitty_keyboard_flags: Arc<AtomicU16>,
     detection_content_seq: Arc<AtomicU64>,
     full_lifecycle_authority_active: Arc<AtomicBool>,
@@ -1812,6 +1813,8 @@ impl PaneRuntime {
         use std::os::fd::FromRawFd;
 
         let master_fd = unsafe { std::os::fd::OwnedFd::from_raw_fd(master_fd) };
+        // Imported children cannot be waited on here; PTY EOF invalidates navigation.
+        let imported_pty_exited = Arc::new(AtomicBool::new(false));
 
         let (response_tx, _response_rx) = mpsc::channel::<Bytes>(1);
         let mut terminal = crate::ghostty::Terminal::new(cols, rows, scrollback_limit_bytes)
@@ -1888,7 +1891,9 @@ impl PaneRuntime {
                 }
             });
             let exit_events = events.clone();
+            let imported_pty_exited = imported_pty_exited.clone();
             let on_reader_exit = Box::new(move || {
+                imported_pty_exited.store(true, Ordering::Release);
                 let _ = rt.block_on(exit_events.send(AppEvent::PaneDied { pane_id }));
                 debug!(pane = pane_id.raw(), "handoff PTY actor exiting");
             });
@@ -1930,6 +1935,7 @@ impl PaneRuntime {
             child_pid,
             reported_cwd,
             child_wait_completed: None,
+            imported_pty_exited: Some(imported_pty_exited),
             kitty_keyboard_flags,
             detection_content_seq,
             full_lifecycle_authority_active,
@@ -2474,6 +2480,7 @@ impl PaneRuntime {
             child_pid,
             reported_cwd,
             child_wait_completed: Some(child_wait_completed),
+            imported_pty_exited: None,
             kitty_keyboard_flags,
             detection_content_seq,
             full_lifecycle_authority_active,
@@ -2858,6 +2865,27 @@ impl PaneRuntime {
         (pid > 0).then_some(pid)
     }
 
+    pub(crate) fn process_exited(&self) -> bool {
+        self.child_wait_completed
+            .as_ref()
+            .is_some_and(|completed| completed.load(Ordering::Acquire))
+            || self
+                .imported_pty_exited
+                .as_ref()
+                .is_some_and(|exited| exited.load(Ordering::Acquire))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_child_pid(&mut self, pid: u32) {
+        self.child_pid.store(pid, Ordering::Release);
+        self.preserve_processes_on_drop = true;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_set_process_exited(&mut self, exited: bool) {
+        self.child_wait_completed = Some(Arc::new(AtomicBool::new(exited)));
+    }
+
     pub fn follow_cwd(&self) -> Option<std::path::PathBuf> {
         #[cfg(unix)]
         {
@@ -2961,6 +2989,7 @@ impl PaneRuntime {
                 child_pid: Arc::new(AtomicU32::new(0)),
                 reported_cwd: Arc::new(Mutex::new(None)),
                 child_wait_completed: None,
+                imported_pty_exited: None,
                 kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
                 detection_content_seq: Arc::new(AtomicU64::new(0)),
                 full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
@@ -3529,6 +3558,7 @@ mod tests {
             child_pid: Arc::new(AtomicU32::new(0)),
             reported_cwd: Arc::new(Mutex::new(None)),
             child_wait_completed: None,
+            imported_pty_exited: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
             detection_content_seq: Arc::new(AtomicU64::new(0)),
             full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
@@ -3562,6 +3592,7 @@ mod tests {
             child_pid: Arc::new(AtomicU32::new(0)),
             reported_cwd: Arc::new(Mutex::new(None)),
             child_wait_completed: None,
+            imported_pty_exited: None,
             kitty_keyboard_flags: Arc::new(AtomicU16::new(0)),
             detection_content_seq: Arc::new(AtomicU64::new(0)),
             full_lifecycle_authority_active: Arc::new(AtomicBool::new(false)),
@@ -4205,6 +4236,17 @@ mod tests {
             .is_err(),
             "authority changes must not invalidate detector evidence"
         );
+    }
+
+    #[tokio::test]
+    async fn terminal_navigation_imported_exit_does_not_claim_child_was_reaped() {
+        let (mut runtime, _input) = PaneRuntime::test_with_channel(80, 24);
+        let exited = Arc::new(AtomicBool::new(false));
+        runtime.imported_pty_exited = Some(exited.clone());
+        assert!(!runtime.process_exited());
+        exited.store(true, Ordering::Release);
+        assert!(runtime.process_exited());
+        assert!(runtime.child_wait_completed.is_none());
     }
 
     #[tokio::test]

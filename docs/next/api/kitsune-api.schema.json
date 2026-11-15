@@ -3736,6 +3736,34 @@
           ],
           "type": "object"
         },
+        "TerminalFocusParams": {
+          "additionalProperties": false,
+          "properties": {
+            "expected_runtime_generation": {
+              "type": "string"
+            },
+            "terminal_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "terminal_id",
+            "expected_runtime_generation"
+          ],
+          "type": "object"
+        },
+        "TerminalInspectParams": {
+          "additionalProperties": false,
+          "properties": {
+            "terminal_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "terminal_id"
+          ],
+          "type": "object"
+        },
         "ToastKitsunePosition": {
           "enum": [
             "top-left",
@@ -4203,6 +4231,38 @@
             },
             "params": {
               "$ref": "#/schemas/request/$defs/EmptyParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "terminal.inspect",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TerminalInspectParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "terminal.focus",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TerminalFocusParams"
             }
           },
           "required": [
@@ -7554,6 +7614,82 @@
           "oneOf": [
             {
               "properties": {
+                "availability": {
+                  "$ref": "#/schemas/success_response/$defs/TerminalAvailability"
+                },
+                "pane_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "runtime_generation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tab_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "terminal_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "terminal_inspected",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "terminal_id",
+                "availability"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "pane_id": {
+                  "type": "string"
+                },
+                "runtime_generation": {
+                  "type": "string"
+                },
+                "tab_id": {
+                  "type": "string"
+                },
+                "terminal_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "terminal_focused",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "terminal_id",
+                "runtime_generation",
+                "workspace_id",
+                "tab_id",
+                "pane_id"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
                 "capabilities": {
                   "anyOf": [
                     {
@@ -8683,6 +8819,16 @@
               },
               "type": "array"
             },
+            "terminal_navigation": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/TerminalNavigationInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "version": {
               "type": "string"
             },
@@ -8747,6 +8893,28 @@
             "focused",
             "pane_count",
             "agent_status"
+          ],
+          "type": "object"
+        },
+        "TerminalAvailability": {
+          "enum": [
+            "live",
+            "exited",
+            "unavailable",
+            "detached"
+          ],
+          "type": "string"
+        },
+        "TerminalNavigationInfo": {
+          "properties": {
+            "version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version"
           ],
           "type": "object"
         },
