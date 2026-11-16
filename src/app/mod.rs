@@ -217,12 +217,12 @@ fn pressed_key_identity(
     (source_id, key.code)
 }
 
-fn remote_manifest_updates_enabled(no_session: bool) -> bool {
-    !no_session && !cfg!(debug_assertions)
+fn remote_manifest_updates_enabled(no_session: bool, external: bool, debug: bool) -> bool {
+    !external && !no_session && !debug
 }
 
-fn background_update_check_enabled(no_session: bool, check_enabled: bool) -> bool {
-    remote_manifest_updates_enabled(no_session) && check_enabled
+fn background_update_check_enabled(no_session: bool, check_enabled: bool, external: bool) -> bool {
+    remote_manifest_updates_enabled(no_session, external, cfg!(debug_assertions)) && check_enabled
 }
 
 fn agent_panel_sort_from_config(
@@ -500,7 +500,11 @@ impl App {
         };
 
         #[cfg(not(test))]
-        let agent_manifest_summaries = crate::detect::manifest::reload_manifests();
+        let agent_manifest_summaries = if crate::config::external_agent_management() {
+            Vec::new()
+        } else {
+            crate::detect::manifest::reload_manifests()
+        };
         // Nextest runs each unit test in a fresh process. Manifest-sensitive tests reload
         // explicitly; unrelated App tests should not recompile every bundled regex.
         #[cfg(test)]
@@ -668,7 +672,11 @@ impl App {
             },
             integration_recommendations: crate::integration::integration_recommendations(),
             agent_manifest_summaries,
-            agent_manifest_update_status: crate::detect::manifest_update::load_status(),
+            agent_manifest_update_status: if crate::config::external_agent_management() {
+                Default::default()
+            } else {
+                crate::detect::manifest_update::load_status()
+            },
             integration_install_messages: Vec::new(),
             pane_graphics_layers: std::collections::HashMap::new(),
             pane_graphics_streams: std::collections::HashMap::new(),
@@ -693,8 +701,11 @@ impl App {
         // Background auto-update is disabled in monolithic no-session mode
         // and in debug/test builds so local development never mutates the
         // running binary out from under spawned test processes.
-        let manifest_check_enabled =
-            background_update_check_enabled(no_session, config.agent_detection.manifest_check);
+        let manifest_check_enabled = background_update_check_enabled(
+            no_session,
+            config.agent_detection.manifest_check,
+            state.external_agent_management,
+        );
         if manifest_check_enabled {
             let manifest_update_tx = event_tx.clone();
             std::thread::spawn(move || {
@@ -792,7 +803,11 @@ impl App {
 
         app.no_session = false;
         let now = Instant::now();
-        if background_update_check_enabled(app.no_session, app.update_manifest_check_enabled) {
+        if background_update_check_enabled(
+            app.no_session,
+            app.update_manifest_check_enabled,
+            app.state.external_agent_management,
+        ) {
             app.next_agent_manifest_update_check = Some(now + AUTO_UPDATE_CHECK_INTERVAL);
         }
         app.state.detach_exits = false;
@@ -1487,14 +1502,13 @@ impl App {
             let previous_manifest_check_enabled = self.update_manifest_check_enabled;
             self.update_manifest_check_enabled = config.agent_detection.manifest_check;
 
-            if !self.update_manifest_check_enabled {
+            if !background_update_check_enabled(
+                self.no_session,
+                self.update_manifest_check_enabled,
+                self.state.external_agent_management,
+            ) {
                 self.next_agent_manifest_update_check = None;
-            } else if !previous_manifest_check_enabled
-                && background_update_check_enabled(
-                    self.no_session,
-                    self.update_manifest_check_enabled,
-                )
-            {
+            } else if !previous_manifest_check_enabled {
                 self.next_agent_manifest_update_check = Some(now);
             }
         }

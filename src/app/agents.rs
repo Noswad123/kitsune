@@ -14,6 +14,8 @@ pub(super) const AGENT_INPUT_GUIDANCE: &str =
     "use native provider commands or Coven-supported explicit transport for agent input";
 pub(super) const AGENT_STATE_GUIDANCE: &str =
     "Coven owns agent identity, lifecycle reconciliation, status and views";
+pub(super) const AGENT_READ_GUIDANCE: &str =
+    "Coven owns agent identity, lifecycle reconciliation, status and views; use pane.read for terminal text and pane.process_info for generic process information";
 const AGENT_FOCUS_GUIDANCE: &str =
     "use terminal.inspect and generation-checked terminal.focus for terminal navigation";
 
@@ -35,6 +37,9 @@ fn valid_agent_name(name: &str) -> bool {
 
 impl App {
     pub(super) fn collect_agent_infos(&self) -> Vec<crate::api::schema::AgentInfo> {
+        if self.state.external_agent_management {
+            return Vec::new();
+        }
         self.state
             .workspaces
             .iter()
@@ -82,6 +87,12 @@ impl App {
         &self,
         target: &str,
     ) -> Result<crate::api::schema::AgentInfo, TerminalTargetError> {
+        // API callers enforce ownership policy before this internal projection.
+        if self.state.external_agent_management {
+            return Err(TerminalTargetError::NotFound {
+                target: target.to_string(),
+            });
+        }
         let resolved = self.resolve_agent_target(target)?;
         self.agent_info(resolved.ws_idx, resolved.pane_id)
             .ok_or_else(|| TerminalTargetError::NotFound {
@@ -411,6 +422,9 @@ impl App {
         ws_idx: usize,
         pane_id: crate::layout::PaneId,
     ) -> Option<crate::api::schema::AgentInfo> {
+        if self.state.external_agent_management {
+            return None;
+        }
         let ws = self.state.workspaces.get(ws_idx)?;
         let pane_state = ws.pane_state(pane_id)?;
         let terminal = self.state.terminals.get(&pane_state.attached_terminal_id)?;

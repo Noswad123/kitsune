@@ -14,6 +14,8 @@ mod integration_views_roundtrip_tests;
 mod integrations;
 mod layouts;
 #[cfg(test)]
+mod manifest_ownership_tests;
+#[cfg(test)]
 mod ownership_tests;
 mod pane_graphics;
 mod panes;
@@ -71,6 +73,9 @@ impl App {
     }
 
     pub(crate) fn handle_internal_event_with_render_impact(&mut self, ev: AppEvent) -> bool {
+        if self.state.excludes_legacy_agent_event(&ev) {
+            return false;
+        }
         match ev {
             AppEvent::DetectorUpdate { pane_id, .. } => {
                 let before = self.detector_presentation_snapshot(pane_id);
@@ -383,7 +388,7 @@ impl App {
     }
 
     fn reset_agent_detection_for_agents(&self, agents: &[crate::detect::Agent]) {
-        if agents.is_empty() {
+        if self.state.external_agent_management || agents.is_empty() {
             return;
         }
         for (terminal_id, terminal) in &self.state.terminals {
@@ -403,6 +408,9 @@ impl App {
     }
 
     fn reset_all_agent_detection_runtimes(&self) {
+        if self.state.external_agent_management {
+            return;
+        }
         for runtime in self.terminal_runtimes.values() {
             runtime.reset_agent_detection();
         }
@@ -981,6 +989,13 @@ impl App {
                 }
             }
             Method::ServerAgentManifests(_) => {
+                if self.state.external_agent_management {
+                    return responses::encode_error(
+                        request.id,
+                        "external_agent_management",
+                        "Legacy detector manifests are disabled under external ownership; Coven owns agent identity, lifecycle reconciliation, status and views",
+                    );
+                }
                 self.state.refresh_agent_manifest_summaries();
                 let update_status = crate::detect::manifest_update::load_status();
                 SuccessResponse {
@@ -999,6 +1014,13 @@ impl App {
                 }
             }
             Method::ServerReloadAgentManifests(_) => {
+                if self.state.external_agent_management {
+                    return responses::encode_error(
+                        request.id,
+                        "external_agent_management",
+                        "Legacy detector manifests are disabled under external ownership; Coven owns agent identity, lifecycle reconciliation, status and views",
+                    );
+                }
                 let summaries = crate::detect::manifest::reload_manifests();
                 self.state.agent_manifest_summaries = summaries.clone();
                 let update_status = crate::detect::manifest_update::load_status();

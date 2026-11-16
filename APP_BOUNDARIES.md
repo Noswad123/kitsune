@@ -39,8 +39,12 @@ start remains until its separate retirement. Generic terminal controls remain.
 The [next control-surface cut](AGENT_CONTROL_RETIREMENT.md) also refuses legacy
 prompt/key submission, rename, focus, view mutation and effectful `agent.get`
 reconciliation under external ownership. Public wait wrappers stop at that guarded
-get. Standalone behavior, generic APIs and historical data remain; transitional
-list/read/explain facades are not yet removed.
+get. Standalone behavior, generic APIs and historical data remain.
+The subsequent read/detector cut also refuses those three live facades and both
+manifest APIs externally, empties the generic snapshot's agent inventory without
+erasing pane historical references, and suppresses updater admission before I/O.
+CLI updating preflights the selected server. Offline file explanation and the
+standalone implementation remain compatibility surfaces pending source removal.
 
 | App | Target responsibility |
 | --- | --- |

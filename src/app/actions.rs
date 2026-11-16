@@ -2808,6 +2808,7 @@ impl AppState {
                     | AppEvent::AgentSessionReported { .. }
                     | AppEvent::HookAuthorityCleared { .. }
                     | AppEvent::HookAgentReleased { .. }
+                    | AppEvent::AgentDetectionManifestsUpdated { .. }
             )
     }
 

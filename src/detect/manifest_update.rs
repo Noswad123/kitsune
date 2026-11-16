@@ -215,7 +215,22 @@ struct CatalogAgent {
 }
 
 pub(crate) fn auto_update(events: tokio::sync::mpsc::Sender<crate::events::AppEvent>) {
-    let result = check_and_update();
+    auto_update_with(
+        crate::config::external_agent_management(),
+        events,
+        check_and_update,
+    );
+}
+
+fn auto_update_with(
+    external: bool,
+    events: tokio::sync::mpsc::Sender<crate::events::AppEvent>,
+    update: impl FnOnce() -> Result<ManifestUpdateOutput, String>,
+) {
+    if external {
+        return;
+    }
+    let result = update();
     let status = match result {
         Ok(output) => {
             if !output.updated.is_empty() {
@@ -249,6 +264,21 @@ pub(crate) struct ManifestUpdateOutput {
 }
 
 pub(crate) fn check_and_update() -> Result<ManifestUpdateOutput, String> {
+    check_and_update_with(
+        crate::config::external_agent_management(),
+        catalog_url,
+        check_and_update_from_url,
+    )
+}
+
+fn check_and_update_with(
+    external: bool,
+    catalog_url: impl FnOnce() -> Option<String>,
+    update: impl FnOnce(&str) -> Result<ManifestUpdateOutput, String>,
+) -> Result<ManifestUpdateOutput, String> {
+    if external {
+        return Err("Legacy detector manifests are disabled under external ownership; Coven owns agent identity, lifecycle reconciliation, status and views".into());
+    }
     let Some(url) = catalog_url() else {
         let mut status = load_status();
         status.last_check_unix = Some(now_unix());
@@ -261,7 +291,7 @@ pub(crate) fn check_and_update() -> Result<ManifestUpdateOutput, String> {
             status,
         });
     };
-    check_and_update_from_url(&url)
+    update(&url)
 }
 
 fn check_and_update_from_url(url: &str) -> Result<ManifestUpdateOutput, String> {
@@ -614,6 +644,36 @@ fn now_nanos() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn external_manifest_updaters_refuse_before_catalog_fetch_or_status_even_without_catalog() {
+        let dir = std::env::temp_dir().join(format!("mf-{}", uuid::Uuid::new_v4()));
+        // No directory is created: refusal must not even write a skipped status.
+        let _dirs = set_test_manifest_dirs(dir.join("config"), dir.join("state"));
+        for catalog in [
+            None,
+            Some("https://must-not-fetch.invalid/index.toml".to_string()),
+        ] {
+            let result = check_and_update_with(
+                true,
+                || catalog,
+                |_| panic!("fetch callback must not be called"),
+            );
+            assert!(result.unwrap_err().contains("external ownership"));
+            assert!(!status_path().exists());
+            assert!(!dir.exists());
+        }
+        assert!(check_and_update_with(
+            true,
+            || panic!("catalog policy must not even be read"),
+            |_| panic!("fetch callback must not be called"),
+        )
+        .is_err());
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+        auto_update_with(true, tx, || panic!("background updater must not be called"));
+        assert!(rx.try_recv().is_err());
+        assert!(!dir.exists());
+    }
     fn remote_manifest(version: &str, contains: &str) -> String {
         format!(
             r#"

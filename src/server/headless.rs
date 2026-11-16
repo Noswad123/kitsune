@@ -7194,6 +7194,20 @@ next_tab = ""
         assert_eq!(server.app.next_agent_manifest_update_check, None);
     }
 
+    #[test]
+    fn headless_scheduled_tasks_clears_external_agent_manifest_update_deadline() {
+        let mut server = test_headless_server();
+        server.app.state.external_agent_management = true;
+        server.app.no_session = false;
+        server.app.update_manifest_check_enabled = true;
+        let now = Instant::now();
+        server.app.next_agent_manifest_update_check = Some(now - Duration::from_millis(1));
+        assert!(!server.handle_scheduled_tasks_headless(now, false));
+        assert_eq!(server.app.next_agent_manifest_update_check, None);
+        assert!(!server.handle_scheduled_tasks_headless(now + Duration::from_secs(1), false));
+        assert_eq!(server.app.next_agent_manifest_update_check, None);
+    }
+
     #[tokio::test]
     async fn headless_scheduled_tasks_do_not_start_pending_agent_resume_when_geometry_dirty() {
         let mut server = test_headless_server();

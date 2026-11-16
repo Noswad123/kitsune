@@ -5,7 +5,7 @@ use crate::api::schema::{
     PaneReadResult, ResponseResult,
 };
 use crate::app::agents::{
-    external_agent_control_error, AGENT_INPUT_GUIDANCE, AGENT_STATE_GUIDANCE,
+    external_agent_control_error, AGENT_INPUT_GUIDANCE, AGENT_READ_GUIDANCE, AGENT_STATE_GUIDANCE,
 };
 use crate::app::App;
 
@@ -13,6 +13,9 @@ use super::responses::{encode_error, encode_error_body, encode_success};
 
 impl App {
     pub(super) fn handle_agent_list(&mut self, id: String) -> String {
+        if self.state.external_agent_management {
+            return encode_error_body(id, external_agent_control_error(AGENT_READ_GUIDANCE));
+        }
         encode_success(
             id,
             ResponseResult::AgentList {
@@ -118,6 +121,9 @@ impl App {
         id: String,
         params: crate::api::schema::AgentReadParams,
     ) -> String {
+        if self.state.external_agent_management {
+            return encode_error_body(id, external_agent_control_error(AGENT_READ_GUIDANCE));
+        }
         let resolved = match self.resolve_agent_target(&params.target) {
             Ok(resolved) => resolved,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
@@ -155,6 +161,9 @@ impl App {
     }
 
     pub(super) fn handle_agent_explain(&mut self, id: String, target: AgentTarget) -> String {
+        if self.state.external_agent_management {
+            return encode_error_body(id, external_agent_control_error(AGENT_READ_GUIDANCE));
+        }
         let resolved = match self.resolve_agent_target(&target.target) {
             Ok(resolved) => resolved,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),

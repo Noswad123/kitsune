@@ -1,4 +1,6 @@
-use crate::api::schema::{EmptyParams, Method, Request, ServerLiveHandoffParams};
+use crate::api::schema::{
+    EmptyParams, Method, Request, ResponseResult, ServerLiveHandoffParams, SuccessResponse,
+};
 
 pub(super) fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>> {
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
@@ -125,6 +127,30 @@ fn update_agent_manifest_status(
     mut send_request: impl FnMut(&Request) -> std::io::Result<serde_json::Value>,
     update_manifests: impl FnOnce() -> Result<(), String>,
 ) -> std::io::Result<Result<serde_json::Value, String>> {
+    // The selected server is authoritative, not this CLI process's unset policy.
+    // This is a point-in-time preflight, not an atomic transaction across a
+    // concurrent server handoff. External servers keep detectors and queued
+    // manifest events disabled even if ownership changes after this probe.
+    let preflight_request = Request {
+        id: "cli:server:agent-manifests".into(),
+        method: Method::ServerAgentManifests(EmptyParams::default()),
+    };
+    let preflight = send_request(&preflight_request)?;
+    if preflight.get("error").is_some() {
+        return Ok(Ok(preflight));
+    }
+    if !matches!(
+        serde_json::from_value::<SuccessResponse>(preflight),
+        Ok(SuccessResponse {
+            id,
+            result: ResponseResult::AgentManifestStatus { .. },
+        }) if id == preflight_request.id
+    ) {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "server returned invalid or uncorrelated agent manifest status for update preflight",
+        ));
+    }
     if let Err(err) = update_manifests() {
         return Ok(Err(err));
     }
@@ -296,10 +322,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn update_agent_manifest_status_fetches_reloads_then_reads_status() {
-        let mut methods = Vec::new();
+    fn external_manifest_preflight_refuses_before_local_update() {
         let response = update_agent_manifest_status(
             |request| {
+                assert!(matches!(request.method, Method::ServerAgentManifests(_)));
+                Ok(serde_json::json!({"id": request.id, "error": {"code": "external_agent_management", "message": "Use Coven."}}))
+            },
+            || panic!("local updater must not run"),
+        ).unwrap().unwrap();
+        assert_eq!(response["error"]["code"], "external_agent_management");
+    }
+
+    #[test]
+    fn update_agent_manifest_status_fetches_reloads_then_reads_status() {
+        let mut methods = Vec::new();
+        let order = std::cell::RefCell::new(Vec::new());
+        let response = update_agent_manifest_status(
+            |request| {
+                order.borrow_mut().push(match request.method {
+                    Method::ServerAgentManifests(_) => "status",
+                    Method::ServerReloadAgentManifests(_) => "reload",
+                    _ => panic!("unexpected request"),
+                });
                 methods.push(request.method.clone());
                 match &request.method {
                     Method::ServerReloadAgentManifests(_) => Ok(serde_json::json!({
@@ -317,15 +361,20 @@ mod tests {
                     _ => panic!("unexpected request"),
                 }
             },
-            || Ok(()),
+            || {
+                order.borrow_mut().push("update");
+                Ok(())
+            },
         )
         .unwrap()
         .unwrap();
 
         assert_eq!(response["result"]["type"], "agent_manifest_status");
+        assert_eq!(*order.borrow(), ["status", "update", "reload", "status"]);
         assert_eq!(
             methods,
             vec![
+                Method::ServerAgentManifests(EmptyParams::default()),
                 Method::ServerReloadAgentManifests(EmptyParams::default()),
                 Method::ServerAgentManifests(EmptyParams::default())
             ]
@@ -333,14 +382,21 @@ mod tests {
     }
 
     #[test]
-    fn update_agent_manifest_status_skips_server_when_fetch_fails() {
+    fn update_agent_manifest_status_probes_but_does_not_reload_when_fetch_fails() {
+        let mut probes = 0;
         let response = update_agent_manifest_status(
-            |_request| panic!("server should not be called after fetch failure"),
+            |request| {
+                probes += 1;
+                assert_eq!(probes, 1);
+                assert!(matches!(request.method, Method::ServerAgentManifests(_)));
+                Ok(serde_json::json!({"id": request.id, "result": {"type": "agent_manifest_status", "manifests": []}}))
+            },
             || Err("network unavailable".to_string()),
         )
         .unwrap();
 
         assert_eq!(response, Err("network unavailable".to_string()));
+        assert_eq!(probes, 1);
         assert_eq!(
             agent_manifest_update_error_response("network unavailable")["error"]["code"],
             "agent_manifest_update_failed"
@@ -353,6 +409,9 @@ mod tests {
         let response = update_agent_manifest_status(
             |request| {
                 methods.push(request.method.clone());
+                if matches!(request.method, Method::ServerAgentManifests(_)) {
+                    return Ok(serde_json::json!({"id": request.id, "result": {"type": "agent_manifest_status", "manifests": []}}));
+                }
                 Ok(serde_json::json!({
                     "id": request.id,
                     "error": {
@@ -369,8 +428,151 @@ mod tests {
         assert_eq!(response["error"]["code"], "reload_failed");
         assert_eq!(
             methods,
-            vec![Method::ServerReloadAgentManifests(EmptyParams::default())]
+            vec![
+                Method::ServerAgentManifests(EmptyParams::default()),
+                Method::ServerReloadAgentManifests(EmptyParams::default()),
+            ]
         );
+    }
+
+    #[test]
+    fn external_manifest_failed_or_unknown_server_never_updates_locally() {
+        for kind in [
+            std::io::ErrorKind::NotFound,
+            std::io::ErrorKind::ConnectionRefused,
+            std::io::ErrorKind::InvalidData,
+        ] {
+            let result = update_agent_manifest_status(
+                |request| {
+                    assert!(matches!(request.method, Method::ServerAgentManifests(_)));
+                    Err(std::io::Error::new(kind, "fake selected-server failure"))
+                },
+                || panic!("local updater must not run"),
+            );
+            assert_eq!(result.unwrap_err().kind(), kind);
+        }
+        for response in [
+            serde_json::json!({}),
+            serde_json::json!({"result": {"type": "unknown"}}),
+        ] {
+            assert!(update_agent_manifest_status(
+                |_| Ok(response.clone()),
+                || panic!("local updater must not run"),
+            )
+            .is_err());
+        }
+    }
+
+    #[test]
+    fn manifest_preflight_rejects_malformed_or_uncorrelated_success_before_local_update() {
+        let valid = serde_json::json!({
+            "id": "cli:server:agent-manifests",
+            "result": {"type": "agent_manifest_status", "manifests": []}
+        });
+        let manifest = serde_json::json!({
+            "agent": "codex", "source": "bundled", "source_kind": "bundled",
+            "local_override_shadowing_remote": false
+        });
+        let mut malformed = Vec::new();
+        let mut missing_id = valid.clone();
+        missing_id.as_object_mut().unwrap().remove("id");
+        malformed.push(missing_id);
+        for id in [
+            serde_json::json!("wrong-id"),
+            serde_json::json!(null),
+            serde_json::json!(123),
+        ] {
+            let mut response = valid.clone();
+            response["id"] = id;
+            malformed.push(response);
+        }
+        let mut missing_manifests = valid.clone();
+        missing_manifests["result"]
+            .as_object_mut()
+            .unwrap()
+            .remove("manifests");
+        malformed.push(missing_manifests);
+        for manifests in [
+            serde_json::json!(null),
+            serde_json::json!({}),
+            serde_json::json!([{}]),
+        ] {
+            let mut response = valid.clone();
+            response["result"]["manifests"] = manifests;
+            malformed.push(response);
+        }
+        for (field, value) in [
+            ("type", serde_json::json!("unknown")),
+            ("type", serde_json::json!("agent_manifest_reload")),
+            ("last_check_unix", serde_json::json!("123")),
+            ("last_result", serde_json::json!(false)),
+        ] {
+            let mut response = valid.clone();
+            response["result"][field] = value;
+            malformed.push(response);
+        }
+        for (field, value) in [
+            ("agent", serde_json::json!(123)),
+            ("source", serde_json::json!(null)),
+            ("source_kind", serde_json::json!([])),
+            (
+                "local_override_shadowing_remote",
+                serde_json::json!("false"),
+            ),
+            ("active_version", serde_json::json!(42)),
+            ("remote_last_checked_unix", serde_json::json!(-1)),
+        ] {
+            let mut response = valid.clone();
+            response["result"]["manifests"] = serde_json::json!([manifest.clone()]);
+            response["result"]["manifests"][0][field] = value;
+            malformed.push(response);
+        }
+        for response in malformed {
+            let error = update_agent_manifest_status(
+                |_| Ok(response.clone()),
+                || panic!("malformed preflight must not authorize local updater"),
+            )
+            .unwrap_err();
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData, "{response}");
+        }
+    }
+
+    #[test]
+    fn manifest_preflight_accepts_schema_optional_fields_missing_or_null() {
+        for optional in [
+            serde_json::json!({}),
+            serde_json::json!({
+                "last_check_unix": null, "last_result": null
+            }),
+        ] {
+            let mut updated = false;
+            let mut calls = 0;
+            update_agent_manifest_status(
+                |request| {
+                    calls += 1;
+                    if matches!(request.method, Method::ServerReloadAgentManifests(_)) {
+                        return Ok(serde_json::json!({"id": request.id, "result": {
+                            "type": "agent_manifest_reload", "manifests": []
+                        }}));
+                    }
+                    let mut result = optional.clone();
+                    result["type"] = serde_json::json!("agent_manifest_status");
+                    result["manifests"] = serde_json::json!([{
+                        "agent": "codex", "source": "bundled", "source_kind": "bundled",
+                        "local_override_shadowing_remote": false, "active_version": null
+                    }]);
+                    Ok(serde_json::json!({"id": request.id, "result": result}))
+                },
+                || {
+                    updated = true;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap();
+            assert!(updated);
+            assert_eq!(calls, 3);
+        }
     }
 
     #[test]

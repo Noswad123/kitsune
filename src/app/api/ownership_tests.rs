@@ -251,8 +251,205 @@ fn standalone_get_reconciles_the_expired_legacy_fixture() {
     assert!(app.state.session_dirty);
 }
 
+fn external_legacy_read_facades_refuse_before_lookup(family: &str) {
+    use crate::api::schema::*;
+    use crate::app::test_support::{legacy_control_fixture, legacy_control_snapshot};
+    for full_hook in [false, true] {
+        for with_runtime in [false, true] {
+            let (mut app, target, terminal_id) = legacy_control_fixture();
+            assert!(app.resolve_agent_target(&target).is_ok());
+            assert!(matches!(
+                app.resolve_agent_target("ambiguous"),
+                Err(crate::app::terminal_targets::TerminalTargetError::Ambiguous { .. })
+            ));
+            let (runtime, mut input) = TerminalRuntime::test_with_channel_capacity(80, 24, 2);
+            if full_hook {
+                let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
+                let epoch = runtime.detector_epoch();
+                let now = Instant::now();
+                terminal.synchronize_detector_epoch(Some(epoch), now);
+                terminal.apply_detector_update(
+                    epoch,
+                    Some(ForegroundObservation::Confirmed {
+                        agent: Agent::Pi,
+                        process_group_id: None,
+                    }),
+                    None,
+                    now,
+                );
+                terminal.hook_authority.as_mut().unwrap().source = "kitsune:pi".into();
+                assert!(terminal.full_lifecycle_hook_authority_active());
+                assert!(terminal.persisted_agent_session.is_some());
+                assert!(terminal.pending_agent_resume_plan.is_some());
+            }
+            runtime.test_process_pty_bytes(b"read-marker\x1b[?2004h\x1b[?1004h");
+            runtime
+                .try_send_bytes(bytes::Bytes::from_static(b"SENTINEL"))
+                .unwrap();
+            let screen = runtime.detection_text();
+            if with_runtime {
+                app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+            }
+            for dirty in [false, true] {
+                app.state.session_dirty = dirty;
+                let before = legacy_control_snapshot(&app);
+                let private_target = terminal_id.to_string();
+                for selector in [
+                    target.as_str(),
+                    "unknown-secret",
+                    "ambiguous",
+                    private_target.as_str(),
+                    "",
+                ] {
+                    let mut methods = vec![
+                        Method::AgentList(EmptyParams::default()),
+                        Method::AgentExplain(AgentTarget {
+                            target: selector.into(),
+                        }),
+                    ];
+                    for source in [
+                        ReadSource::Visible,
+                        ReadSource::Recent,
+                        ReadSource::RecentUnwrapped,
+                        ReadSource::Detection,
+                    ] {
+                        for format in [ReadFormat::Text, ReadFormat::Ansi] {
+                            for lines in [None, Some(0), Some(1), Some(u32::MAX)] {
+                                methods.push(Method::AgentRead(AgentReadParams {
+                                    target: selector.into(),
+                                    source,
+                                    lines,
+                                    format,
+                                    strip_ansi: false,
+                                }));
+                            }
+                        }
+                    }
+                    for method in methods {
+                        let selected = match &method {
+                            Method::AgentList(_) => "list",
+                            Method::AgentRead(_) => "read",
+                            Method::AgentExplain(_) => "explain",
+                            _ => unreachable!(),
+                        };
+                        if selected != family {
+                            continue;
+                        }
+                        let label = format!("{method:?}");
+                        let response = app.handle_api_request(Request {
+                            id: "read-facade".into(),
+                            method,
+                        });
+                        let response: ErrorResponse =
+                            serde_json::from_str(&response).expect(&label);
+                        assert_eq!(response.id, "read-facade");
+                        assert_eq!(response.error.code, "external_agent_management");
+                        assert_eq!(response.error.message, "Legacy agent controls are disabled under external ownership; Coven owns agent identity, lifecycle reconciliation, status and views; use pane.read for terminal text and pane.process_info for generic process information");
+                        assert_eq!(legacy_control_snapshot(&app), before);
+                        assert_eq!(app.terminal_runtimes.len(), usize::from(with_runtime));
+                        if with_runtime {
+                            assert_eq!(
+                                app.terminal_runtimes
+                                    .get(&terminal_id)
+                                    .unwrap()
+                                    .detection_text(),
+                                screen
+                            );
+                        }
+                        assert_eq!(input.len(), 1);
+                        assert!(app.session_save_thread.is_none());
+                        assert!(app.event_hub.events_after(0).is_empty());
+                        assert!(app.event_rx.try_recv().is_err());
+                        assert!(app.state.external_agent_management);
+                        app.state.assert_invariants_for_test();
+                    }
+                    // Internal projections must be inert too, including ambiguous selectors.
+                    assert!(app.collect_agent_infos().is_empty());
+                    assert!(matches!(
+                        app.agent_info_for_target(selector),
+                        Err(crate::app::terminal_targets::TerminalTargetError::NotFound { .. })
+                    ));
+                    for (ws_idx, ws) in app.state.workspaces.iter().enumerate() {
+                        for tab in &ws.tabs {
+                            for pane in tab.layout.pane_ids() {
+                                assert!(app.agent_info(ws_idx, pane).is_none());
+                            }
+                        }
+                    }
+                    assert!(app
+                        .agent_info(usize::MAX, app.state.workspaces[0].tabs[0].root_pane)
+                        .is_none());
+                    assert_eq!(legacy_control_snapshot(&app), before);
+                }
+            }
+            assert_eq!(input.try_recv().unwrap(), b"SENTINEL".as_slice());
+            assert!(input.try_recv().is_err());
+        }
+    }
+}
+
 #[tokio::test]
-async fn external_legacy_read_facades_remain_available_without_reconciliation() {
+async fn external_legacy_read_list_refuses_before_lookup() {
+    external_legacy_read_facades_refuse_before_lookup("list");
+}
+
+#[tokio::test]
+async fn external_legacy_read_text_refuses_before_lookup() {
+    external_legacy_read_facades_refuse_before_lookup("read");
+}
+
+#[tokio::test]
+async fn external_legacy_read_explain_refuses_before_lookup() {
+    external_legacy_read_facades_refuse_before_lookup("explain");
+}
+
+#[tokio::test]
+async fn standalone_legacy_read_list_and_text_remain_available() {
+    use crate::api::schema::*;
+    let (mut app, target, terminal_id) = crate::app::test_support::legacy_control_fixture();
+    app.state.external_agent_management = false;
+    app.terminal_runtimes.insert(
+        terminal_id,
+        TerminalRuntime::test_with_screen_bytes(80, 24, b"standalone-marker"),
+    );
+    let before = crate::app::test_support::legacy_control_snapshot(&app);
+    let response = app.handle_api_request(Request {
+        id: "standalone-list".into(),
+        method: Method::AgentList(EmptyParams::default()),
+    });
+    let response: SuccessResponse = serde_json::from_str(&response).unwrap();
+    assert_eq!(response.id, "standalone-list");
+    let ResponseResult::AgentList { agents } = response.result else {
+        panic!("agent list required")
+    };
+    assert_eq!(agents, app.collect_agent_infos());
+    assert!(!agents.is_empty());
+    let response = app.handle_api_request(Request {
+        id: "standalone-read".into(),
+        method: Method::AgentRead(AgentReadParams {
+            target: target.clone(),
+            source: ReadSource::Detection,
+            lines: None,
+            format: ReadFormat::Text,
+            strip_ansi: true,
+        }),
+    });
+    let response: SuccessResponse = serde_json::from_str(&response).unwrap();
+    assert_eq!(response.id, "standalone-read");
+    let ResponseResult::PaneRead { read } = response.result else {
+        panic!("agent text required")
+    };
+    assert_eq!(read.pane_id, target);
+    assert!(read.text.contains("standalone-marker"));
+    assert!(app.agent_info_for_target(&target).is_ok());
+    assert_eq!(
+        crate::app::test_support::legacy_control_snapshot(&app),
+        before
+    );
+}
+
+#[tokio::test]
+async fn external_legacy_read_snapshot_preserves_history_and_generic_facades() {
     use crate::api::schema::*;
     use crate::app::test_support::{legacy_control_fixture, legacy_control_snapshot};
     let (mut app, target, terminal_id) = legacy_control_fixture();
@@ -260,26 +457,65 @@ async fn external_legacy_read_facades_remain_available_without_reconciliation() 
         terminal_id,
         TerminalRuntime::test_with_screen_bytes(80, 24, b"read-marker"),
     );
+    app.state.external_agent_management = false;
+    let standalone: SuccessResponse =
+        serde_json::from_str(&app.handle_session_snapshot("snapshot".into())).unwrap();
+    let ResponseResult::SessionSnapshot {
+        snapshot: mut expected,
+    } = standalone.result
+    else {
+        panic!("snapshot required")
+    };
+    assert!(!expected.agents.is_empty());
+    assert!(expected
+        .panes
+        .iter()
+        .any(|pane| pane.agent_session.is_some()));
+    expected.agents.clear();
+    app.state.external_agent_management = true;
     let before = legacy_control_snapshot(&app);
-    for method in [
-        Method::AgentList(EmptyParams::default()),
-        Method::AgentRead(AgentReadParams {
-            target: target.clone(),
-            source: ReadSource::Detection,
-            lines: None,
-            format: ReadFormat::Text,
-            strip_ansi: true,
-        }),
-        Method::AgentExplain(AgentTarget { target }),
+    let external: SuccessResponse =
+        serde_json::from_str(&app.handle_session_snapshot("snapshot".into())).unwrap();
+    let ResponseResult::SessionSnapshot { snapshot } = external.result else {
+        panic!("snapshot required")
+    };
+    assert_eq!(snapshot, expected);
+    for source in [
+        ReadSource::Visible,
+        ReadSource::Recent,
+        ReadSource::RecentUnwrapped,
+        ReadSource::Detection,
     ] {
-        let response = app.handle_api_request(Request {
-            id: "read-facade".into(),
-            method,
-        });
+        let response = app.handle_pane_read(
+            "generic".into(),
+            PaneReadParams {
+                pane_id: target.clone(),
+                source,
+                lines: None,
+                format: ReadFormat::Text,
+                strip_ansi: true,
+            },
+        );
         let response: SuccessResponse = serde_json::from_str(&response).unwrap();
-        assert_eq!(response.id, "read-facade");
-        assert_eq!(legacy_control_snapshot(&app), before);
+        let ResponseResult::PaneRead { read } = response.result else {
+            panic!("pane text required")
+        };
+        assert!(read.text.contains("read-marker"));
+        assert_eq!(read.pane_id, target);
     }
+    let response = app.handle_pane_process_info(
+        "generic".into(),
+        PaneProcessInfoParams {
+            pane_id: Some(target),
+        },
+    );
+    let response: SuccessResponse = serde_json::from_str(&response).unwrap();
+    assert!(matches!(
+        response.result,
+        ResponseResult::PaneProcessInfo { .. }
+    ));
+    assert_eq!(legacy_control_snapshot(&app), before);
+    assert!(app.event_hub.events_after(0).is_empty());
 }
 
 // Avoid App::new: these tests need no application config loading or runtimes.

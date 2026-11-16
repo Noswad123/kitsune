@@ -506,7 +506,11 @@ impl App {
     }
 
     pub(crate) fn run_agent_manifest_update_check(&mut self) {
-        if !background_update_check_enabled(self.no_session, self.update_manifest_check_enabled) {
+        if !background_update_check_enabled(
+            self.no_session,
+            self.update_manifest_check_enabled,
+            self.state.external_agent_management,
+        ) {
             self.next_agent_manifest_update_check = None;
             return;
         }
