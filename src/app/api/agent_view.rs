@@ -1,7 +1,8 @@
 use crate::api::schema::{AgentViewClearParams, AgentViewSetParams, ResponseResult};
+use crate::app::agents::{external_agent_control_error, AGENT_STATE_GUIDANCE};
 use crate::app::App;
 
-use super::responses::{encode_error, encode_success};
+use super::responses::{encode_error, encode_error_body, encode_success};
 
 impl App {
     pub(super) fn handle_agent_view_set(
@@ -9,6 +10,9 @@ impl App {
         id: String,
         mut params: AgentViewSetParams,
     ) -> String {
+        if self.state.external_agent_management {
+            return encode_error_body(id, external_agent_control_error(AGENT_STATE_GUIDANCE));
+        }
         if let Err(message) = crate::app::agent_view::validate_agent_view(&mut params) {
             return encode_error(id, "invalid_agent_view", message);
         }
@@ -30,6 +34,9 @@ impl App {
         id: String,
         params: AgentViewClearParams,
     ) -> String {
+        if self.state.external_agent_management {
+            return encode_error_body(id, external_agent_control_error(AGENT_STATE_GUIDANCE));
+        }
         let source = match params.source {
             Some(source) => match crate::app::agent_view::validate_agent_view_source(&source) {
                 Ok(source) => Some(source),

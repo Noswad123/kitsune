@@ -1017,6 +1017,82 @@ mod tests {
     }
 
     #[test]
+    fn external_wait_wrappers_refuse_at_initial_get_through_server_dispatch() {
+        use crate::api::schema::{AgentPromptParams, AgentWaitParams};
+        use crate::app::test_support::{legacy_control_fixture, legacy_control_snapshot};
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let _runtime = runtime.enter();
+        for prompt in [false, true] {
+            let (mut app, target, terminal_id) = legacy_control_fixture();
+            let (runtime, mut input) =
+                crate::terminal::TerminalRuntime::test_with_channel_capacity(80, 24, 4);
+            runtime
+                .try_send_bytes(bytes::Bytes::from_static(b"SENTINEL"))
+                .unwrap();
+            app.terminal_runtimes.insert(terminal_id, runtime);
+            let before = legacy_control_snapshot(&app);
+            let wait = AgentWaitParams {
+                target: target.clone(),
+                until: vec![],
+                timeout_ms: Some(0),
+            };
+            let method = if prompt {
+                Method::AgentPrompt(AgentPromptParams {
+                    target,
+                    text: "private-instructions".into(),
+                    wait: Some(crate::api::schema::AgentPromptWaitOptions {
+                        until: vec![],
+                        timeout_ms: Some(0),
+                    }),
+                })
+            } else {
+                Method::AgentWait(wait)
+            };
+            let (api_tx, mut api_rx) = mpsc::unbounded_channel();
+            let (mut client, server, path) = local_stream_pair("external-wait");
+            // Both endpoints are connected; unlink now so assertion failures cannot leak a socket.
+            fs::remove_file(path).unwrap();
+            let worker = std::thread::spawn(move || {
+                handle_connection(
+                    server,
+                    &api_tx,
+                    &EventHub::default(),
+                    &Arc::new(AtomicBool::new(true)),
+                    None,
+                )
+                .unwrap();
+            });
+            let request = Request {
+                id: "wrapper-id".into(),
+                method,
+            };
+            writeln!(client, "{}", serde_json::to_string(&request).unwrap()).unwrap();
+            let msg = api_rx.blocking_recv().unwrap();
+            assert!(matches!(msg.request.method, Method::AgentGet(_)));
+            let response = app.handle_api_request(msg.request);
+            msg.respond_to.send(response).unwrap();
+            let response: ErrorResponse = serde_json::from_str(&read_line(&mut client)).unwrap();
+            drop(client);
+            worker.join().unwrap();
+            assert_eq!(response.id, "wrapper-id");
+            assert_eq!(response.error.code, "external_agent_management");
+            assert!(!response.error.message.contains("private-instructions"));
+            assert!(
+                api_rx.try_recv().is_err(),
+                "no prompt dispatch or status loop"
+            );
+            assert_eq!(legacy_control_snapshot(&app), before);
+            assert!(app.event_hub.events_after(0).is_empty());
+            assert!(app.event_rx.try_recv().is_err());
+            assert_eq!(input.try_recv().unwrap(), b"SENTINEL".as_slice());
+            assert!(input.try_recv().is_err());
+        }
+    }
+
+    #[test]
     fn request_dispatches_to_app_channel() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let request = Request {

@@ -4,6 +4,9 @@ use crate::api::schema::{
     AgentPromptParams, AgentRenameParams, AgentSendKeysParams, AgentStartParams, AgentTarget,
     PaneReadResult, ResponseResult,
 };
+use crate::app::agents::{
+    external_agent_control_error, AGENT_INPUT_GUIDANCE, AGENT_STATE_GUIDANCE,
+};
 use crate::app::App;
 
 use super::responses::{encode_error, encode_error_body, encode_success};
@@ -19,6 +22,9 @@ impl App {
     }
 
     pub(super) fn handle_agent_get(&mut self, id: String, target: AgentTarget) -> String {
+        if self.state.external_agent_management {
+            return encode_error_body(id, external_agent_control_error(AGENT_STATE_GUIDANCE));
+        }
         self.reconcile_managed_agent_target(&target.target);
         let agent = match self.agent_info_for_target(&target.target) {
             Ok(agent) => agent,
@@ -31,7 +37,7 @@ impl App {
     pub(super) fn handle_agent_focus(&mut self, id: String, target: AgentTarget) -> String {
         let agent = match self.focus_agent_target(&target.target) {
             Ok(agent) => agent,
-            Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),
+            Err(err) => return encode_error_body(id, self.agent_focus_error_body(err)),
         };
 
         encode_success(id, ResponseResult::AgentInfo { agent })
@@ -56,6 +62,9 @@ impl App {
     }
 
     pub(super) fn handle_agent_prompt(&mut self, id: String, params: AgentPromptParams) -> String {
+        if self.state.external_agent_management {
+            return encode_error_body(id, external_agent_control_error(AGENT_INPUT_GUIDANCE));
+        }
         if params.text.is_empty() {
             return encode_error(id, "empty_agent_prompt", "agent prompt must not be empty");
         }
@@ -224,6 +233,9 @@ impl App {
         id: String,
         params: AgentSendKeysParams,
     ) -> String {
+        if self.state.external_agent_management {
+            return encode_error_body(id, external_agent_control_error(AGENT_INPUT_GUIDANCE));
+        }
         let resolved = match self.resolve_agent_target(&params.target) {
             Ok(resolved) => resolved,
             Err(err) => return encode_error_body(id, self.agent_target_error_body(err)),

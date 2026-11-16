@@ -176,6 +176,41 @@ pub struct TerminalState {
 }
 
 impl TerminalState {
+    #[cfg(test)]
+    pub(crate) fn test_legacy_control_snapshot(&self) -> String {
+        format!(
+            "{:?} {:?} {:?} {:?} {:?}",
+            (
+                &self.agent_name,
+                &self.agent_name_owner,
+                &self.managed_agent,
+                &self.manual_label
+            ),
+            (
+                &self.persisted_agent_session,
+                &self.pending_agent_resume_plan,
+                &self.hook_authority
+            ),
+            (
+                &self.launch_argv,
+                self.respawn_shell_on_exit,
+                self.revision,
+                self.last_agent_state_change_seq
+            ),
+            (
+                self.detected_agent,
+                self.historical_agent,
+                self.state,
+                self.fallback_state
+            ),
+            (
+                &self.hook_report_sequences,
+                &self.agent_metadata,
+                &self.terminal_title
+            )
+        )
+    }
+
     pub fn new(id: TerminalId, cwd: PathBuf) -> Self {
         Self {
             id,

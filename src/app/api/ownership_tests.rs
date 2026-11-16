@@ -11,6 +11,277 @@ use crate::detect::{Agent, AgentState};
 use crate::terminal::evidence::{FallbackObservation, ForegroundObservation};
 use crate::terminal::{TerminalId, TerminalRuntime};
 
+fn external_legacy_controls_refuse(family: &str) {
+    use crate::api::schema::*;
+    use crate::app::test_support::{legacy_control_fixture, legacy_control_snapshot};
+    for phase in ["named", "expired", "settled", "active"] {
+        let (mut app, target, terminal_id) = legacy_control_fixture();
+        if phase == "named" {
+            app.state
+                .terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .clear_agent_name();
+            app.state
+                .terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .set_agent_name("ready-marker".into());
+        }
+        if phase == "settled" {
+            app.state
+                .terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .begin_managed_agent(
+                    "settled-marker".into(),
+                    Agent::Pi,
+                    Instant::now() - std::time::Duration::from_secs(5),
+                    std::time::Duration::from_secs(3),
+                    std::time::Duration::from_secs(30),
+                );
+        }
+        if phase == "active" {
+            app.state
+                .terminals
+                .get_mut(&terminal_id)
+                .unwrap()
+                .restore_managed_agent("active-marker".into(), Agent::Pi);
+        }
+        let (runtime, mut input) = TerminalRuntime::test_with_channel_capacity(80, 24, 4);
+        runtime.test_process_pty_bytes(b"snapshot-marker\x1b[?2004h\x1b[?1004h");
+        runtime
+            .try_send_bytes(bytes::Bytes::from_static(b"SENTINEL"))
+            .unwrap();
+        app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+        app.state.agent_view_override = Some(AgentViewSetParams {
+            source: "existing.view".into(),
+            label: Some("held-view".into()),
+            filter: None,
+            sort: vec![],
+        });
+        app.state.agent_panel_scroll = 13;
+        app.state.mobile_switcher_scroll = 17;
+        for dirty in [false, true] {
+            app.state.session_dirty = dirty;
+            let before = legacy_control_snapshot(&app);
+            let screen = app
+                .terminal_runtimes
+                .get(&terminal_id)
+                .unwrap()
+                .detection_text();
+            for selector in [target.as_str(), "unknown-secret", "ambiguous"] {
+                let mut methods = vec![
+                    Method::AgentGet(AgentTarget {
+                        target: selector.into(),
+                    }),
+                    Method::AgentFocus(AgentTarget {
+                        target: selector.into(),
+                    }),
+                ];
+                for text in ["", "prompt-secret"] {
+                    methods.push(Method::AgentPrompt(AgentPromptParams {
+                        target: selector.into(),
+                        text: text.into(),
+                        wait: None,
+                    }));
+                }
+                for keys in [
+                    vec!["enter".into()],
+                    vec!["enter".into(), "bad-secret".into()],
+                ] {
+                    methods.push(Method::AgentSendKeys(AgentSendKeysParams {
+                        target: selector.into(),
+                        keys,
+                    }));
+                }
+                for name in [
+                    None,
+                    Some("valid-name".into()),
+                    Some("ambiguous".into()),
+                    Some("Invalid Secret".into()),
+                ] {
+                    methods.push(Method::AgentRename(AgentRenameParams {
+                        target: selector.into(),
+                        name,
+                    }));
+                }
+                for source in [
+                    None,
+                    Some("existing.view".into()),
+                    Some("other.view".into()),
+                    Some("invalid source".into()),
+                ] {
+                    methods.push(Method::AgentViewClear(AgentViewClearParams { source }));
+                }
+                for filter in [
+                    None,
+                    Some(AgentViewFilter::Any { filters: vec![] }),
+                    Some(AgentViewFilter::Eq {
+                        field: AgentViewField::Builtin(AgentViewBuiltinField::Status),
+                        value: AgentViewValue::Bool(true),
+                    }),
+                ] {
+                    methods.push(Method::AgentViewSet(AgentViewSetParams {
+                        source: "replacement.view".into(),
+                        label: None,
+                        filter,
+                        sort: vec![],
+                    }));
+                }
+                for method in methods {
+                    let selected = match &method {
+                        Method::AgentGet(_) => "get",
+                        Method::AgentFocus(_) => "focus",
+                        Method::AgentPrompt(_) => "prompt",
+                        Method::AgentSendKeys(_) => "keys",
+                        Method::AgentRename(_) => "rename",
+                        Method::AgentViewSet(_) => "view_set",
+                        Method::AgentViewClear(_) => "view_clear",
+                        _ => unreachable!(),
+                    };
+                    if selected != family {
+                        continue;
+                    }
+                    let label = format!("{method:?}");
+                    let response = app.handle_api_request(Request {
+                        id: "control-id".into(),
+                        method,
+                    });
+                    let response: ErrorResponse = serde_json::from_str(&response).expect(&label);
+                    assert_eq!(response.id, "control-id");
+                    assert_eq!(response.error.code, "external_agent_management", "{label}");
+                    let guidance = match family {
+                        "prompt" | "keys" => "use native provider commands or Coven-supported explicit transport for agent input",
+                        "focus" => "use terminal.inspect and generation-checked terminal.focus for terminal navigation",
+                        _ => "Coven owns agent identity, lifecycle reconciliation, status and views",
+                    };
+                    assert_eq!(response.error.message, format!("Legacy agent controls are disabled under external ownership; {guidance}"));
+                    assert_eq!(legacy_control_snapshot(&app), before, "{label}");
+                    assert_eq!(
+                        app.terminal_runtimes
+                            .get(&terminal_id)
+                            .unwrap()
+                            .detection_text(),
+                        screen
+                    );
+                    assert_eq!(input.len(), 1);
+                    assert!(app.session_save_thread.is_none());
+                    assert!(app.event_hub.events_after(0).is_empty());
+                    assert!(app.event_rx.try_recv().is_err());
+                    app.state.assert_invariants_for_test();
+                }
+                if family == "get" {
+                    app.reconcile_managed_agent_target(selector);
+                    assert_eq!(legacy_control_snapshot(&app), before);
+                }
+                if family == "focus" {
+                    let Err(error) = app.focus_agent_target(selector) else {
+                        panic!("direct focus must refuse");
+                    };
+                    assert!(matches!(
+                        error,
+                        crate::app::agents::AgentFocusError::ExternalAgentManagement
+                    ));
+                    assert_eq!(
+                        app.agent_focus_error_body(error).code,
+                        "external_agent_management"
+                    );
+                    assert_eq!(legacy_control_snapshot(&app), before);
+                }
+                if family == "rename" {
+                    for name in [None, Some("new-name".into())] {
+                        let Err(error) = app.rename_agent_target(selector, name) else {
+                            panic!("direct rename must refuse");
+                        };
+                        assert!(matches!(
+                            error,
+                            crate::app::agents::AgentRenameError::ExternalAgentManagement
+                        ));
+                        assert_eq!(
+                            app.agent_rename_error_body(error).code,
+                            "external_agent_management"
+                        );
+                        assert_eq!(legacy_control_snapshot(&app), before);
+                    }
+                }
+            }
+        }
+        assert_eq!(input.try_recv().unwrap(), b"SENTINEL".as_slice());
+        assert!(input.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
+async fn external_legacy_controls_refuse_get() {
+    external_legacy_controls_refuse("get");
+}
+#[tokio::test]
+async fn external_legacy_controls_refuse_focus() {
+    external_legacy_controls_refuse("focus");
+}
+#[tokio::test]
+async fn external_legacy_controls_refuse_prompt() {
+    external_legacy_controls_refuse("prompt");
+}
+#[tokio::test]
+async fn external_legacy_controls_refuse_keys() {
+    external_legacy_controls_refuse("keys");
+}
+#[tokio::test]
+async fn external_legacy_controls_refuse_rename() {
+    external_legacy_controls_refuse("rename");
+}
+#[tokio::test]
+async fn external_legacy_controls_refuse_view_set() {
+    external_legacy_controls_refuse("view_set");
+}
+#[tokio::test]
+async fn external_legacy_controls_refuse_view_clear() {
+    external_legacy_controls_refuse("view_clear");
+}
+
+#[test]
+fn standalone_get_reconciles_the_expired_legacy_fixture() {
+    let (mut app, target, terminal_id) = crate::app::test_support::legacy_control_fixture();
+    assert!(app.state.terminals[&terminal_id].managed_agent_launch_pending());
+    app.state.external_agent_management = false;
+    app.reconcile_managed_agent_target(&target);
+    assert!(!app.state.terminals[&terminal_id].managed_agent_launch_pending());
+    assert!(app.state.session_dirty);
+}
+
+#[tokio::test]
+async fn external_legacy_read_facades_remain_available_without_reconciliation() {
+    use crate::api::schema::*;
+    use crate::app::test_support::{legacy_control_fixture, legacy_control_snapshot};
+    let (mut app, target, terminal_id) = legacy_control_fixture();
+    app.terminal_runtimes.insert(
+        terminal_id,
+        TerminalRuntime::test_with_screen_bytes(80, 24, b"read-marker"),
+    );
+    let before = legacy_control_snapshot(&app);
+    for method in [
+        Method::AgentList(EmptyParams::default()),
+        Method::AgentRead(AgentReadParams {
+            target: target.clone(),
+            source: ReadSource::Detection,
+            lines: None,
+            format: ReadFormat::Text,
+            strip_ansi: true,
+        }),
+        Method::AgentExplain(AgentTarget { target }),
+    ] {
+        let response = app.handle_api_request(Request {
+            id: "read-facade".into(),
+            method,
+        });
+        let response: SuccessResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(response.id, "read-facade");
+        assert_eq!(legacy_control_snapshot(&app), before);
+    }
+}
+
 // Avoid App::new: these tests need no application config loading or runtimes.
 #[tokio::test]
 async fn external_agent_management_rejects_agent_start_before_validation_without_side_effects() {

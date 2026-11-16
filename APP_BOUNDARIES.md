@@ -36,6 +36,11 @@ track only missing user-facing residuals, not capabilities Coven already provide
 The first bounded retirement cut rejects legacy `agent.start` under external
 ownership before command submission or managed-state mutation; standalone legacy
 start remains until its separate retirement. Generic terminal controls remain.
+The [next control-surface cut](AGENT_CONTROL_RETIREMENT.md) also refuses legacy
+prompt/key submission, rename, focus, view mutation and effectful `agent.get`
+reconciliation under external ownership. Public wait wrappers stop at that guarded
+get. Standalone behavior, generic APIs and historical data remain; transitional
+list/read/explain facades are not yet removed.
 
 | App | Target responsibility |
 | --- | --- |

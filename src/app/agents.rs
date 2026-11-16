@@ -10,6 +10,22 @@ const MAX_AGENT_START_TIMEOUT: Duration = Duration::from_secs(300);
 const AGENT_START_SETTLE_DELAY: Duration = Duration::from_secs(3);
 const INVALID_AGENT_NAME_MESSAGE: &str = "agent name must start with a lowercase letter and contain only lowercase letters, digits, '-' or '_' (1-32 characters)";
 
+pub(super) const AGENT_INPUT_GUIDANCE: &str =
+    "use native provider commands or Coven-supported explicit transport for agent input";
+pub(super) const AGENT_STATE_GUIDANCE: &str =
+    "Coven owns agent identity, lifecycle reconciliation, status and views";
+const AGENT_FOCUS_GUIDANCE: &str =
+    "use terminal.inspect and generation-checked terminal.focus for terminal navigation";
+
+pub(super) fn external_agent_control_error(
+    guidance: &'static str,
+) -> crate::api::schema::ErrorBody {
+    crate::api::schema::ErrorBody {
+        code: "external_agent_management".into(),
+        message: format!("Legacy agent controls are disabled under external ownership; {guidance}"),
+    }
+}
+
 fn valid_agent_name(name: &str) -> bool {
     let mut chars = name.chars();
     matches!(chars.next(), Some('a'..='z'))
@@ -35,6 +51,9 @@ impl App {
     }
 
     pub(super) fn reconcile_managed_agent_target(&mut self, target: &str) {
+        if self.state.external_agent_management {
+            return;
+        }
         let Ok(resolved) = self.resolve_agent_target(target) else {
             return;
         };
@@ -73,15 +92,22 @@ impl App {
     pub(super) fn focus_agent_target(
         &mut self,
         target: &str,
-    ) -> Result<crate::api::schema::AgentInfo, TerminalTargetError> {
-        let resolved = self.resolve_agent_target(target)?;
+    ) -> Result<crate::api::schema::AgentInfo, AgentFocusError> {
+        if self.state.external_agent_management {
+            return Err(AgentFocusError::ExternalAgentManagement);
+        }
+        let resolved = self
+            .resolve_agent_target(target)
+            .map_err(AgentFocusError::Target)?;
         self.state
             .focus_pane_in_workspace(resolved.ws_idx, resolved.pane_id);
         self.state.mark_active_tab_seen();
         self.state.settle_terminal_mode_after_focus();
         self.agent_info(resolved.ws_idx, resolved.pane_id)
-            .ok_or_else(|| TerminalTargetError::NotFound {
-                target: target.to_string(),
+            .ok_or_else(|| {
+                AgentFocusError::Target(TerminalTargetError::NotFound {
+                    target: target.to_string(),
+                })
             })
     }
 
@@ -90,6 +116,9 @@ impl App {
         target: &str,
         name: Option<String>,
     ) -> Result<crate::api::schema::AgentInfo, AgentRenameError> {
+        if self.state.external_agent_management {
+            return Err(AgentRenameError::ExternalAgentManagement);
+        }
         let resolved = self
             .resolve_agent_target(target)
             .map_err(AgentRenameError::Target)?;
@@ -329,6 +358,7 @@ impl App {
         err: AgentRenameError,
     ) -> crate::api::schema::ErrorBody {
         match err {
+            AgentRenameError::ExternalAgentManagement => external_agent_control_error(AGENT_STATE_GUIDANCE),
             AgentRenameError::Target(err) => self.agent_target_error_body(err),
             AgentRenameError::InvalidName => crate::api::schema::ErrorBody {
                 code: "invalid_agent_name".into(),
@@ -361,6 +391,18 @@ impl App {
                         .join("; ")
                 ),
             },
+        }
+    }
+
+    pub(super) fn agent_focus_error_body(
+        &self,
+        err: AgentFocusError,
+    ) -> crate::api::schema::ErrorBody {
+        match err {
+            AgentFocusError::ExternalAgentManagement => {
+                external_agent_control_error(AGENT_FOCUS_GUIDANCE)
+            }
+            AgentFocusError::Target(err) => self.agent_target_error_body(err),
         }
     }
 
@@ -463,6 +505,7 @@ pub(super) enum AgentStartError {
 }
 
 pub(super) enum AgentRenameError {
+    ExternalAgentManagement,
     Target(TerminalTargetError),
     InvalidName,
     NotAgent,
@@ -471,6 +514,11 @@ pub(super) enum AgentRenameError {
         name: String,
         candidates: Vec<crate::api::schema::AgentInfo>,
     },
+}
+
+pub(super) enum AgentFocusError {
+    ExternalAgentManagement,
+    Target(TerminalTargetError),
 }
 
 #[cfg(test)]

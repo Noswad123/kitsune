@@ -4595,6 +4595,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn external_agent_focus_dispatch_preserves_focus_and_unseen_without_protocol_input() {
+        use crate::app::test_support::{legacy_control_fixture, legacy_control_snapshot};
+        use api::schema::{AgentTarget, ErrorResponse, Method, Request};
+        for already_focused in [false, true] {
+            let (mut app, target, terminal_id) = legacy_control_fixture();
+            app.state.mode = crate::app::Mode::Terminal;
+            let pane = app.state.workspaces[0].tabs.last().unwrap().root_pane;
+            if already_focused {
+                app.state.focus_pane_in_workspace(0, pane);
+            }
+            let source = app.state.workspaces[1].focused_pane_id().unwrap();
+            let source_id = app.state.terminal_id_for_pane(1, source).unwrap();
+            let (source_runtime, mut source_input) =
+                crate::terminal::TerminalRuntime::test_with_channel_capacity(80, 24, 4);
+            let (runtime, mut input) =
+                crate::terminal::TerminalRuntime::test_with_channel_capacity(80, 24, 4);
+            source_runtime.test_process_pty_bytes(b"\x1b[?1004h");
+            runtime.test_process_pty_bytes(b"\x1b[?1004h");
+            app.terminal_runtimes.insert(source_id, source_runtime);
+            app.terminal_runtimes.insert(terminal_id.clone(), runtime);
+            let mut server = test_headless_server_with_app(app);
+            server.clients.insert(1, test_app_client(Some(true), 1));
+            server.foreground_client_id = Some(1);
+            server.sync_foreground_client_state();
+            server.app.sync_focus_events();
+            if already_focused {
+                assert_eq!(input.try_recv().unwrap(), b"\x1b[I".as_slice());
+            } else {
+                assert_eq!(source_input.try_recv().unwrap(), b"\x1b[I".as_slice());
+            }
+            assert!(source_input.try_recv().is_err());
+            assert!(input.try_recv().is_err());
+            for ws in &mut server.app.state.workspaces {
+                for tab in &mut ws.tabs {
+                    for pane in tab.panes.values_mut() {
+                        pane.seen = false;
+                    }
+                }
+            }
+            server
+                .app
+                .terminal_runtimes
+                .get(&terminal_id)
+                .unwrap()
+                .try_send_bytes(bytes::Bytes::from_static(b"SENTINEL"))
+                .unwrap();
+            let before = legacy_control_snapshot(&server.app);
+            let event_sequence = server.app.event_hub.current_sequence();
+            let (respond_to, response) = std::sync::mpsc::channel();
+            server.handle_api_request_with_shutdown_check(api::ApiRequestMessage {
+                request: Request {
+                    id: "refused-focus".into(),
+                    method: Method::AgentFocus(AgentTarget { target }),
+                },
+                respond_to,
+                response_write_complete: None,
+            });
+            server.app.sync_focus_events();
+            let response: ErrorResponse =
+                serde_json::from_str(&response.try_recv().unwrap()).unwrap();
+            assert_eq!(response.id, "refused-focus");
+            assert_eq!(response.error.code, "external_agent_management");
+            assert_eq!(legacy_control_snapshot(&server.app), before);
+            assert!(source_input.try_recv().is_err());
+            assert_eq!(input.try_recv().unwrap(), b"SENTINEL".as_slice());
+            assert!(input.try_recv().is_err());
+            assert_eq!(server.app.event_hub.current_sequence(), event_sequence);
+            assert!(server.app.event_rx.try_recv().is_err());
+        }
+    }
+
+    #[tokio::test]
     async fn terminal_navigation_polling_preserves_unseen_and_allows_only_focus_protocol_bytes() {
         use api::schema::{Method, Request, TerminalFocusParams, ViewOpenParams, ViewOwnerParams};
         for external in [false, true] {
