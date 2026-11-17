@@ -55,8 +55,8 @@ use self::settings::render_settings_overlay;
 pub(crate) use self::sidebar::integrations::IntegrationViewsSnapshot;
 #[cfg(test)]
 pub(crate) use self::sidebar::{
-    agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_for_target,
-    agent_panel_scroll_metrics, agent_panel_toggle_rect, expanded_sidebar_sections,
+    agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_metrics,
+    agent_panel_toggle_rect, expanded_sidebar_sections,
 };
 use self::sidebar::{render_sidebar, render_sidebar_collapsed};
 use self::status::{
@@ -80,12 +80,11 @@ pub(crate) use self::{
         SETTINGS_POPUP_WIDTH,
     },
     sidebar::{
-        all_agent_panel_entries, collapsed_sidebar_sections, collapsed_sidebar_toggle_rect,
-        compute_workspace_card_areas, expanded_sidebar_toggle_rect, normalized_workspace_scroll,
-        sidebar_section_divider_rect, workspace_drop_indicator_row, workspace_list_entries,
-        workspace_list_entries_expanded, workspace_list_rect, workspace_list_scroll_metrics,
-        workspace_list_scrollbar_rect, workspace_parent_group_state, AgentPanelEntry,
-        WorkspaceListEntry,
+        collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, compute_workspace_card_areas,
+        expanded_sidebar_toggle_rect, normalized_workspace_scroll, sidebar_section_divider_rect,
+        workspace_drop_indicator_row, workspace_list_entries, workspace_list_entries_expanded,
+        workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
+        workspace_parent_group_state, WorkspaceListEntry,
     },
 };
 pub(crate) use self::{
@@ -94,7 +93,7 @@ pub(crate) use self::{
         mobile_switcher_areas, mobile_switcher_max_scroll, mobile_switcher_target_at,
         mobile_switcher_workspace_doc_range, MobileSwitcherTarget,
     },
-    panes::{apply_pane_chrome, pane_inner_rect, pane_is_scrolled_back},
+    panes::{apply_pane_chrome, pane_is_scrolled_back},
     tab_surface::{tab_surface_cursor, tab_surface_hyperlinks, TabSurfaceView},
     tabs::compute_tab_bar_view,
     widgets::{centered_popup_rect, modal_stack_areas},

@@ -222,25 +222,6 @@ fn live_process_group_member(process_group_id: u32, pid: u32) -> Option<ProcGrou
     (pgrp > 0 && pgrp as u32 == process_group_id).then_some(ProcGroupMember { pid, comm })
 }
 
-pub fn foreground_group_leader_job(process_group_id: u32) -> Option<ForegroundJob> {
-    let (pgrp, name) = process_pgrp_and_comm(process_group_id)?;
-    if pgrp as u32 != process_group_id {
-        return None;
-    }
-
-    let argv = process_argv(process_group_id);
-    Some(ForegroundJob {
-        process_group_id,
-        processes: vec![ForegroundProcess {
-            pid: process_group_id,
-            name,
-            argv0: None,
-            cmdline: argv.as_ref().map(|parts| parts.join(" ")),
-            argv,
-        }],
-    })
-}
-
 pub fn foreground_process_group_id(child_pid: u32) -> Option<u32> {
     // /proc/<pid>/stat format: "pid (comm) state ppid pgrp session tty_nr tpgid ..."
     // The (comm) field can contain spaces and parens, so we find the last ')' first.
@@ -291,15 +272,6 @@ pub fn process_cwd(pid: u32) -> Option<PathBuf> {
         return None;
     }
     std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
-}
-
-/// Read a Kitsune agent identity hint from a process environment.
-pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
-    if pid == 0 {
-        return None;
-    }
-    let environ = std::fs::read(format!("/proc/{pid}/environ")).ok()?;
-    super::parse_agent_env_hint(&environ)
 }
 
 pub fn session_processes(child_pid: u32) -> Vec<u32> {

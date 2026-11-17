@@ -4,10 +4,7 @@ use crate::api::schema::{EventData, EventEnvelope, EventKind};
 #[cfg(test)]
 use tracing::error;
 
-use super::{
-    api_helpers::{pane_agent_status, tab_attention_priority},
-    App, Mode,
-};
+use super::{api_helpers::pane_agent_status, App, Mode};
 use crate::{config::NewTerminalCwdConfig, workspace::Workspace};
 
 pub(crate) fn resolve_new_terminal_cwd(
@@ -318,17 +315,6 @@ impl App {
     ) -> Option<crate::api::schema::TabInfo> {
         let ws = self.state.workspaces.get(ws_idx)?;
         let tab = ws.tabs.get(tab_idx)?;
-        let (agg_state, seen) = tab
-            .panes
-            .values()
-            .filter_map(|pane| {
-                self.state
-                    .terminals
-                    .get(&pane.attached_terminal_id)
-                    .map(|terminal| (terminal.state, pane.seen))
-            })
-            .max_by_key(|(state, seen)| tab_attention_priority(*state, *seen))
-            .unwrap_or((crate::detect::AgentState::Unknown, true));
         Some(crate::api::schema::TabInfo {
             tab_id: self.public_tab_id(ws_idx, tab_idx)?,
             workspace_id: self.public_workspace_id(ws_idx),
@@ -336,7 +322,7 @@ impl App {
             label: ws.tab_display_name(tab_idx)?,
             focused: self.state.active == Some(ws_idx) && ws.active_tab == tab_idx,
             pane_count: tab.panes.len(),
-            agent_status: pane_agent_status(agg_state, seen),
+            agent_status: crate::api::schema::AgentStatus::Unknown,
         })
     }
 
@@ -458,7 +444,7 @@ impl App {
             terminal_title: terminal.terminal_title.clone(),
             terminal_title_stripped: terminal.terminal_title_stripped(),
             display_agent: presentation.display_agent,
-            agent_status: pane_agent_status(terminal.state, pane.seen),
+            agent_status: crate::api::schema::AgentStatus::Unknown,
             state_labels: presentation.state_labels,
             tokens: terminal.metadata_tokens.values(),
             agent_session: terminal_agent_session_info(terminal),

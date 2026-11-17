@@ -1,5 +1,48 @@
 # App boundaries: Kitsune, Coven, and Djinn
 
+## Current Runtime Boundary, 2026-11-16
+
+The [global live retirement](AGENT_CONTROL_RETIREMENT.md) supersedes the historical
+conditional/default-mode and platform-retirement statements below. With or without
+Coven, Kit no longer produces agent status from normal/handoff screen/PTY/OSC or
+foreground hints, arbitrates live evidence, reconciles managed agents, schedules
+provider resume, or infers finished notifications from idle. All 12 live agent
+methods and agent subscriptions/wait matcher return `feature_retired`; CLI refusal
+is local before socket access. Four legacy pane hooks retain external-ownership
+error precedence externally and return `feature_retired` standalone. Generic
+metadata is token-only; mixed retired fields/tokens reject atomically.
+
+Snapshots have `agents: []` in both modes; old references/names/argv are historical
+data, never readiness, aliases or autostart authority. Primary-screen handoff
+history is independent of old references. Optional `respawn_shell_on_exit` captures
+actual generic shell policy: import honors only true, cold restore is always false,
+and no argv/FD inference runs. Client protocol remains 18.
+
+Generic PTY/process/terminal/session/pane operations, OSC titles, CWD/clipboard,
+manual labels, explicit notifications, output waits/event streams and Integrations
+sources/leases/views remain. Previously unsupported generic `events.wait` matchers
+are still unsupported. Fresh legacy installation for all six fixed targets is
+retired on all platforms, before discovery/probes/writes; recommendations/update
+policy are removed. Status/uninstall/frozen migration assets are explicit cleanup
+only, not automatic migration or qualified Coven macOS/Windows replacements.
+
+Static offline local/bundled evaluator and `agent explain --file`, historical DTO
+decoding and inert Agent-named residue remain for later cleanup. Windows' generic
+`identify_agent_in_job`/`legacy_agent_aware` acquisition remains separately known
+and rejected by Coven; no lifecycle producer or runtime agent-manager fallback
+is retained. External ownership is reporting-route intent plus hook error
+compatibility, not an enablement switch. No Coven means ordinary multiplexing.
+Richer providers/remote hosting stay deferred; mobile adoption is unapproved.
+No additional native A3 capability is claimed. Latest qualification and cleaned
+artifact status are in the [retirement record](AGENT_CONTROL_RETIREMENT.md#latest-recorded-validation).
+
+## Historical Boundary And Provider Cuts
+
+The remainder preserves earlier decisions and acquisition/provider evidence.
+Present-tense legacy availability and future deletion instructions in that record
+describe earlier source, not current runtime policy. Generic acquisition details
+remain applicable subject to the current retirement overlay above.
+
 ## Overview
 
 **Normal-invocation opt-in implemented (2026-11-12):** users keep invoking native
@@ -40,11 +83,15 @@ The [next control-surface cut](AGENT_CONTROL_RETIREMENT.md) also refuses legacy
 prompt/key submission, rename, focus, view mutation and effectful `agent.get`
 reconciliation under external ownership. Public wait wrappers stop at that guarded
 get. Standalone behavior, generic APIs and historical data remain.
-The subsequent read/detector cut also refuses those three live facades and both
-manifest APIs externally, empties the generic snapshot's agent inventory without
-erasing pane historical references, and suppresses updater admission before I/O.
-CLI updating preflights the selected server. Offline file explanation and the
-standalone implementation remain compatibility surfaces pending source removal.
+The subsequent read/detector cut also refuses the live list/read/explain facades
+externally and empties the snapshot's agent inventory without erasing pane history.
+The first global source-removal cut now supersedes its manifest guards: remote
+manifest acquisition, cache/status consumption, scheduling and update events are
+physically deleted. Both manifest APIs and all three CLI management commands return
+`feature_retired` regardless of ownership; the CLI does not contact a server.
+Static rules use local overrides then bundled rules; existing remote files are
+ignored, not deleted. Live pane detector producers, remaining standalone agent
+logic and explicitly offline local/bundled diagnostics still await their cuts.
 
 | App | Target responsibility |
 | --- | --- |

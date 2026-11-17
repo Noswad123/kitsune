@@ -1,5 +1,12 @@
 # Detector evidence separation
 
+> Historical evidence, superseded by [global live retirement](AGENT_CONTROL_RETIREMENT.md).
+> The typed live arbitration seam described below and its normal/handoff producers
+> have been deleted, including `src/terminal/evidence.rs` and
+> `src/terminal/state/evidence.rs`. Paths, commands and validation below describe
+> the earlier implementation, not active instructions or present runtime authority.
+> Generic terminal identity, process observations and bottom-buffer reads remain.
+
 ## Status And Scope
 
 Implemented in current uncommitted Kitsune source: an internal typed state seam

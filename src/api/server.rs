@@ -14,7 +14,7 @@ use crate::api::schema::{
     ErrorBody, ErrorResponse, Method, Request, ResponseResult, ServerCapabilities, SuccessResponse,
 };
 use crate::api::subscriptions::ActiveSubscription;
-use crate::api::wait::{prompt_agent, wait_for_agent, wait_for_event, wait_for_output};
+use crate::api::wait::{wait_for_event, wait_for_output};
 use crate::api::{request_changes_ui, socket_path, ApiRequestMessage, ApiRequestSender, EventHub};
 use crate::ipc::{
     bind_local_listener, is_connection_closed_error, local_stream_peer_closed,
@@ -178,6 +178,16 @@ fn handle_connection(
     let changes_ui = request_changes_ui(&request);
     crate::logging::api_request_started(&request_id, method, changes_ui);
 
+    if let Some(response) = crate::api::schema::retired_request_response(&request) {
+        return finish_wait_response(
+            &mut stream,
+            Some(response.to_string()),
+            &request_id,
+            method,
+            changes_ui,
+        );
+    }
+
     match request.method {
         Method::PaneGraphicsStream(params) => {
             let result =
@@ -218,37 +228,8 @@ fn handle_connection(
             result
         }
         Method::EventsWait(params) => {
-            let response = wait_for_event(
-                request_id.clone(),
-                params,
-                &mut stream,
-                api_tx,
-                event_hub,
-                running,
-            )?;
-            finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
-        }
-        Method::AgentPrompt(params) => {
-            let response = prompt_agent(
-                request_id.clone(),
-                params,
-                &mut stream,
-                api_tx,
-                event_hub,
-                running,
-            )?;
-            finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
-        }
-        Method::AgentWait(params) => {
-            let response = wait_for_agent(
-                request_id.clone(),
-                params,
-                &mut stream,
-                api_tx,
-                event_hub,
-                running,
-            )?;
-            finish_wait_response(&mut stream, response, &request_id, method, changes_ui)
+            let response = wait_for_event(request_id.clone(), params)?;
+            finish_wait_response(&mut stream, Some(response), &request_id, method, changes_ui)
         }
         Method::PaneWaitForOutput(params) => {
             let response =
@@ -319,6 +300,9 @@ fn handle_request(
     capabilities: Option<ServerCapabilities>,
     response_write_complete: Option<std::sync::mpsc::Receiver<()>>,
 ) -> String {
+    if let Some(response) = crate::api::schema::retired_request_response(&request) {
+        return response.to_string();
+    }
     match request.method {
         Method::Ping(_) => serde_json::to_string(&SuccessResponse {
             id: request.id,
@@ -814,8 +798,7 @@ fn error_response_json(id: String, code: &str, message: String) -> String {
 mod tests {
     use super::*;
     use interprocess::local_socket::traits::Listener as _;
-    use std::collections::HashMap;
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Read};
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixListener;
     use std::sync::{Mutex, OnceLock};
@@ -826,16 +809,13 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
-    fn unique_test_path(name: &str) -> PathBuf {
+    fn unique_test_path(_name: &str) -> PathBuf {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        // macOS limits Unix-domain socket paths to roughly 104 bytes. The
-        // per-user temp dir under /var/folders/... is often already long
-        // enough that otherwise valid socket tests fail before exercising the
-        // behavior under test, so keep Unix test sockets under /tmp.
-        PathBuf::from("/tmp").join(format!("kitsune-{name}-{}-{nanos}", std::process::id()))
+        // Keep names compact for Unix socket limits; validation supplies a short TMPDIR.
+        std::env::temp_dir().join(format!("ks-{}-{nanos}", std::process::id()))
     }
 
     fn read_line(stream: &mut LocalStream) -> String {
@@ -851,67 +831,6 @@ mod tests {
         let client = crate::ipc::connect_local_stream(&path).unwrap();
         let server = listener.accept().unwrap();
         (client, server, path)
-    }
-
-    fn pane_info(
-        pane_id: &str,
-        agent_status: crate::api::schema::AgentStatus,
-    ) -> crate::api::schema::PaneInfo {
-        crate::api::schema::PaneInfo {
-            pane_id: pane_id.into(),
-            terminal_id: "term_1".into(),
-            workspace_id: "ws_1".into(),
-            tab_id: "tab_1".into(),
-            focused: true,
-            cwd: None,
-            foreground_cwd: None,
-            label: None,
-            agent: Some("pi".into()),
-            title: None,
-            terminal_title: None,
-            terminal_title_stripped: None,
-            display_agent: None,
-            agent_status,
-            state_labels: HashMap::new(),
-            tokens: HashMap::new(),
-            agent_session: None,
-            scroll: None,
-            revision: 0,
-        }
-    }
-
-    fn spawn_pane_get_responder(
-        agent_status: crate::api::schema::AgentStatus,
-    ) -> (ApiRequestSender, std::thread::JoinHandle<()>) {
-        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
-        let responder = std::thread::spawn(move || {
-            while let Some(msg) = api_rx.blocking_recv() {
-                match msg.request.method {
-                    Method::PaneGet(_) => msg
-                        .respond_to
-                        .send(
-                            serde_json::to_string(&SuccessResponse {
-                                id: msg.request.id,
-                                result: ResponseResult::PaneInfo {
-                                    pane: pane_info("pane_1", agent_status),
-                                },
-                            })
-                            .unwrap(),
-                        )
-                        .unwrap(),
-                    Method::EventsWait(_) => msg
-                        .respond_to
-                        .send(error_response_json(
-                            msg.request.id,
-                            "unexpected_dispatch",
-                            "events.wait should be handled by the api server".into(),
-                        ))
-                        .unwrap(),
-                    other => panic!("unexpected request: {other:?}"),
-                }
-            }
-        });
-        (api_tx, responder)
     }
 
     #[test]
@@ -1017,44 +936,46 @@ mod tests {
     }
 
     #[test]
-    fn external_wait_wrappers_refuse_at_initial_get_through_server_dispatch() {
-        use crate::api::schema::{AgentPromptParams, AgentWaitParams};
-        use crate::app::test_support::{legacy_control_fixture, legacy_control_snapshot};
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
+    fn retired_agent_family_returns_correlated_errors_without_app_dispatch() {
+        for method in [
+            "agent.list",
+            "agent.get",
+            "agent.read",
+            "agent.explain",
+            "agent.send_keys",
+            "agent.rename",
+            "agent.focus",
+            "agent.start",
+            "agent.prompt",
+            "agent.wait",
+            "agent.view.set",
+            "agent.view.clear",
+            "server.agent_manifests",
+            "server.reload_agent_manifests",
+        ] {
+            let request: Request = serde_json::from_value(serde_json::json!({
+                "id": "correlated-id",
+                "method": method,
+                "params": {
+                    "target": "private-target", "source": "recent", "name": "private-name",
+                    "kind": "pi", "pane_id": "private-pane", "args": [],
+                    "text": "private-instructions", "keys": ["enter"], "wait": {},
+                },
+            }))
             .unwrap();
-        let _runtime = runtime.enter();
-        for prompt in [false, true] {
-            let (mut app, target, terminal_id) = legacy_control_fixture();
-            let (runtime, mut input) =
-                crate::terminal::TerminalRuntime::test_with_channel_capacity(80, 24, 4);
-            runtime
-                .try_send_bytes(bytes::Bytes::from_static(b"SENTINEL"))
-                .unwrap();
-            app.terminal_runtimes.insert(terminal_id, runtime);
-            let before = legacy_control_snapshot(&app);
-            let wait = AgentWaitParams {
-                target: target.clone(),
-                until: vec![],
-                timeout_ms: Some(0),
-            };
-            let method = if prompt {
-                Method::AgentPrompt(AgentPromptParams {
-                    target,
-                    text: "private-instructions".into(),
-                    wait: Some(crate::api::schema::AgentPromptWaitOptions {
-                        until: vec![],
-                        timeout_ms: Some(0),
-                    }),
-                })
-            } else {
-                Method::AgentWait(wait)
-            };
+            assert!(crate::api::request_skips_default_workspace(&request));
+            assert!(!crate::api::request_changes_ui(&request));
+            let expected = crate::api::schema::retired_request_response(&request).unwrap();
             let (api_tx, mut api_rx) = mpsc::unbounded_channel();
-            let (mut client, server, path) = local_stream_pair("external-wait");
-            // Both endpoints are connected; unlink now so assertion failures cannot leak a socket.
+            let direct: serde_json::Value =
+                serde_json::from_str(&handle_request(request.clone(), &api_tx, None, None))
+                    .unwrap();
+            assert_eq!(direct, expected);
+            let (mut client, server, path) = local_stream_pair("retired-family");
             fs::remove_file(path).unwrap();
+            client
+                .set_recv_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
             let worker = std::thread::spawn(move || {
                 handle_connection(
                     server,
@@ -1065,30 +986,88 @@ mod tests {
                 )
                 .unwrap();
             });
+            writeln!(client, "{}", serde_json::to_string(&request).unwrap()).unwrap();
+            let response: serde_json::Value =
+                serde_json::from_str(&read_line(&mut client)).unwrap();
+            drop(client);
+            worker.join().unwrap();
+            assert_eq!(response, expected, "{method}");
+            assert_eq!(response["id"], "correlated-id");
+            assert_eq!(response["error"]["code"], "feature_retired");
+            assert_eq!(response["error"].as_object().unwrap().len(), 2);
+            if method.starts_with("agent.") {
+                assert_eq!(response["error"]["message"], format!("Legacy agent operation {method} is retired; Kitsune no longer provides built-in agent lifecycle, readiness, or status. Use generic terminal/pane operations, or an external agent manager."));
+            }
+            assert!(api_rx.try_recv().is_err(), "{method}: no App request");
+        }
+    }
+
+    #[test]
+    fn retired_wait_wrappers_never_dispatch_or_subscribe() {
+        use crate::api::schema::{AgentPromptParams, AgentWaitParams};
+        for prompt in [false, true] {
+            let target = "private-target".to_string();
+            let wait = AgentWaitParams {
+                target: target.clone(),
+                until: vec![],
+                timeout_ms: None,
+            };
+            let method = if prompt {
+                Method::AgentPrompt(AgentPromptParams {
+                    target,
+                    text: "private-instructions".into(),
+                    wait: Some(crate::api::schema::AgentPromptWaitOptions {
+                        until: vec![],
+                        timeout_ms: None,
+                    }),
+                })
+            } else {
+                Method::AgentWait(wait)
+            };
+            let (api_tx, mut api_rx) = mpsc::unbounded_channel();
+            let (mut client, server, path) = local_stream_pair("retired-wait");
+            // Both endpoints are connected; unlink now so assertion failures cannot leak a socket.
+            fs::remove_file(path).unwrap();
+            let hub = EventHub::default();
+            let worker_hub = hub.clone();
+            let worker = std::thread::spawn(move || {
+                handle_connection(
+                    server,
+                    &api_tx,
+                    &worker_hub,
+                    &Arc::new(AtomicBool::new(true)),
+                    None,
+                )
+                .unwrap();
+            });
             let request = Request {
                 id: "wrapper-id".into(),
                 method,
             };
+            client
+                .set_recv_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
             writeln!(client, "{}", serde_json::to_string(&request).unwrap()).unwrap();
-            let msg = api_rx.blocking_recv().unwrap();
-            assert!(matches!(msg.request.method, Method::AgentGet(_)));
-            let response = app.handle_api_request(msg.request);
-            msg.respond_to.send(response).unwrap();
             let response: ErrorResponse = serde_json::from_str(&read_line(&mut client)).unwrap();
             drop(client);
             worker.join().unwrap();
             assert_eq!(response.id, "wrapper-id");
-            assert_eq!(response.error.code, "external_agent_management");
+            assert_eq!(response.error.code, "feature_retired");
+            assert_eq!(
+                response.error,
+                crate::api::schema::legacy_agent_retirement_error(if prompt {
+                    "agent.prompt"
+                } else {
+                    "agent.wait"
+                })
+            );
             assert!(!response.error.message.contains("private-instructions"));
+            assert!(!response.error.message.contains("private-target"));
             assert!(
                 api_rx.try_recv().is_err(),
-                "no prompt dispatch or status loop"
+                "no App request, prompt dispatch, or status loop"
             );
-            assert_eq!(legacy_control_snapshot(&app), before);
-            assert!(app.event_hub.events_after(0).is_empty());
-            assert!(app.event_rx.try_recv().is_err());
-            assert_eq!(input.try_recv().unwrap(), b"SENTINEL".as_slice());
-            assert!(input.try_recv().is_err());
+            assert!(hub.events_after(0).is_empty());
         }
     }
 
@@ -1161,115 +1140,180 @@ mod tests {
     }
 
     #[test]
-    fn events_wait_agent_status_returns_initial_match() {
-        let (api_tx, responder) =
-            spawn_pane_get_responder(crate::api::schema::AgentStatus::Blocked);
-
-        let (mut client, server, _path) = local_stream_pair("api-events-wait-initial");
-        client
-            .write_all(br#"{"id":"wait_1","method":"events.wait","params":{"match_event":{"event":"pane_agent_status_changed","pane_id":"pane_1","agent_status":"blocked"},"timeout_ms":1000}}"#)
-            .unwrap();
-        client.write_all(b"\n").unwrap();
-        client.flush().unwrap();
-
-        let running = Arc::new(AtomicBool::new(true));
-        let event_hub = EventHub::default();
-        handle_connection(server, &api_tx, &event_hub, &running, None).unwrap();
-
-        let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
-        assert_eq!(response["id"], "wait_1");
-        assert_eq!(response["result"]["type"], "wait_matched");
-        assert_eq!(
-            response["result"]["event"]["data"]["agent_status"],
-            "blocked"
-        );
-        drop(api_tx);
-        responder.join().unwrap();
-    }
-
-    #[test]
-    fn events_wait_agent_status_times_out_server_side() {
-        let (api_tx, responder) =
-            spawn_pane_get_responder(crate::api::schema::AgentStatus::Unknown);
-
-        let (mut client, server, _path) = local_stream_pair("api-events-wait-timeout");
-        client
-            .write_all(br#"{"id":"wait_2","method":"events.wait","params":{"match_event":{"event":"pane_agent_status_changed","pane_id":"pane_1","agent_status":"blocked"},"timeout_ms":30}}"#)
-            .unwrap();
-        client.write_all(b"\n").unwrap();
-        client.flush().unwrap();
-
-        let running = Arc::new(AtomicBool::new(true));
-        let event_hub = EventHub::default();
-        handle_connection(server, &api_tx, &event_hub, &running, None).unwrap();
-
-        let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
-        assert_eq!(response["id"], "wait_2");
-        assert_eq!(response["error"]["code"], "timeout");
-        assert_eq!(
-            response["error"]["message"],
-            "timed out waiting for event match"
-        );
-        drop(api_tx);
-        responder.join().unwrap();
-    }
-
-    #[test]
-    fn events_wait_agent_status_returns_not_found_when_pane_closes() {
-        let event_hub = EventHub::default();
-        let responder_event_hub = event_hub.clone();
-        let (api_tx, mut api_rx) = mpsc::unbounded_channel::<ApiRequestMessage>();
-        let responder = std::thread::spawn(move || {
-            let mut pane_get_count = 0;
-            while let Some(msg) = api_rx.blocking_recv() {
-                let Method::PaneGet(_) = msg.request.method else {
-                    panic!("unexpected request: {:?}", msg.request.method);
-                };
-                pane_get_count += 1;
-                let response = if pane_get_count == 1 {
-                    serde_json::to_string(&SuccessResponse {
-                        id: msg.request.id,
-                        result: ResponseResult::PaneInfo {
-                            pane: pane_info("pane_1", crate::api::schema::AgentStatus::Unknown),
-                        },
-                    })
+    fn events_wait_agent_status_is_retired_without_any_probe() {
+        for status in ["unknown", "idle", "working", "done", "blocked"] {
+            for timeout in [None, Some(0), Some(1000)] {
+                let value = serde_json::json!({"id":"status-wait", "method":"events.wait", "params":{
+                    "match_event":{"event":"pane_agent_status_changed", "pane_id":"private-target", "agent_status":status},
+                    "timeout_ms":timeout,
+                }});
+                let response = response_without_app_dispatch(value.clone());
+                let request: Request = serde_json::from_value(value).unwrap();
+                assert_eq!(
+                    response,
+                    crate::api::schema::retired_request_response(&request).unwrap()
+                );
+                assert_eq!(response["error"]["code"], "feature_retired");
+                assert!(crate::api::request_skips_default_workspace(&request));
+                assert!(!crate::api::request_changes_ui(&request));
+                assert!(!response["error"]["message"]
+                    .as_str()
                     .unwrap()
-                } else {
-                    if pane_get_count == 2 {
-                        responder_event_hub.push(crate::api::schema::EventEnvelope {
-                            event: crate::api::schema::EventKind::PaneClosed,
-                            data: crate::api::schema::EventData::PaneClosed {
-                                pane_id: "pane_1".into(),
-                                workspace_id: "ws_1".into(),
-                            },
-                        });
-                    }
-                    error_response_json(
-                        msg.request.id,
-                        "pane_not_found",
-                        "pane pane_1 not found".into(),
-                    )
-                };
-                msg.respond_to.send(response).unwrap();
+                    .contains("private-target"));
+                let direct = wait_for_event(
+                    "status-wait".into(),
+                    crate::api::schema::EventsWaitParams {
+                        match_event: crate::api::schema::EventMatch::PaneAgentStatusChanged {
+                            pane_id: "private-target".into(),
+                            agent_status: crate::api::schema::AgentStatus::Unknown,
+                        },
+                        timeout_ms: timeout,
+                    },
+                )
+                .unwrap();
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&direct).unwrap(),
+                    response
+                );
             }
-        });
+        }
+    }
 
-        let (mut client, server, _path) = local_stream_pair("wait-close");
+    fn response_without_app_dispatch(value: serde_json::Value) -> serde_json::Value {
+        let (api_tx, mut api_rx) = mpsc::unbounded_channel();
+        let (mut client, server, path) = local_stream_pair("inert-event");
+        fs::remove_file(path).unwrap();
         client
-            .write_all(br#"{"id":"wait_close","method":"events.wait","params":{"match_event":{"event":"pane_agent_status_changed","pane_id":"pane_1","agent_status":"done"},"timeout_ms":500}}"#)
+            .set_recv_timeout(Some(Duration::from_secs(1)))
             .unwrap();
-        client.write_all(b"\n").unwrap();
-        client.flush().unwrap();
+        let worker = std::thread::spawn(move || {
+            handle_connection(
+                server,
+                &api_tx,
+                &EventHub::default(),
+                &Arc::new(AtomicBool::new(true)),
+                None,
+            )
+            .unwrap()
+        });
+        writeln!(client, "{value}").unwrap();
+        let mut response = String::new();
+        let read = client.read_to_string(&mut response);
+        drop(client);
+        worker.join().unwrap();
+        read.unwrap();
+        assert!(
+            api_rx.try_recv().is_err(),
+            "no probe, dispatch, or partial subscription initialization"
+        );
+        assert_eq!(
+            response.lines().count(),
+            1,
+            "no stream initialization or events"
+        );
+        serde_json::from_str(&response).unwrap()
+    }
 
-        let running = Arc::new(AtomicBool::new(true));
-        handle_connection(server, &api_tx, &event_hub, &running, None).unwrap();
+    #[test]
+    fn mixed_agent_status_subscriptions_fail_atomically_before_generic_probes() {
+        for status in [None, Some("unknown"), Some("blocked")] {
+            for retired_first in [false, true] {
+                let mut subscriptions = vec![
+                    serde_json::json!({"type":"pane.output_matched", "pane_id":"private-output", "source":"recent", "match":{"type":"substring", "value":"private-pattern"}}),
+                    serde_json::json!({"type":"pane.scroll_changed", "pane_id":"private-scroll"}),
+                    serde_json::json!({"type":"workspace.created"}),
+                ];
+                let retired = serde_json::json!({"type":"pane.agent_status_changed", "pane_id":"private-target", "agent_status":status});
+                subscriptions.insert(
+                    if retired_first {
+                        0
+                    } else {
+                        subscriptions.len()
+                    },
+                    retired,
+                );
+                let value = serde_json::json!({"id":"mixed", "method":"events.subscribe", "params":{"subscriptions":subscriptions}});
+                let response = response_without_app_dispatch(value.clone());
+                let request: Request = serde_json::from_value(value).unwrap();
+                assert_eq!(
+                    response,
+                    crate::api::schema::retired_request_response(&request).unwrap()
+                );
+                assert_eq!(
+                    response["error"],
+                    serde_json::to_value(crate::api::schema::legacy_agent_retirement_error(
+                        "events.subscribe"
+                    ))
+                    .unwrap()
+                );
+                assert!(crate::api::request_skips_default_workspace(&request));
+                assert!(!crate::api::request_changes_ui(&request));
+            }
+        }
+    }
 
-        let response: serde_json::Value = serde_json::from_str(&read_line(&mut client)).unwrap();
-        assert_eq!(response["id"], "wait_close");
-        assert_eq!(response["error"]["code"], "pane_not_found");
-        assert_eq!(response["error"]["message"], "pane pane_1 not found");
-        drop(api_tx);
-        responder.join().unwrap();
+    #[test]
+    fn mixed_agent_status_subscription_retires_before_invalid_regex_validation() {
+        for status in [None, Some("unknown"), Some("blocked")] {
+            let response = response_without_app_dispatch(serde_json::json!({
+                "id":"mixed-invalid-regex", "method":"events.subscribe",
+                "params":{"subscriptions":[
+                    {"type":"pane.output_matched", "pane_id":"private-output",
+                     "source":"recent", "match":{"type":"regex", "value":"["}},
+                    {"type":"pane.agent_status_changed", "pane_id":"private-status",
+                     "agent_status":status}
+                ]}
+            }));
+            assert_eq!(
+                response,
+                serde_json::json!({
+                    "id":"mixed-invalid-regex",
+                    "error":crate::api::schema::legacy_agent_retirement_error("events.subscribe")
+                })
+            );
+        }
+    }
+
+    #[test]
+    fn non_agent_event_waits_and_malformed_status_requests_are_not_retired() {
+        let response = response_without_app_dispatch(
+            serde_json::json!({"id":"generic", "method":"events.wait", "params":{"match_event":{"event":"workspace_created"}}}),
+        );
+        assert_eq!(response["id"], "generic");
+        assert_eq!(response["error"]["code"], "unsupported_event_wait_match");
+        let response = response_without_app_dispatch(
+            serde_json::json!({"id":"malformed", "method":"events.wait", "params":{"match_event":{"event":"pane_agent_status_changed", "pane_id":"private-target", "agent_status":"invalid"}}}),
+        );
+        assert_eq!(response["error"]["code"], "invalid_request");
+        for value in [
+            serde_json::json!({"id":"malformed-mixed", "method":"events.subscribe", "params":{"subscriptions":[{"type":"pane.agent_status_changed", "pane_id":"private-target"}, {"type":"pane.scroll_changed"}]}}),
+            serde_json::json!({"id":"malformed-install", "method":"integration.install", "params":{"target":"invalid"}}),
+        ] {
+            let response = response_without_app_dispatch(value);
+            assert_eq!(response["error"]["code"], "invalid_request");
+        }
+    }
+
+    #[test]
+    fn integration_install_is_retired_without_provider_discovery() {
+        for target in crate::api::schema::IntegrationTarget::ALL {
+            let value = serde_json::json!({"id":"install", "method":"integration.install", "params":{"target":target}});
+            let request: Request = serde_json::from_value(value.clone()).unwrap();
+            let response = response_without_app_dispatch(value);
+            assert_eq!(
+                response,
+                crate::api::schema::retired_request_response(&request).unwrap()
+            );
+            assert_eq!(
+                response["error"],
+                serde_json::to_value(crate::api::schema::legacy_agent_retirement_error(
+                    "integration.install"
+                ))
+                .unwrap()
+            );
+            assert!(crate::api::request_skips_default_workspace(&request));
+            assert!(!crate::api::request_changes_ui(&request));
+        }
     }
 
     #[test]

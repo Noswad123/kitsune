@@ -328,7 +328,6 @@ impl App {
         }
 
         let previous_agent_panel_sort = self.state.agent_panel_sort;
-        let previous_settings_section = self.state.settings.section;
         if !handled_pane_double_click {
             if let Some(action) = self.state.handle_mouse(&mut self.terminal_runtimes, mouse) {
                 match action {
@@ -349,9 +348,6 @@ impl App {
                         }
                         SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                             self.save_switch_ascii_input_source_in_prefix(enabled)
-                        }
-                        SettingsAction::InstallRecommendedIntegrations => {
-                            self.install_recommended_integrations()
                         }
                     },
                     MouseAction::FocusWorkspace { ws_idx } => {
@@ -392,11 +388,6 @@ impl App {
             {
                 self.selection_highlight_clear_deadline = None;
             }
-        }
-        if previous_settings_section != crate::app::state::SettingsSection::Integrations
-            && self.state.settings.section == crate::app::state::SettingsSection::Integrations
-        {
-            self.refresh_integration_recommendations();
         }
         if self.state.agent_panel_sort != previous_agent_panel_sort {
             self.save_agent_panel_sort(self.state.agent_panel_sort);

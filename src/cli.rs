@@ -4,8 +4,8 @@ use serde::Serialize;
 
 use crate::api::client::{ApiClient, ApiClientError};
 use crate::api::schema::{
-    AgentStatus, ClientWindowTitleSetParams, EmptyParams, Method, PaneAgentState, ReadFormat,
-    ReadSource, Request, SplitDirection,
+    ClientWindowTitleSetParams, EmptyParams, Method, PaneAgentState, ReadFormat, ReadSource,
+    Request, SplitDirection,
 };
 
 mod agent;
@@ -614,6 +614,9 @@ pub(super) fn send_ok_request(method: Method) -> std::io::Result<i32> {
 }
 
 pub(super) fn send_request(request: &Request) -> std::io::Result<serde_json::Value> {
+    if let Some(response) = crate::api::schema::retired_request_response(request) {
+        return Ok(response);
+    }
     let client = ApiClient::local();
     ensure_server_protocol_compatible(&client, &request.id)?;
     client
@@ -622,9 +625,84 @@ pub(super) fn send_request(request: &Request) -> std::io::Result<serde_json::Val
 }
 
 pub(super) fn send_request_unchecked(request: &Request) -> std::io::Result<serde_json::Value> {
+    if let Some(response) = crate::api::schema::retired_request_response(request) {
+        return Ok(response);
+    }
     ApiClient::local()
         .request_value(request)
         .map_err(api_client_error_to_io)
+}
+
+#[cfg(test)]
+mod retirement_tests {
+    use super::*;
+
+    #[test]
+    fn typed_cli_request_helpers_refuse_before_protocol_or_socket_resolution() {
+        #[cfg(unix)]
+        let canaries = {
+            struct RestoreSocket(&'static str, Option<std::ffi::OsString>, std::path::PathBuf);
+            impl Drop for RestoreSocket {
+                fn drop(&mut self) {
+                    match &self.1 {
+                        Some(value) => std::env::set_var(self.0, value),
+                        None => std::env::remove_var(self.0),
+                    }
+                    std::fs::remove_file(&self.2).expect("remove owned canary socket");
+                }
+            }
+            ["KITSUNE_SOCKET_PATH", "KITSUNE_CLIENT_SOCKET_PATH"]
+                .into_iter()
+                .enumerate()
+                .map(|(index, key)| {
+                    let socket = std::env::temp_dir()
+                        .join(format!("cli-{index}-{}.sock", std::process::id()));
+                    let canary = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+                    canary.set_nonblocking(true).unwrap();
+                    let restore = RestoreSocket(key, std::env::var_os(key), socket.clone());
+                    std::env::set_var(key, socket);
+                    (canary, restore)
+                })
+                .collect::<Vec<_>>()
+        };
+        let requests = [
+            "agent.list",
+            "agent.get",
+            "agent.read",
+            "agent.explain",
+            "agent.send_keys",
+            "agent.rename",
+            "agent.focus",
+            "agent.start",
+            "agent.prompt",
+            "agent.wait",
+            "agent.view.set",
+            "agent.view.clear",
+            "server.agent_manifests",
+            "server.reload_agent_manifests",
+        ].into_iter().map(|method| serde_json::json!({
+                "id": "raw-cli-id", "method": method,
+                "params": {"target":"private-target", "source":"recent", "name":"private-name", "kind":"pi", "pane_id":"private-pane", "args":[], "text":"private-instructions", "keys":[], "wait":{}},
+            })).chain([
+                serde_json::json!({"id":"raw-event", "method":"events.subscribe", "params":{"subscriptions":[{"type":"pane.agent_status_changed", "pane_id":"private-target", "agent_status":"unknown"}]}}),
+                serde_json::json!({"id":"raw-mixed", "method":"events.subscribe", "params":{"subscriptions":[{"type":"pane.output_matched", "pane_id":"private-output", "source":"recent", "match":{"type":"substring", "value":"private-pattern"}}, {"type":"pane.agent_status_changed", "pane_id":"private-target"}]}}),
+                serde_json::json!({"id":"raw-wait", "method":"events.wait", "params":{"match_event":{"event":"pane_agent_status_changed", "pane_id":"private-target", "agent_status":"unknown"}}}),
+                serde_json::json!({"id":"raw-wait-zero", "method":"events.wait", "params":{"match_event":{"event":"pane_agent_status_changed", "pane_id":"private-target", "agent_status":"done"}, "timeout_ms":0}}),
+            ]).chain(crate::api::schema::IntegrationTarget::ALL.into_iter().map(|target| serde_json::json!({"id":"raw-install", "method":"integration.install", "params":{"target":target}})));
+        for value in requests {
+            let request: Request = serde_json::from_value(value).unwrap();
+            let expected = crate::api::schema::retired_request_response(&request).unwrap();
+            assert_eq!(send_request(&request).unwrap(), expected);
+            assert_eq!(send_request_unchecked(&request).unwrap(), expected);
+            #[cfg(unix)]
+            for (canary, _) in &canaries {
+                assert_eq!(
+                    canary.accept().unwrap_err().kind(),
+                    std::io::ErrorKind::WouldBlock
+                );
+            }
+        }
+    }
 }
 
 fn ensure_server_protocol_compatible(client: &ApiClient, request_id: &str) -> std::io::Result<()> {
@@ -698,19 +776,6 @@ pub(super) fn parse_read_format(value: &str) -> std::io::Result<ReadFormat> {
         "ansi" => Ok(ReadFormat::Ansi),
         _ => Err(std::io::Error::other(format!(
             "invalid read format: {value}"
-        ))),
-    }
-}
-
-fn parse_agent_status(value: &str) -> std::io::Result<AgentStatus> {
-    match value {
-        "idle" => Ok(AgentStatus::Idle),
-        "working" => Ok(AgentStatus::Working),
-        "blocked" => Ok(AgentStatus::Blocked),
-        "done" => Ok(AgentStatus::Done),
-        "unknown" => Ok(AgentStatus::Unknown),
-        _ => Err(std::io::Error::other(format!(
-            "invalid agent status: {value} (expected idle, working, blocked, done, or unknown)"
         ))),
     }
 }

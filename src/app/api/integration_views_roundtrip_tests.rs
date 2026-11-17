@@ -544,7 +544,7 @@ fn integration_views_real_coven_roundtrip() {
         .iter()
         .map(|(id, t)| {
             assert!(t.detected_agent().is_none() && t.hook_authority.is_none());
-            assert!(t.agent_metadata.is_empty() && t.persisted_agent_session.is_none());
+            assert!(t.persisted_agent_session.is_none());
             assert_eq!(t.state, crate::detect::AgentState::Unknown);
             (
                 id.to_string(),

@@ -1,5 +1,66 @@
 use serde::{Deserialize, Serialize};
 
+pub(crate) const DETECTOR_MANIFEST_RETIREMENT_MESSAGE: &str = "Built-in detector-manifest management has been retired; Kitsune no longer downloads or reloads agent-detection manifests. Generic pane/process operations remain available.";
+
+pub(crate) fn legacy_agent_retirement_error(method: &'static str) -> ErrorBody {
+    ErrorBody {
+        code: "feature_retired".into(),
+        message: format!("Legacy agent operation {method} is retired; Kitsune no longer provides built-in agent lifecycle, readiness, or status. Use generic terminal/pane operations, or an external agent manager."),
+    }
+}
+
+pub(crate) fn legacy_agent_retired_method(method: &Method) -> Option<&'static str> {
+    Some(match method {
+        Method::AgentList(_) => "agent.list",
+        Method::AgentGet(_) => "agent.get",
+        Method::AgentRead(_) => "agent.read",
+        Method::AgentExplain(_) => "agent.explain",
+        Method::AgentSendKeys(_) => "agent.send_keys",
+        Method::AgentRename(_) => "agent.rename",
+        Method::AgentFocus(_) => "agent.focus",
+        Method::AgentStart(_) => "agent.start",
+        Method::AgentPrompt(_) => "agent.prompt",
+        Method::AgentWait(_) => "agent.wait",
+        Method::AgentViewSet(_) => "agent.view.set",
+        Method::AgentViewClear(_) => "agent.view.clear",
+        Method::IntegrationInstall(_) => "integration.install",
+        Method::EventsSubscribe(params)
+            if params.subscriptions.iter().any(|subscription| {
+                matches!(subscription, Subscription::PaneAgentStatusChanged { .. })
+            }) =>
+        {
+            "events.subscribe"
+        }
+        Method::EventsWait(params)
+            if matches!(
+                params.match_event,
+                EventMatch::PaneAgentStatusChanged { .. }
+            ) =>
+        {
+            "events.wait"
+        }
+        _ => return None,
+    })
+}
+
+/// Compatibility tombstones are independent of runtime ownership and target identity.
+pub(crate) fn retired_request_response(request: &Request) -> Option<serde_json::Value> {
+    let error = if let Some(method) = legacy_agent_retired_method(&request.method) {
+        legacy_agent_retirement_error(method)
+    } else if matches!(
+        request.method,
+        Method::ServerAgentManifests(_) | Method::ServerReloadAgentManifests(_)
+    ) {
+        ErrorBody {
+            code: "feature_retired".into(),
+            message: DETECTOR_MANIFEST_RETIREMENT_MESSAGE.into(),
+        }
+    } else {
+        return None;
+    };
+    Some(serde_json::json!({"id": request.id, "error": error}))
+}
+
 pub mod agents;
 pub mod common;
 pub mod events;
@@ -53,6 +114,7 @@ pub enum Method {
     ServerLiveHandoff(ServerLiveHandoffParams),
     #[serde(rename = "server.reload_config")]
     ServerReloadConfig(EmptyParams),
+    // Compatibility-only methods. Both unconditionally return feature_retired.
     #[serde(rename = "server.agent_manifests")]
     ServerAgentManifests(EmptyParams),
     #[serde(rename = "server.reload_agent_manifests")]
@@ -116,28 +178,40 @@ pub enum Method {
     #[serde(rename = "tab.close")]
     TabClose(TabTarget),
     #[serde(rename = "agent.list")]
+    /// Compatibility-only agent operations always return feature_retired.
     AgentList(EmptyParams),
     #[serde(rename = "agent.get")]
+    /// Compatibility-only; live requests always return feature_retired.
     AgentGet(AgentTarget),
     #[serde(rename = "agent.read")]
+    /// Compatibility-only; live requests always return feature_retired.
     AgentRead(AgentReadParams),
     #[serde(rename = "agent.explain")]
+    /// Compatibility-only; live requests always return feature_retired. Offline CLI file diagnostics remain available.
     AgentExplain(AgentTarget),
     #[serde(rename = "agent.send_keys")]
+    /// Compatibility-only; live requests always return feature_retired.
     AgentSendKeys(AgentSendKeysParams),
     #[serde(rename = "agent.rename")]
+    /// Compatibility-only; live requests always return feature_retired.
     AgentRename(AgentRenameParams),
     #[serde(rename = "agent.view.set")]
+    /// Compatibility-only; live requests always return feature_retired.
     AgentViewSet(AgentViewSetParams),
     #[serde(rename = "agent.view.clear")]
+    /// Compatibility-only; live requests always return feature_retired.
     AgentViewClear(AgentViewClearParams),
     #[serde(rename = "agent.focus")]
+    /// Compatibility-only; live requests always return feature_retired.
     AgentFocus(AgentTarget),
     #[serde(rename = "agent.start")]
+    /// Compatibility-only; live requests always return feature_retired without launching or checking readiness.
     AgentStart(AgentStartParams),
     #[serde(rename = "agent.prompt")]
+    /// Compatibility-only; live requests always return feature_retired, including prompts with wait options.
     AgentPrompt(AgentPromptParams),
     #[serde(rename = "agent.wait")]
+    /// Compatibility-only; live requests always return feature_retired without polling, including without a timeout.
     AgentWait(AgentWaitParams),
     #[serde(rename = "pane.split")]
     PaneSplit(PaneSplitParams),

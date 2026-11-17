@@ -45,6 +45,7 @@ fn main() {
     println!("cargo:rerun-if-env-changed=KITSUNE_BUILD_ID");
     println!("cargo:rerun-if-env-changed=KITSUNE_BUILD_COMMIT");
     println!("cargo:rerun-if-env-changed=ZIG");
+    println!("cargo:rerun-if-env-changed=LIBGHOSTTY_VT_OUT_DIR");
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let vendored_dir = manifest_dir.join("vendor/libghostty-vt");
@@ -67,6 +68,10 @@ fn main() {
         .arg(format!("-Dtarget={zig_target}"))
         .arg(format!("-Dversion-string={version_string}"))
         .arg("-Demit-xcframework=false");
+    let output_dir = env::var_os("LIBGHOSTTY_VT_OUT_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| vendored_dir.join("zig-out"));
+    command.arg("--prefix").arg(&output_dir);
     if let Ok(system_dir) = env::var("LIBGHOSTTY_VT_ZIG_SYSTEM_DIR") {
         command.arg("--system").arg(system_dir);
     }
@@ -80,7 +85,7 @@ fn main() {
         "zig build for vendored libghostty-vt failed: {status}"
     );
 
-    let lib_dir = vendored_dir.join("zig-out/lib");
+    let lib_dir = output_dir.join("lib");
     println!("cargo:rustc-link-search=native={}", lib_dir.display());
     if target.contains("apple-darwin") {
         let static_lib = lib_dir.join("libghostty-vt.a");

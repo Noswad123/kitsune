@@ -1395,10 +1395,7 @@ mod tests {
         .await;
 
         assert!(app.state.popup_pane.is_some());
-        assert!(!app
-            .popup_runtime()
-            .unwrap()
-            .agent_detection_enabled_for_test());
+        assert!(app.popup_runtime().is_some());
         assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
         assert!(!app.state.workspaces[0].tabs[0].zoomed);
         assert_eq!(app.state.mode, Mode::Terminal);

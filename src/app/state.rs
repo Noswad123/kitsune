@@ -1338,29 +1338,6 @@ pub struct ToastNotification {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PendingAgentNotification {
-    pub pane_id: PaneId,
-    pub workspace_id: String,
-    pub agent_label: String,
-    pub known_agent: Option<crate::detect::Agent>,
-    pub kind: ToastKind,
-    pub state: AgentState,
-    pub deadline: std::time::Instant,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentNotificationDelivery {
-    pub pane_id: PaneId,
-    pub workspace_id: String,
-    pub agent_label: String,
-    pub known_agent: Option<crate::detect::Agent>,
-    pub kind: ToastKind,
-    pub toast: Option<ToastNotification>,
-    pub client_notification: Option<ToastNotification>,
-    pub sound: Option<crate::sound::Sound>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CopyFeedback {
     pub message: String,
 }
@@ -1482,7 +1459,6 @@ pub struct AppState {
     pub latest_release_notes_available: bool,
     pub config_diagnostic: Option<String>,
     pub toast: Option<ToastNotification>,
-    pub pending_agent_notifications: std::collections::HashMap<PaneId, PendingAgentNotification>,
     pub copy_feedback: Option<CopyFeedback>,
     /// Last reported focus state for the outer terminal hosting kitsune.
     /// None means unsupported or not yet reported, which preserves active-pane suppression.
@@ -1503,10 +1479,10 @@ pub struct AppState {
     pub sidebar_section_split: f32,
     pub agent_panel_sort: AgentPanelSort,
     /// Transient session-wide projection override for the built-in Agents view.
+    #[cfg(test)]
     pub agent_view_override: Option<crate::api::schema::AgentViewSetParams>,
     pub sidebar_agents: crate::config::AgentsSidebarConfig,
     pub sidebar_spaces: crate::config::SpacesSidebarConfig,
-    pub next_agent_state_change_seq: u64,
     /// Capture mouse input for Kitsune's own mouse UI. When false, Kitsune only
     /// captures mouse while the focused pane app requests mouse reporting.
     pub mouse_capture: bool,
@@ -1526,10 +1502,6 @@ pub struct AppState {
     /// Expose the focused pane's cursor anchor to the outer terminal even when
     /// the pane requested `?25l`. See `[experimental] reveal_hidden_cursor_for_cjk_ime`.
     pub reveal_hidden_cursor_for_cjk_ime: bool,
-    /// Restrict cursor reveal to focused panes whose detected agent matches
-    /// one of these. When false, apply to any focused pane.
-    pub cjk_ime_agent_filter_configured: bool,
-    pub cjk_ime_agents: Vec<crate::detect::Agent>,
     /// DECSCUSR shape parameter (1–6) for the IME anchor cursor.
     pub cjk_ime_cursor_shape: u8,
     /// While prefix mode is active, switch the macOS host input source to an
@@ -1561,14 +1533,6 @@ pub struct AppState {
     pub host_terminal_appearance_explicit: bool,
     /// Settings panel state.
     pub settings: SettingsState,
-    /// Cached integration recommendations for onboarding/settings UI.
-    pub integration_recommendations: Vec<crate::integration::IntegrationRecommendation>,
-    /// Cached detection manifest source/version summaries for runtime/API status.
-    pub agent_manifest_summaries: Vec<crate::detect::manifest::AgentManifestSummary>,
-    /// Cached remote detection manifest update diagnostics for runtime/API status.
-    pub agent_manifest_update_status: crate::detect::manifest_update::ManifestUpdateStatus,
-    /// Result messages from the latest integration install action.
-    pub integration_install_messages: Vec<String>,
     /// Runtime image layers owned by API clients and composited over panes.
     pub(crate) pane_graphics_layers: std::collections::HashMap<PaneId, PaneGraphicsLayer>,
     /// Active streaming graphics owner token by pane id.
@@ -1627,26 +1591,16 @@ impl AppState {
         true
     }
 
-    pub(crate) fn integration_updates_available(&self) -> bool {
-        self.integration_recommendations
-            .iter()
-            .any(|item| item.state == crate::integration::IntegrationStatusKind::Outdated)
-    }
-
-    pub(crate) fn refresh_agent_manifest_summaries(&mut self) {
-        self.agent_manifest_summaries = crate::detect::manifest::manifest_summaries();
-    }
-
     pub(crate) fn global_menu_attention_badge_visible(&self) -> bool {
-        self.integration_updates_available()
+        false
     }
 
-    pub(crate) fn global_menu_item_has_badge(&self, item: &str) -> bool {
-        item == "settings" && self.integration_updates_available()
+    pub(crate) fn global_menu_item_has_badge(&self, _item: &str) -> bool {
+        false
     }
 
-    pub(crate) fn settings_section_has_badge(&self, section: SettingsSection) -> bool {
-        section == SettingsSection::Integrations && self.integration_updates_available()
+    pub(crate) fn settings_section_has_badge(&self, _section: SettingsSection) -> bool {
+        false
     }
 
     pub(crate) fn focused_pane_requests_mouse_capture_from(
@@ -1862,7 +1816,6 @@ impl AppState {
             latest_release_notes_available: false,
             config_diagnostic: None,
             toast: None,
-            pending_agent_notifications: std::collections::HashMap::new(),
             copy_feedback: None,
             outer_terminal_focus: None,
             prefix_code: KeyCode::Char('b'),
@@ -1881,7 +1834,6 @@ impl AppState {
             agent_view_override: None,
             sidebar_agents: crate::config::AgentsSidebarConfig::default(),
             sidebar_spaces: crate::config::SpacesSidebarConfig::default(),
-            next_agent_state_change_seq: 0,
             mouse_capture: true,
             copy_on_select: true,
             right_click_passthrough_modifiers: None,
@@ -1897,8 +1849,6 @@ impl AppState {
             hide_tab_bar_when_single_tab: false,
             pane_history_persistence: false,
             reveal_hidden_cursor_for_cjk_ime: false,
-            cjk_ime_agent_filter_configured: false,
-            cjk_ime_agents: Vec::new(),
             cjk_ime_cursor_shape: 2, // steady_block
             switch_ascii_input_source_in_prefix: false,
             default_shell: String::new(),
@@ -1932,11 +1882,6 @@ impl AppState {
                 original_palette: None,
                 original_theme: None,
             },
-            integration_recommendations: Vec::new(),
-            agent_manifest_summaries: Vec::new(),
-            agent_manifest_update_status:
-                crate::detect::manifest_update::ManifestUpdateStatus::default(),
-            integration_install_messages: Vec::new(),
             pane_graphics_layers: std::collections::HashMap::new(),
             pane_graphics_streams: std::collections::HashMap::new(),
             pane_graphics_revision: 0,
@@ -1999,10 +1944,6 @@ impl AppState {
             assert!(
                 self.previous_pane_focus.is_none(),
                 "empty app state must not keep previous pane focus"
-            );
-            assert!(
-                self.pending_agent_notifications.is_empty(),
-                "empty app state must not keep pending agent notifications"
             );
             assert!(
                 self.copy_mode.is_none(),
@@ -2152,17 +2093,6 @@ impl AppState {
             if let Some(target) = &toast.target {
                 assert_workspace_pane(&target.workspace_id, target.pane_id, "toast target");
             }
-        }
-        for (&pane_id, notification) in &self.pending_agent_notifications {
-            assert_eq!(
-                pane_id, notification.pane_id,
-                "pending agent notification map key must match payload pane id"
-            );
-            assert_workspace_pane(
-                &notification.workspace_id,
-                notification.pane_id,
-                "pending agent notification",
-            );
         }
         if let Some(popup) = &self.popup_pane {
             assert!(

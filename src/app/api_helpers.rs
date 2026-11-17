@@ -1,13 +1,3 @@
-pub(super) fn tab_attention_priority(state: crate::detect::AgentState, seen: bool) -> u8 {
-    match (state, seen) {
-        (crate::detect::AgentState::Blocked, _) => 4,
-        (crate::detect::AgentState::Idle, false) => 3,
-        (crate::detect::AgentState::Working, _) => 2,
-        (crate::detect::AgentState::Idle, true) => 1,
-        (crate::detect::AgentState::Unknown, _) => 0,
-    }
-}
-
 fn parse_api_key(key: &str) -> Option<crossterm::event::KeyEvent> {
     let normalized = normalize_api_key_alias(key.trim());
     let (code, modifiers) = crate::config::parse_key_combo(normalized)?;
@@ -75,17 +65,6 @@ pub(super) fn encode_api_input(
         bytes.extend_from_slice(&encoded);
     }
     Ok(bytes)
-}
-
-pub(super) fn detect_state_from_api(
-    state: crate::api::schema::PaneAgentState,
-) -> crate::detect::AgentState {
-    match state {
-        crate::api::schema::PaneAgentState::Idle => crate::detect::AgentState::Idle,
-        crate::api::schema::PaneAgentState::Working => crate::detect::AgentState::Working,
-        crate::api::schema::PaneAgentState::Blocked => crate::detect::AgentState::Blocked,
-        crate::api::schema::PaneAgentState::Unknown => crate::detect::AgentState::Unknown,
-    }
 }
 
 pub(super) fn pane_agent_status(
@@ -178,17 +157,6 @@ mod read_snapshot_tests {
         assert_eq!(snapshot.text, "one\ntwo\n");
         assert!(!snapshot.truncated);
     }
-}
-
-pub(super) fn normalize_reported_agent_label(agent: &str) -> Option<String> {
-    let trimmed = agent.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    if let Some(agent) = crate::detect::parse_agent_label(trimmed) {
-        return Some(crate::detect::agent_label(agent).to_string());
-    }
-    Some(trimmed.to_string())
 }
 
 pub(super) const METADATA_TTL_MAX_MS: u64 = 86_400_000;

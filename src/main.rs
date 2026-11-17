@@ -143,11 +143,6 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # "current" for Kitsune's process directory, or a fixed path such as "~/Projects".
 # new_cwd = "follow"
 
-[agent_detection]
-# Check for remote agent-detection manifest updates in the background.
-# Disabled by default in this fork unless KITSUNE_AGENT_DETECTION_MANIFEST_CATALOG_URL is set.
-# manifest_check = false
-
 [keys]
 # Prefix key to enter prefix mode (default: "ctrl+b")
 # Examples: "ctrl+b", "f12", "esc", "-"
@@ -368,9 +363,7 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # droid = "off"
 
 [session]
-# Resume supported AI-agent panes into their native conversation sessions after
-# a Kitsune server restart. Requires official integrations that report session refs.
-# resume_agents_on_restore = true
+# Automatic agent resume is retired. Saved session references are history only.
 
 [remote]
 # Whether Kitsune manages the ssh config used for `kitsune --remote`.
@@ -400,12 +393,8 @@ pane_history = false
 # cursor (Claude Code, pi, codex). Trade-off: extra cursor visible for
 # apps that hide it without painting a replacement (vim normal mode, etc.).
 # reveal_hidden_cursor_for_cjk_ime = false
-# Optional allow-list: only reveal for focused panes whose detected agent
-# matches one of these names. Empty means apply to any focused pane.
-# If the list contains no valid names, the reveal does not apply.
-# Accepted: pi, claude, codex, gemini, cursor, devin, cline, opencode,
-# copilot, kimi, kiro, droid, amp, grok, hermes, kilo, qodercli, qoder.
-# cjk_ime_agents = []
+# The former cjk_ime_agents allow-list is retired and ignored. Only the
+# explicit reveal_hidden_cursor_for_cjk_ime boolean enables cursor reveal.
 # Cursor shape rendered when reveal_hidden_cursor_for_cjk_ime is true.
 # Values: block, steady_block (default), underline, steady_underline, bar, steady_bar.
 # cjk_ime_cursor_shape = "steady_block"

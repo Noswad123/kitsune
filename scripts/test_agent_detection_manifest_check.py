@@ -1,3 +1,6 @@
+import os
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -28,6 +31,37 @@ path = "{path}"
 
 
 class AgentDetectionManifestCheckTests(unittest.TestCase):
+    def test_reads_engine_version_from_retained_default_source(self):
+        self.assertEqual(
+            check.ENGINE_SOURCE,
+            check.PROJECT_ROOT / "src" / "detect" / "manifest" / "static_version.rs",
+        )
+        self.assertEqual(check.read_engine_version(None), 3)
+
+    def test_default_cli_validates_current_bundled_rules_without_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            env = {
+                **os.environ,
+                "HOME": str(root / "home"),
+                "XDG_CONFIG_HOME": str(root / "config"),
+                "XDG_CACHE_HOME": str(root / "cache"),
+                "XDG_STATE_HOME": str(root / "state"),
+                "KITSUNE_SOCKET_PATH": str(root / "unused.sock"),
+            }
+            result = subprocess.run(
+                [sys.executable, "-B", str(Path(check.__file__).resolve())],
+                cwd=root,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "agent detection manifests ok\n")
+            self.assertEqual(result.stderr, "")
+            self.assertEqual(list(root.iterdir()), [])
+
     def test_validates_bundled_and_matching_website_catalog(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

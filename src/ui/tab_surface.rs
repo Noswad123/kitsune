@@ -119,16 +119,7 @@ pub(crate) fn tab_surface_cursor(
         return None;
     }
     let scrolled_back = super::panes::pane_is_scrolled_back(runtime);
-    let reveal = app.reveal_hidden_cursor_for_cjk_ime
-        && (!app.cjk_ime_agent_filter_configured || {
-            let detected = app
-                .workspaces
-                .get(ws_idx)
-                .and_then(|ws| ws.terminal_id(info.id))
-                .and_then(|terminal_id| app.terminals.get(terminal_id))
-                .and_then(|terminal| terminal.detected_agent());
-            detected.is_some_and(|agent| app.cjk_ime_agents.contains(&agent))
-        });
+    let reveal = app.reveal_hidden_cursor_for_cjk_ime;
 
     if let Some(cursor) = runtime.cursor_state(info.inner_rect, true) {
         let visible = if reveal {
@@ -165,6 +156,45 @@ mod tests {
     use ratatui::backend::TestBackend;
     use ratatui::layout::Direction;
     use ratatui::Terminal;
+
+    #[tokio::test]
+    async fn retired_cjk_allowlist_does_not_override_explicit_generic_cursor_reveal() {
+        for reveal in [false, true] {
+            for old_value in ["['claude']", "['unknown']", "42"] {
+                let config: crate::config::Config = toml::from_str(&format!(
+                    "[experimental]\nreveal_hidden_cursor_for_cjk_ime = {reveal}\ncjk_ime_agents = {old_value}"
+                )).unwrap();
+                let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+                let mut app = crate::app::App::new(
+                    &config,
+                    true,
+                    None,
+                    api_rx,
+                    crate::api::EventHub::default(),
+                );
+                let mut workspace = Workspace::test_new("generic-cursor");
+                let pane_id = workspace.tabs[0].root_pane;
+                workspace.insert_test_runtime(
+                    pane_id,
+                    crate::terminal::TerminalRuntime::test_with_screen_bytes(
+                        20,
+                        5,
+                        b"left\x1b[?25l",
+                    ),
+                );
+                app.state.workspaces = vec![workspace];
+                app.state.ensure_test_terminals();
+                app.state.active = Some(0);
+                app.state.mode = Mode::Terminal;
+                let (_, cursor) = crate::server::render_stream::render_virtual(
+                    &mut app.state,
+                    Rect::new(0, 0, 80, 24),
+                    true,
+                );
+                assert_eq!(cursor.unwrap().visible, reveal, "old allowlist {old_value}");
+            }
+        }
+    }
 
     #[tokio::test]
     async fn explicit_surface_layout_drives_render_cursor_and_hyperlinks() {

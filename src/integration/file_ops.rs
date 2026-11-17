@@ -36,18 +36,3 @@ pub(crate) fn remove_legacy_bash_hook_file(hook_path: &Path) -> io::Result<bool>
 pub(crate) fn remove_legacy_bash_hook_file(_hook_path: &Path) -> io::Result<bool> {
     Ok(false)
 }
-
-// Only retained legacy installers need executable hook assets.
-#[cfg(any(test, not(target_os = "linux")))]
-pub(crate) fn make_executable(_path: &Path) -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-
-        let mut perms = fs::metadata(_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(_path, perms)?;
-    }
-
-    Ok(())
-}

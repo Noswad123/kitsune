@@ -1,5 +1,11 @@
 # Kitsune agent tracking: initial inspection
 
+> Historical source assessment, not current operating instructions. The live
+> detector/consumer pipeline and all live agent APIs are now globally retired.
+> Deleted-path references and lifecycle descriptions below are preserved as evidence
+> only. Use generic pane/terminal APIs, not the old agent read/status workflow.
+> See [current retirement and validation](AGENT_CONTROL_RETIREMENT.md).
+
 Date: **2026-10-22**. Source baseline: `24f50511`, plus documentation-only
 changes. This is a read-only source assessment for [APP_BOUNDARIES.md](APP_BOUNDARIES.md),
 not an extraction, a shipped provider interface, or validation of live sessions.

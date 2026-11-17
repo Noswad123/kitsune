@@ -824,7 +824,7 @@ mod tests {
         #[cfg(unix)]
         {
             let _ = name;
-            PathBuf::from("/tmp").join(filename)
+            std::env::temp_dir().join(filename)
         }
         #[cfg(windows)]
         {

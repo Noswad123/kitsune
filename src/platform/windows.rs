@@ -265,15 +265,6 @@ fn available_pane_shell_from_snapshot(child_pid: u32, entries: &[ProcessEntry]) 
         .then(|| shell.name.clone())
 }
 
-pub fn foreground_group_leader_job(process_group_id: u32) -> Option<ForegroundJob> {
-    let entries = cached_foreground_processes();
-    let entry = entries.iter().find(|entry| entry.pid == process_group_id)?;
-    Some(ForegroundJob {
-        process_group_id,
-        processes: vec![foreground_process_from_entry(entry)],
-    })
-}
-
 pub fn foreground_process_group_id(child_pid: u32) -> Option<u32> {
     let entries = cached_foreground_processes();
     select_pane_foreground_job(child_pid, &entries).map(|job| job.process_group_id)

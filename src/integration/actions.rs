@@ -1,141 +1,14 @@
 use std::io;
 
-use super::registry::{integration_target_label, integration_target_supported};
+use super::registry::integration_target_label;
 use super::targets::{
     uninstall_claude, uninstall_codex, uninstall_copilot, uninstall_opencode, uninstall_pi,
 };
-use super::version::{agent_version_requirement, enforce_agent_version};
 
 pub(crate) fn install_target(
-    target: crate::api::schema::IntegrationTarget,
+    _target: crate::api::schema::IntegrationTarget,
 ) -> io::Result<Vec<String>> {
-    // Coven's replacement mutator is Linux-only until other platform adapters are ready.
-    #[cfg(target_os = "linux")]
-    if target == crate::api::schema::IntegrationTarget::Pi {
-        return Err(io::Error::other(super::PI_COVEN_GUIDANCE));
-    }
-    #[cfg(target_os = "linux")]
-    if target == crate::api::schema::IntegrationTarget::Claude {
-        return Err(io::Error::other(super::CLAUDE_COVEN_GUIDANCE));
-    }
-    #[cfg(target_os = "linux")]
-    if target == crate::api::schema::IntegrationTarget::Codex {
-        return Err(io::Error::other(super::CODEX_COVEN_GUIDANCE));
-    }
-    #[cfg(target_os = "linux")]
-    if target == crate::api::schema::IntegrationTarget::Copilot {
-        return Err(io::Error::other(super::COPILOT_COVEN_GUIDANCE));
-    }
-    #[cfg(target_os = "linux")]
-    if target == crate::api::schema::IntegrationTarget::Opencode {
-        return Err(io::Error::other(super::OPENCODE_COVEN_GUIDANCE));
-    }
-    let result = install_target_inner(target);
-    let outcome = if result.is_ok() { "ok" } else { "error" };
-    crate::logging::integration_action("install", integration_target_label(target), outcome);
-    result
-}
-
-fn install_target_inner(target: crate::api::schema::IntegrationTarget) -> io::Result<Vec<String>> {
-    if !integration_target_supported(target) {
-        return Err(io::Error::other(format!(
-            "{} integration is not supported on Windows",
-            integration_target_label(target)
-        )));
-    }
-
-    let version_warning = match agent_version_requirement(target) {
-        Some(requirement) => enforce_agent_version(&requirement)?,
-        None => None,
-    };
-
-    let mut messages = match target {
-        #[cfg(target_os = "linux")]
-        crate::api::schema::IntegrationTarget::Pi => {
-            return Err(io::Error::other(super::PI_COVEN_GUIDANCE));
-        }
-        #[cfg(not(target_os = "linux"))]
-        crate::api::schema::IntegrationTarget::Pi => {
-            let path = super::targets::legacy_install_pi()?;
-            vec![format!("installed pi integration to {}", path.display())]
-        }
-        #[cfg(target_os = "linux")]
-        crate::api::schema::IntegrationTarget::Claude => {
-            return Err(io::Error::other(super::CLAUDE_COVEN_GUIDANCE));
-        }
-        #[cfg(not(target_os = "linux"))]
-        crate::api::schema::IntegrationTarget::Claude => {
-            let installed = super::targets::legacy_install_claude()?;
-            vec![
-                format!(
-                    "installed claude integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!(
-                    "ensured claude settings at {}",
-                    installed.settings_path.display()
-                ),
-            ]
-        }
-        #[cfg(target_os = "linux")]
-        crate::api::schema::IntegrationTarget::Codex => {
-            return Err(io::Error::other(super::CODEX_COVEN_GUIDANCE));
-        }
-        #[cfg(not(target_os = "linux"))]
-        crate::api::schema::IntegrationTarget::Codex => {
-            let installed = super::targets::legacy_install_codex()?;
-            vec![
-                format!(
-                    "installed codex integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!("ensured codex hooks at {}", installed.hooks_path.display()),
-                format!(
-                    "ensured codex config at {}",
-                    installed.config_path.display()
-                ),
-            ]
-        }
-        #[cfg(target_os = "linux")]
-        crate::api::schema::IntegrationTarget::Copilot => {
-            return Err(io::Error::other(super::COPILOT_COVEN_GUIDANCE));
-        }
-        #[cfg(not(target_os = "linux"))]
-        crate::api::schema::IntegrationTarget::Copilot => {
-            let installed = super::targets::legacy_install_copilot()?;
-            vec![
-                format!(
-                    "installed copilot integration hook to {}",
-                    installed.hook_path.display()
-                ),
-                format!(
-                    "ensured copilot settings at {}",
-                    installed.settings_path.display()
-                ),
-            ]
-        }
-        #[cfg(target_os = "linux")]
-        crate::api::schema::IntegrationTarget::Opencode => {
-            return Err(io::Error::other(super::OPENCODE_COVEN_GUIDANCE));
-        }
-        #[cfg(not(target_os = "linux"))]
-        crate::api::schema::IntegrationTarget::Opencode => {
-            let installed = super::targets::legacy_install_opencode()?;
-            vec![format!(
-                "installed opencode integration plugin to {}",
-                installed.plugin_path.display()
-            )]
-        }
-        crate::api::schema::IntegrationTarget::Djinn => {
-            vec!["djinn integration is built in; no external installer is required".to_string()]
-        }
-    };
-
-    if let Some(warning) = version_warning {
-        messages.push(warning);
-    }
-
-    Ok(messages)
+    Err(io::Error::other(super::INSTALL_RETIRED_GUIDANCE))
 }
 
 pub(crate) fn uninstall_target(

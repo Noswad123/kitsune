@@ -601,12 +601,8 @@ fn runtime_dir_owner_alive(runtime_dir: &Path) -> bool {
     process_exists(owner_pid)
 }
 
-fn current_checkout_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-}
-
 fn is_test_kitsune_binary(path: &Path) -> bool {
-    path.ends_with("target/debug/kitsune") && path.starts_with(current_checkout_root())
+    path == Path::new(env!("CARGO_BIN_EXE_kitsune"))
 }
 
 extern "C" fn run_atexit_cleanup() {
@@ -730,9 +726,9 @@ mod tests {
 
     #[test]
     fn test_binary_matcher_accepts_current_checkout_debug_binary() {
-        let binary = current_checkout_root().join("target/debug/kitsune");
+        let binary = Path::new(env!("CARGO_BIN_EXE_kitsune"));
         assert!(
-            is_test_kitsune_binary(&binary),
+            is_test_kitsune_binary(binary),
             "current checkout debug binary should be considered test-owned"
         );
     }

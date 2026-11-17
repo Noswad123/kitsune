@@ -13,31 +13,15 @@ use crate::pane::{PaneLaunchEnv, PaneState};
 use crate::terminal::{TerminalId, TerminalRuntime, TerminalState};
 use crate::workspace::Workspace;
 
-use super::snapshot::{
-    PaneAgentSessionSnapshot, PaneHistorySnapshot, TabHistorySnapshot, WorkspaceHistorySnapshot,
-};
+use super::snapshot::{PaneAgentSessionSnapshot, TabHistorySnapshot, WorkspaceHistorySnapshot};
 use super::{
     DirectionSnapshot, LayoutSnapshot, SessionHistorySnapshot, SessionSnapshot, TabSnapshot,
     WorkspaceSnapshot,
 };
 
-struct AgentRestoreState<'a> {
-    enabled: bool,
-    external_agent_management: bool,
-    resumed_sessions: &'a mut HashSet<String>,
-}
-
-struct PaneRestoreStartup<'a> {
-    restore_plan: Option<crate::agent_resume::AgentResumePlan>,
-    initial_history_ansi: Option<&'a str>,
-    duplicate_agent_session: bool,
-    reserved_agent_session: Option<String>,
-}
-
 struct RestoreRuntimeContext<'a> {
     scrollback_limit_bytes: usize,
     shell_config: crate::pane::PaneShellConfig<'a>,
-    resume_agents_on_restore: bool,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
     render_dirty: Arc<AtomicBool>,
@@ -70,7 +54,6 @@ pub fn restore(
     scrollback_limit_bytes: usize,
     default_shell: &str,
     shell_mode: crate::config::ShellModeConfig,
-    resume_agents_on_restore: bool,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
     render_dirty: Arc<AtomicBool>,
@@ -83,7 +66,6 @@ pub fn restore(
         cols,
         scrollback_limit_bytes,
         crate::pane::PaneShellConfig::new(default_shell, shell_mode),
-        resume_agents_on_restore,
         &mut imported_panes,
         events,
         render_notify,
@@ -109,7 +91,6 @@ pub fn restore_handoff(
         80,
         scrollback_limit_bytes,
         crate::pane::PaneShellConfig::new(default_shell, shell_mode),
-        true,
         imports,
         events,
         render_notify,
@@ -192,7 +173,6 @@ fn restore_with_imports_strict(
     cols: u16,
     scrollback_limit_bytes: usize,
     shell_config: crate::pane::PaneShellConfig<'_>,
-    resume_agents_on_restore: bool,
     imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
@@ -205,7 +185,6 @@ fn restore_with_imports_strict(
         cols,
         scrollback_limit_bytes,
         shell_config,
-        resume_agents_on_restore,
         imported_panes,
         events,
         render_notify,
@@ -232,7 +211,6 @@ fn restore_with_imports(
     cols: u16,
     scrollback_limit_bytes: usize,
     shell_config: crate::pane::PaneShellConfig<'_>,
-    resume_agents_on_restore: bool,
     imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
@@ -245,7 +223,6 @@ fn restore_with_imports(
         cols,
         scrollback_limit_bytes,
         shell_config,
-        resume_agents_on_restore,
         imported_panes,
         events,
         render_notify,
@@ -261,7 +238,6 @@ fn restore_with_imports_and_failures(
     cols: u16,
     scrollback_limit_bytes: usize,
     shell_config: crate::pane::PaneShellConfig<'_>,
-    resume_agents_on_restore: bool,
     imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
     events: mpsc::Sender<AppEvent>,
     render_notify: Arc<Notify>,
@@ -270,13 +246,11 @@ fn restore_with_imports_and_failures(
     let mut workspaces = Vec::new();
     let mut terminals = HashMap::new();
     let mut terminal_runtimes = HashMap::new();
-    let mut resumed_agent_sessions = HashSet::new();
     let mut failed_imports = 0;
     for (idx, ws_snap) in snapshot.workspaces.iter().enumerate() {
         let runtime_context = RestoreRuntimeContext {
             scrollback_limit_bytes,
             shell_config,
-            resume_agents_on_restore,
             events: events.clone(),
             render_notify: render_notify.clone(),
             render_dirty: render_dirty.clone(),
@@ -287,7 +261,6 @@ fn restore_with_imports_and_failures(
             rows,
             cols,
             &runtime_context,
-            &mut resumed_agent_sessions,
             imported_panes,
         );
         failed_imports += workspace_failed_imports;
@@ -309,7 +282,6 @@ fn restore_workspace(
     rows: u16,
     cols: u16,
     runtime_context: &RestoreRuntimeContext<'_>,
-    resumed_agent_sessions: &mut HashSet<String>,
     imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
 ) -> RestoreFailures<Option<RestoredWorkspace>> {
     let mut tabs = Vec::new();
@@ -363,7 +335,6 @@ fn restore_workspace(
             rows,
             cols,
             runtime_context,
-            resumed_agent_sessions,
             imported_panes,
             &public_pane_ids_by_old_raw,
         );
@@ -451,7 +422,6 @@ fn restore_tab(
     rows: u16,
     cols: u16,
     runtime_context: &RestoreRuntimeContext<'_>,
-    resumed_agent_sessions: &mut HashSet<String>,
     imported_panes: &mut HashMap<u32, crate::handoff_runtime::ImportedHandoffRuntime>,
     public_pane_ids_by_old_raw: &HashMap<u32, String>,
 ) -> RestoreFailures<Option<RestoredTab>> {
@@ -499,21 +469,8 @@ fn restore_tab(
         let saved_agent_session = saved_pane.and_then(|p| p.agent_session.as_ref());
         let saved_history =
             old_id.and_then(|old_id| history.and_then(|history| history.panes.get(old_id)));
-        let startup = {
-            let mut agent_restore = AgentRestoreState {
-                enabled: runtime_context.resume_agents_on_restore,
-                external_agent_management: crate::config::external_agent_management(),
-                resumed_sessions: resumed_agent_sessions,
-            };
-            pane_restore_startup(saved_agent_session, saved_history, &mut agent_restore)
-        };
         let restored_agent_session =
-            restored_terminal_agent_session(saved_agent_session, startup.duplicate_agent_session);
-        let initial_restore_agent = startup
-            .restore_plan
-            .as_ref()
-            .and_then(|plan| crate::detect::parse_agent_label(&plan.agent));
-
+            saved_agent_session.and_then(persisted_agent_session_from_snapshot);
         let old_pane_id = reverse_id_map.get(id).copied();
         let public_pane_id = old_pane_id
             .and_then(|old_id| public_pane_ids_by_old_raw.get(&old_id))
@@ -529,36 +486,6 @@ fn restore_tab(
             .unwrap_or_default();
         let imported_runtime = old_pane_id.and_then(|old_id| imported_panes.remove(&old_id));
         let was_imported = imported_runtime.is_some();
-        let pending_native_agent_restore = if was_imported {
-            None
-        } else {
-            startup.restore_plan.clone()
-        };
-        if let Some(plan) = pending_native_agent_restore {
-            let terminal_id = TerminalId::alloc();
-            let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone())
-                .with_pending_agent_resume_plan(plan);
-            if let Some(label) = saved_label {
-                terminal.set_manual_label(label);
-            }
-            if let Some(session) = restored_agent_session {
-                terminal.set_persisted_agent_session(session);
-            }
-            match (saved_agent_name, saved_managed_agent) {
-                (Some(agent_name), Some(agent)) => {
-                    terminal.restore_managed_agent(agent_name, agent)
-                }
-                (Some(_), None) => {}
-                (None, _) => {}
-            }
-            if let Some(agent) = initial_restore_agent {
-                let _ = terminal.seed_restored_agent_identity(agent);
-            }
-            panes.insert(*id, PaneState::new(terminal_id));
-            terminals.push(terminal);
-            continue;
-        }
-
         #[cfg(not(unix))]
         if imported_runtime.is_some() {
             failed_imports += 1;
@@ -589,7 +516,7 @@ fn restore_tab(
                     crate::terminal_theme::TerminalTheme::default(),
                     runtime_context.shell_config,
                     &launch_env,
-                    startup.initial_history_ansi,
+                    saved_history.map(|history| history.ansi.as_str()),
                     runtime_context.events.clone(),
                     runtime_context.render_notify.clone(),
                     runtime_context.render_dirty.clone(),
@@ -607,7 +534,7 @@ fn restore_tab(
                     crate::terminal_theme::TerminalTheme::default(),
                     runtime_context.shell_config,
                     &launch_env,
-                    startup.initial_history_ansi,
+                    saved_history.map(|history| history.ansi.as_str()),
                     runtime_context.events.clone(),
                     runtime_context.render_notify.clone(),
                     runtime_context.render_dirty.clone(),
@@ -619,43 +546,23 @@ fn restore_tab(
             Ok(runtime) => {
                 let terminal_id = TerminalId::alloc();
                 let mut terminal = TerminalState::new(terminal_id.clone(), cwd.clone());
-                if was_imported {
-                    if let Some(argv) = saved_launch_argv {
-                        terminal = terminal.with_launch_argv(argv).with_respawn_shell_on_exit();
-                    }
-                }
+                // Saved argv is launch history, not a cold-restore command.
+                terminal.launch_argv = saved_launch_argv;
+                terminal.respawn_shell_on_exit = was_imported
+                    && saved_pane.is_some_and(|pane| pane.respawn_shell_on_exit == Some(true));
                 if let Some(label) = saved_label {
                     terminal.set_manual_label(label);
                 }
                 if let Some(session) = restored_agent_session {
                     terminal.set_persisted_agent_session(session);
                 }
-                match (saved_agent_name, saved_managed_agent) {
-                    (Some(agent_name), Some(agent))
-                        if was_imported && !crate::config::external_agent_management() =>
-                    {
-                        terminal.restore_managed_agent(agent_name, agent)
-                    }
-                    (Some(_), Some(_)) => {}
-                    (Some(agent_name), None)
-                        if was_imported && !crate::config::external_agent_management() =>
-                    {
-                        terminal.set_agent_name(agent_name)
-                    }
-                    (Some(_), None) => {}
-                    (None, _) => {}
-                }
-                if let Some(agent) = initial_restore_agent {
-                    let _ = terminal.seed_restored_agent_identity(agent);
-                }
+                terminal.agent_name = saved_agent_name;
+                terminal.historical_managed_agent = saved_managed_agent;
                 panes.insert(*id, PaneState::new(terminal_id.clone()));
                 terminal_runtimes.insert(terminal_id, runtime);
                 terminals.push(terminal);
             }
             Err(e) => {
-                if let Some(key) = startup.reserved_agent_session.as_deref() {
-                    resumed_agent_sessions.remove(key);
-                }
                 if was_imported {
                     failed_imports += 1;
                     error!(
@@ -724,66 +631,6 @@ fn restore_tab(
     )
 }
 
-fn pane_restore_startup<'a>(
-    session: Option<&PaneAgentSessionSnapshot>,
-    history: Option<&'a PaneHistorySnapshot>,
-    agent_restore: &mut AgentRestoreState<'_>,
-) -> PaneRestoreStartup<'a> {
-    // Native agent resume owns the conversation history. If a pane has a
-    // resumable agent session and resume is enabled, do not replay saved pane
-    // presentation history into that terminal, even when this pane is a
-    // duplicate suppressed by session de-duplication.
-    let restore_plan = session.and_then(|session| {
-        restore_plan_for_snapshot(
-            session,
-            agent_restore.enabled && !agent_restore.external_agent_management,
-        )
-    });
-    let has_native_agent_restore = restore_plan.is_some();
-    // Reserve before spawning so later panes in the same restore pass cannot
-    // launch the same native agent session. The caller rolls this reservation
-    // back if runtime spawn fails before any agent process is started.
-    let mut reserved_agent_session = None;
-    let duplicate_agent_session = restore_plan.as_ref().is_some_and(|plan| {
-        if agent_restore
-            .resumed_sessions
-            .insert(plan.dedupe_key.clone())
-        {
-            reserved_agent_session = Some(plan.dedupe_key.clone());
-            false
-        } else {
-            true
-        }
-    });
-    let restore_plan = if duplicate_agent_session {
-        None
-    } else {
-        restore_plan
-    };
-
-    PaneRestoreStartup {
-        restore_plan,
-        initial_history_ansi: if has_native_agent_restore {
-            None
-        } else {
-            history.map(|history| history.ansi.as_str())
-        },
-        duplicate_agent_session,
-        reserved_agent_session,
-    }
-}
-
-fn restore_plan_for_snapshot(
-    session: &PaneAgentSessionSnapshot,
-    resume_agents_on_restore: bool,
-) -> Option<crate::agent_resume::AgentResumePlan> {
-    if !resume_agents_on_restore {
-        return None;
-    }
-    let persisted = persisted_agent_session_from_snapshot(session)?;
-    crate::agent_resume::plan(&session.source, &session.agent, &persisted.session_ref)
-}
-
 fn persisted_agent_session_from_snapshot(
     session: &PaneAgentSessionSnapshot,
 ) -> Option<crate::agent_resume::PersistedAgentSession> {
@@ -793,26 +640,6 @@ fn persisted_agent_session_from_snapshot(
         session.kind,
         &session.value,
     )
-}
-
-fn restored_terminal_agent_session(
-    session: Option<&PaneAgentSessionSnapshot>,
-    duplicate_agent_session: bool,
-) -> Option<crate::agent_resume::PersistedAgentSession> {
-    if duplicate_agent_session {
-        return None;
-    }
-    session.and_then(persisted_agent_session_from_snapshot)
-}
-
-#[cfg(test)]
-fn take_restore_plan_for_snapshot(
-    session: &PaneAgentSessionSnapshot,
-    resume_agents_on_restore: bool,
-    resumed_agent_sessions: &mut HashSet<String>,
-) -> Option<crate::agent_resume::AgentResumePlan> {
-    restore_plan_for_snapshot(session, resume_agents_on_restore)
-        .filter(|plan| resumed_agent_sessions.insert(plan.dedupe_key.clone()))
 }
 
 pub(super) fn prune_restored_node(node: Node, surviving: &HashSet<PaneId>) -> Option<Node> {
@@ -909,12 +736,114 @@ fn collect_ids_inner(node: &Node, ids: &mut Vec<PaneId>) {
 mod tests {
     use super::*;
 
-    fn test_session_path(name: &str) -> String {
-        std::env::current_dir()
-            .unwrap()
-            .join(name)
-            .display()
-            .to_string()
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn handoff_preserves_only_explicit_live_respawn_policy_not_historical_argv() {
+        use std::os::fd::{FromRawFd, IntoRawFd, OwnedFd};
+        for (saved_policy, live_policy, has_argv) in [
+            (None, false, true),
+            (Some(true), false, true),
+            (None, true, true),
+            (None, true, false),
+        ] {
+            let argv = has_argv.then(|| {
+                vec![
+                    "/never-execute-historical-provider".to_string(),
+                    "--resume".into(),
+                    "old-ref".into(),
+                ]
+            });
+            let snapshot: SessionSnapshot = serde_json::from_value(serde_json::json!({
+                "version":3,"active":0,"selected":0,"workspaces":[{
+                    "id":"w1","identity_cwd":std::env::temp_dir(),"active_tab":0,
+                    "tabs":[{"layout":{"Pane":7},"zoomed":false,"panes":{"7":{
+                        "cwd":std::env::temp_dir(),"launch_argv":argv,"respawn_shell_on_exit":saved_policy,
+                        "agent_session":{"source":"kitsune:codex","agent":"codex","kind":"id","value":"old-ref"}
+                    }}}]
+                }]
+            })).unwrap();
+            let (events, _event_rx) = mpsc::channel(64);
+            let notify = Arc::new(Notify::new());
+            let dirty = Arc::new(AtomicBool::new(false));
+            let (workspaces, mut terminals, runtimes) = restore(
+                &snapshot,
+                None,
+                24,
+                80,
+                4096,
+                "/bin/sh",
+                crate::config::ShellModeConfig::NonLogin,
+                events.clone(),
+                notify.clone(),
+                dirty.clone(),
+            );
+            let mut runtimes: crate::terminal::TerminalRuntimeRegistry = runtimes.into();
+            let pane = workspaces[0].tabs[0].root_pane;
+            let id = workspaces[0].terminal_id(pane).unwrap().clone();
+            assert!(
+                !terminals[&id].respawn_shell_on_exit,
+                "cold restore must ignore saved live policy"
+            );
+            terminals.get_mut(&id).unwrap().respawn_shell_on_exit = live_policy;
+            let captured = crate::persist::capture(
+                &workspaces,
+                &terminals,
+                &runtimes,
+                Some(0),
+                0,
+                26,
+                0.5,
+                Default::default(),
+            );
+            let encoded = serde_json::to_vec(&captured).unwrap();
+            let transferred: SessionSnapshot = serde_json::from_slice(&encoded).unwrap();
+            let saved = &transferred.workspaces[0].tabs[0].panes[&pane.raw()];
+            assert_eq!(saved.respawn_shell_on_exit, live_policy.then_some(true));
+            let runtime = runtimes.get(&id).unwrap();
+            runtime
+                .pause_handoff_reader(std::time::Duration::from_secs(2))
+                .unwrap();
+            let fd = unsafe { OwnedFd::from_raw_fd(runtime.duplicate_handoff_fd().unwrap()) };
+            let state = runtime.handoff_runtime_state(pane.raw());
+            let mut imports = HashMap::from([(
+                pane.raw(),
+                crate::handoff_runtime::ImportedHandoffRuntime {
+                    master_fd: fd.into_raw_fd(),
+                    state,
+                },
+            )]);
+            let (_, imported_terminals, mut imported_runtimes) = restore_handoff(
+                &transferred,
+                4096,
+                "/bin/sh",
+                crate::config::ShellModeConfig::NonLogin,
+                &mut imports,
+                events,
+                notify,
+                dirty,
+            )
+            .unwrap();
+            assert!(imports.is_empty());
+            for runtime in imported_runtimes.values_mut() {
+                runtime.assume_handoff_ownership();
+            }
+            runtimes.remove(&id).unwrap().preserve_for_handoff();
+            let terminal = imported_terminals.values().next().unwrap();
+            assert_eq!(terminal.respawn_shell_on_exit, live_policy);
+            assert_eq!(terminal.launch_argv, argv);
+            assert_eq!(
+                terminal
+                    .persisted_agent_session
+                    .as_ref()
+                    .unwrap()
+                    .session_ref
+                    .value,
+                "old-ref"
+            );
+            for runtime in imported_runtimes.into_values() {
+                runtime.shutdown();
+            }
+        }
     }
 
     #[cfg(windows)]
@@ -1002,332 +931,6 @@ mod tests {
     }
 
     #[test]
-    fn restore_plan_respects_opt_in_and_allowlist() {
-        let pi_session_path = test_session_path("pi-session.jsonl");
-        let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "kitsune:pi".into(),
-            agent: "pi".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: pi_session_path.clone(),
-        };
-
-        assert!(restore_plan_for_snapshot(&session, false).is_none());
-        assert_eq!(
-            restore_plan_for_snapshot(&session, true).unwrap().argv,
-            vec!["pi", "--session", pi_session_path.as_str()]
-        );
-
-        let unsupported_path = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "kitsune:claude".into(),
-            agent: "claude".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: test_session_path("claude-session"),
-        };
-        assert!(restore_plan_for_snapshot(&unsupported_path, true).is_none());
-    }
-
-    #[test]
-    fn restore_plan_selection_suppresses_duplicates() {
-        let pi_session_path = test_session_path("pi-session.jsonl");
-        let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "kitsune:pi".into(),
-            agent: "pi".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: pi_session_path.clone(),
-        };
-        let mut resumed = HashSet::new();
-
-        assert!(take_restore_plan_for_snapshot(&session, false, &mut resumed).is_none());
-        assert!(resumed.is_empty());
-
-        let first = take_restore_plan_for_snapshot(&session, true, &mut resumed)
-            .expect("first restore should get a plan");
-        assert_eq!(
-            first.argv,
-            vec!["pi", "--session", pi_session_path.as_str()]
-        );
-        assert!(take_restore_plan_for_snapshot(&session, true, &mut resumed).is_none());
-    }
-
-    #[test]
-    fn pane_restore_startup_validates_before_reserving_and_suppresses_duplicate_identity() {
-        use crate::agent_resume::{
-            AgentResumePlan, AgentSessionRef, AgentSessionRefKind, PersistedAgentSession,
-        };
-
-        let valid = PaneAgentSessionSnapshot {
-            source: "kitsune:codex".into(),
-            agent: "codex".into(),
-            kind: AgentSessionRefKind::Id,
-            value: "shared-session".into(),
-        };
-        let history = PaneHistorySnapshot {
-            ansi: "STARTUP_HISTORY_SENTINEL\r\n".into(),
-            lines: 1,
-        };
-        let mut resumed = HashSet::from(["unrelated-reservation".to_string()]);
-        let unchanged = resumed.clone();
-        for (enabled, session) in [
-            (false, valid.clone()),
-            (
-                true,
-                PaneAgentSessionSnapshot {
-                    source: "custom:codex".into(),
-                    ..valid.clone()
-                },
-            ),
-            (
-                true,
-                PaneAgentSessionSnapshot {
-                    agent: "claude".into(),
-                    ..valid.clone()
-                },
-            ),
-            (
-                true,
-                PaneAgentSessionSnapshot {
-                    source: "kitsune:pi".into(),
-                    agent: "pi".into(),
-                    kind: AgentSessionRefKind::Path,
-                    value: "relative-session.jsonl".into(),
-                },
-            ),
-            (
-                true,
-                PaneAgentSessionSnapshot {
-                    source: "kitsune:claude".into(),
-                    agent: "claude".into(),
-                    kind: AgentSessionRefKind::Path,
-                    value: test_session_path("unsupported-session"),
-                },
-            ),
-        ] {
-            let startup = pane_restore_startup(
-                Some(&session),
-                Some(&history),
-                &mut AgentRestoreState {
-                    enabled,
-                    external_agent_management: false,
-                    resumed_sessions: &mut resumed,
-                },
-            );
-            assert_eq!(startup.restore_plan, None);
-            assert_eq!(startup.reserved_agent_session, None);
-            assert!(!startup.duplicate_agent_session);
-            assert_eq!(startup.initial_history_ansi, Some(history.ansi.as_str()));
-            let identity =
-                restored_terminal_agent_session(Some(&session), startup.duplicate_agent_session);
-            if !enabled {
-                assert_eq!(
-                    identity,
-                    Some(PersistedAgentSession {
-                        source: valid.source.clone(),
-                        agent: valid.agent.clone(),
-                        session_ref: AgentSessionRef {
-                            kind: valid.kind,
-                            value: valid.value.clone()
-                        },
-                    })
-                );
-            } else {
-                assert_eq!(identity, None);
-            }
-            assert_eq!(resumed, unchanged);
-        }
-
-        for (agent, flag) in [("codex", "resume"), ("claude", "--resume")] {
-            let session = PaneAgentSessionSnapshot {
-                source: format!("kitsune:{agent}"),
-                agent: agent.into(),
-                ..valid.clone()
-            };
-            let key = format!("kitsune:{agent}\0{agent}\0Id\0shared-session");
-            let before = resumed.clone();
-            let first = pane_restore_startup(
-                Some(&session),
-                Some(&history),
-                &mut AgentRestoreState {
-                    enabled: true,
-                    external_agent_management: false,
-                    resumed_sessions: &mut resumed,
-                },
-            );
-            assert_eq!(
-                first.restore_plan,
-                Some(AgentResumePlan {
-                    agent: agent.into(),
-                    argv: vec![agent.into(), flag.into(), valid.value.clone()],
-                    dedupe_key: key.clone(),
-                })
-            );
-            assert_eq!(first.reserved_agent_session.as_deref(), Some(key.as_str()));
-            assert!(!first.duplicate_agent_session);
-            assert_eq!(first.initial_history_ansi, None);
-            assert_eq!(
-                restored_terminal_agent_session(Some(&session), first.duplicate_agent_session),
-                Some(PersistedAgentSession {
-                    source: session.source.clone(),
-                    agent: session.agent.clone(),
-                    session_ref: AgentSessionRef {
-                        kind: session.kind,
-                        value: session.value.clone()
-                    },
-                })
-            );
-            let mut expected = before;
-            assert!(expected.insert(key));
-            assert_eq!(resumed, expected);
-
-            let duplicate = pane_restore_startup(
-                Some(&session),
-                Some(&history),
-                &mut AgentRestoreState {
-                    enabled: true,
-                    external_agent_management: false,
-                    resumed_sessions: &mut resumed,
-                },
-            );
-            assert_eq!(duplicate.restore_plan, None);
-            assert_eq!(duplicate.reserved_agent_session, None);
-            assert!(duplicate.duplicate_agent_session);
-            assert_eq!(duplicate.initial_history_ansi, None);
-            assert_eq!(
-                restored_terminal_agent_session(Some(&session), duplicate.duplicate_agent_session),
-                None
-            );
-            assert_eq!(resumed, expected);
-        }
-    }
-
-    #[test]
-    fn pane_restore_startup_suppresses_history_for_native_agent_resume() {
-        let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "kitsune:pi".into(),
-            agent: "pi".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: test_session_path("pi-session.jsonl"),
-        };
-        let history = super::super::snapshot::PaneHistorySnapshot {
-            ansi: "RESTORED_HISTORY\r\n".into(),
-            lines: 1,
-        };
-        let mut resumed = HashSet::new();
-        let mut agent_restore = AgentRestoreState {
-            enabled: true,
-            external_agent_management: false,
-            resumed_sessions: &mut resumed,
-        };
-
-        let startup = pane_restore_startup(Some(&session), Some(&history), &mut agent_restore);
-
-        assert!(startup.restore_plan.is_some());
-        assert!(startup.initial_history_ansi.is_none());
-        assert!(!startup.duplicate_agent_session);
-    }
-
-    #[test]
-    fn pane_restore_startup_suppresses_history_for_duplicate_native_agent_session() {
-        let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "kitsune:pi".into(),
-            agent: "pi".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: test_session_path("pi-session.jsonl"),
-        };
-        let history = super::super::snapshot::PaneHistorySnapshot {
-            ansi: "RESTORED_HISTORY\r\n".into(),
-            lines: 1,
-        };
-        let mut resumed = HashSet::new();
-        let mut agent_restore = AgentRestoreState {
-            enabled: true,
-            external_agent_management: false,
-            resumed_sessions: &mut resumed,
-        };
-
-        let first = pane_restore_startup(Some(&session), Some(&history), &mut agent_restore);
-        let duplicate = pane_restore_startup(Some(&session), Some(&history), &mut agent_restore);
-
-        assert!(first.restore_plan.is_some());
-        assert!(first.initial_history_ansi.is_none());
-        assert!(duplicate.restore_plan.is_none());
-        assert!(duplicate.initial_history_ansi.is_none());
-        assert!(duplicate.duplicate_agent_session);
-    }
-
-    #[test]
-    fn pane_restore_startup_keeps_history_without_native_agent_resume() {
-        let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "kitsune:pi".into(),
-            agent: "pi".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: test_session_path("pi-session.jsonl"),
-        };
-        let history = super::super::snapshot::PaneHistorySnapshot {
-            ansi: "RESTORED_HISTORY\r\n".into(),
-            lines: 1,
-        };
-        let mut resumed = HashSet::new();
-        let mut agent_restore = AgentRestoreState {
-            enabled: false,
-            external_agent_management: false,
-            resumed_sessions: &mut resumed,
-        };
-
-        let startup = pane_restore_startup(Some(&session), Some(&history), &mut agent_restore);
-
-        assert!(startup.restore_plan.is_none());
-        assert_eq!(startup.initial_history_ansi, Some("RESTORED_HISTORY\r\n"));
-        assert!(!startup.duplicate_agent_session);
-        assert!(resumed.is_empty());
-    }
-
-    #[test]
-    fn external_agent_management_restore_preserves_only_reference_and_history() {
-        for agent in ["codex", "claude", "djinn", "opencode", "hermes"] {
-            let session = PaneAgentSessionSnapshot {
-                source: format!("kitsune:{agent}"),
-                agent: agent.into(),
-                kind: crate::agent_resume::AgentSessionRefKind::Id,
-                value: "historical-session".into(),
-            };
-            let history = PaneHistorySnapshot {
-                ansi: "terminal history\r\n".into(),
-                lines: 1,
-            };
-            let mut resumed = HashSet::new();
-            for _ in 0..2 {
-                let startup = pane_restore_startup(
-                    Some(&session),
-                    Some(&history),
-                    &mut AgentRestoreState {
-                        enabled: true,
-                        external_agent_management: true,
-                        resumed_sessions: &mut resumed,
-                    },
-                );
-                assert!(startup.restore_plan.is_none());
-                assert!(startup.reserved_agent_session.is_none());
-                assert!(!startup.duplicate_agent_session);
-                assert_eq!(startup.initial_history_ansi, Some(history.ansi.as_str()));
-                assert!(resumed.is_empty());
-                let mut terminal = TerminalState::new(TerminalId::alloc(), "/".into());
-                terminal.set_persisted_agent_session(
-                    restored_terminal_agent_session(
-                        Some(&session),
-                        startup.duplicate_agent_session,
-                    )
-                    .unwrap(),
-                );
-                assert!(terminal.persisted_agent_session.is_some());
-                assert!(terminal.detected_agent().is_none());
-                assert!(terminal.hook_authority.is_none());
-                assert!(terminal.pending_agent_resume_plan.is_none());
-                assert!(terminal.agent_name.is_none());
-            }
-        }
-    }
-
-    #[test]
     fn restore_rehydrates_agent_session_metadata() {
         let session = super::super::snapshot::PaneAgentSessionSnapshot {
             source: "kitsune:hermes".into(),
@@ -1336,26 +939,11 @@ mod tests {
             value: "hermes-session".into(),
         };
 
-        let preserved = restored_terminal_agent_session(Some(&session), false)
+        let preserved = persisted_agent_session_from_snapshot(&session)
             .expect("restore should preserve metadata");
         assert_eq!(preserved.source, "kitsune:hermes");
         assert_eq!(preserved.agent, "hermes");
         assert_eq!(preserved.session_ref.value, "hermes-session");
-    }
-
-    #[test]
-    fn restore_does_not_rehydrate_duplicate_agent_session_metadata() {
-        let session = super::super::snapshot::PaneAgentSessionSnapshot {
-            source: "kitsune:pi".into(),
-            agent: "pi".into(),
-            kind: crate::agent_resume::AgentSessionRefKind::Path,
-            value: test_session_path("pi-session.jsonl"),
-        };
-        let mut resumed = HashSet::new();
-        assert!(take_restore_plan_for_snapshot(&session, true, &mut resumed).is_some());
-        assert!(take_restore_plan_for_snapshot(&session, true, &mut resumed).is_none());
-
-        assert!(restored_terminal_agent_session(Some(&session), true).is_none());
     }
 
     #[tokio::test]
@@ -1389,6 +977,7 @@ mod tests {
                                 value: "opencode-session".into(),
                             }),
                             launch_argv: None,
+                            respawn_shell_on_exit: None,
                         },
                     )]),
                     zoomed: false,
@@ -1413,7 +1002,6 @@ mod tests {
             0,
             test_restore_shell(),
             crate::config::ShellModeConfig::NonLogin,
-            false,
             events,
             Arc::new(Notify::new()),
             Arc::new(AtomicBool::new(false)),
@@ -1427,7 +1015,8 @@ mod tests {
             !terminal.respawn_shell_on_exit,
             "agent sessions should not use native restore lifecycle when resume_agents_on_restore is disabled"
         );
-        assert_eq!(terminal.agent_name, None);
+        assert_eq!(terminal.agent_name.as_deref(), Some("reviewer"));
+        assert!(!terminal.is_agent_terminal());
         assert_eq!(terminal.manual_label.as_deref(), Some("reviewer"));
         let session = terminal
             .persisted_agent_session
@@ -1470,6 +1059,7 @@ mod tests {
                                 managed_agent_kind: None,
                                 agent_session: None,
                                 launch_argv: None,
+                                respawn_shell_on_exit: None,
                             },
                         ),
                         (
@@ -1481,6 +1071,7 @@ mod tests {
                                 managed_agent_kind: None,
                                 agent_session: None,
                                 launch_argv: None,
+                                respawn_shell_on_exit: None,
                             },
                         ),
                     ]),
@@ -1506,7 +1097,6 @@ mod tests {
             0,
             test_restore_shell(),
             crate::config::ShellModeConfig::NonLogin,
-            false,
             events,
             Arc::new(Notify::new()),
             Arc::new(AtomicBool::new(false)),
@@ -1522,7 +1112,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cold_restore_with_gapped_public_tab_numbers_drops_unmanaged_agent_name() {
+    async fn cold_restore_keeps_gapped_tab_numbers_and_agent_name_as_history_only() {
         let cwd = std::env::current_dir().unwrap();
         let pane_snap = |id: &str| {
             (
@@ -1534,6 +1124,7 @@ mod tests {
                     managed_agent_kind: None,
                     agent_session: None,
                     launch_argv: None,
+                    respawn_shell_on_exit: None,
                 },
             )
         };
@@ -1549,6 +1140,7 @@ mod tests {
                 value: "codex-session".into(),
             }),
             launch_argv: None,
+            respawn_shell_on_exit: None,
         };
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
@@ -1613,7 +1205,6 @@ mod tests {
             0,
             test_restore_shell(),
             crate::config::ShellModeConfig::NonLogin,
-            false,
             events,
             Arc::new(Notify::new()),
             Arc::new(AtomicBool::new(false)),
@@ -1624,12 +1215,13 @@ mod tests {
         assert_eq!(workspace.tabs[3].number, 5);
         let agent_pane = workspace.tabs[3].root_pane;
         let terminal_id = &workspace.tabs[3].panes[&agent_pane].attached_terminal_id;
-        assert!(terminals[terminal_id].agent_name.is_none());
+        assert_eq!(
+            terminals[terminal_id].agent_name.as_deref(),
+            Some("planner")
+        );
+        assert!(!terminals[terminal_id].is_agent_terminal());
         assert_eq!(terminals[terminal_id].managed_agent_kind(), None);
-        assert!(workspace
-            .pane_details(&terminals)
-            .into_iter()
-            .all(|detail| detail.pane_id != agent_pane));
+        assert!(terminals[terminal_id].effective_agent_label().is_none());
     }
 
     #[test]
@@ -1670,8 +1262,13 @@ mod tests {
 
     #[tokio::test]
     #[cfg(unix)]
-    async fn native_agent_restore_defers_runtime_launch() {
+    async fn historical_native_agent_restore_spawns_only_a_generic_shell() {
         let cwd = std::env::current_dir().unwrap();
+        let saved_argv = vec![
+            "historical-command-must-not-execute".to_string(),
+            "--resume".into(),
+            "codex-session".into(),
+        ];
         let snapshot = SessionSnapshot {
             version: super::super::snapshot::SNAPSHOT_VERSION,
             workspaces: vec![WorkspaceSnapshot {
@@ -1699,7 +1296,8 @@ mod tests {
                                 kind: crate::agent_resume::AgentSessionRefKind::Id,
                                 value: "codex-session".into(),
                             }),
-                            launch_argv: None,
+                            launch_argv: Some(saved_argv.clone()),
+                            respawn_shell_on_exit: None,
                         },
                     )]),
                     zoomed: false,
@@ -1724,7 +1322,6 @@ mod tests {
             0,
             test_restore_shell(),
             crate::config::ShellModeConfig::NonLogin,
-            true,
             events,
             Arc::new(Notify::new()),
             Arc::new(AtomicBool::new(false)),
@@ -1734,17 +1331,18 @@ mod tests {
             .values()
             .next()
             .expect("native agent restore should create terminal state");
+        assert_eq!(terminal.launch_argv.as_ref(), Some(&saved_argv));
         assert!(
-            terminal.pending_agent_resume_plan.is_some(),
-            "restored native agent panes should defer resume until client terminal context is known"
+            terminal.pending_agent_resume_plan.is_none(),
+            "historical native agent references must not create executable work"
         );
         assert!(
             !terminal.respawn_shell_on_exit,
             "deferred agent resume should not use native restore lifecycle before launch"
         );
         assert!(
-            runtimes.is_empty(),
-            "native agent restore should not spawn a fallback-size runtime during snapshot restore"
+            runtimes.len() == 1,
+            "restore should create a generic shell runtime"
         );
         let mut imports = HashMap::new();
         let (_handoff_workspaces, handoff_terminals, handoff_runtimes) = restore_handoff(
@@ -1763,329 +1361,13 @@ mod tests {
             .next()
             .expect("handoff restore should create terminal state");
         assert!(
-            handoff_terminal.pending_agent_resume_plan.is_some(),
-            "handoff restore should preserve pending native agent resume intent"
+            handoff_terminal.pending_agent_resume_plan.is_none(),
+            "handoff without an imported PTY must not construct a native resume"
         );
         assert!(
-            handoff_runtimes.is_empty(),
-            "handoff restore should not replace pending native agent resume with a shell runtime"
+            handoff_runtimes.len() == 1,
+            "handoff without an imported PTY should restore a generic shell"
         );
-    }
-
-    #[tokio::test]
-    async fn native_agent_restore_preserves_metadata_across_workspaces_and_tabs_without_runtimes() {
-        use crate::agent_resume::{
-            AgentResumePlan, AgentSessionRef, AgentSessionRefKind, PersistedAgentSession,
-        };
-
-        struct OwnedTestCwd(PathBuf);
-
-        impl Drop for OwnedTestCwd {
-            fn drop(&mut self) {
-                let _ = std::fs::remove_dir_all(&self.0);
-            }
-        }
-
-        let nonce = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let owned_cwd = (0..100)
-            .find_map(|attempt| {
-                let path = std::env::temp_dir().join(format!(
-                    "kitsune-native-restore-{}-{nonce}-{attempt}",
-                    std::process::id()
-                ));
-                match std::fs::create_dir(&path) {
-                    Ok(()) => Some(OwnedTestCwd(path)),
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => None,
-                    Err(error) => panic!("failed to create test cwd: {error}"),
-                }
-            })
-            .expect("could not allocate a unique test cwd");
-        // Own an empty test cwd; TMPDIR may be inside a repo, so metadata reads remain possible.
-        let cwd = owned_cwd.0.clone();
-        let (mut snapshot, mut history) = snapshot_with_saved_pane_history();
-        snapshot.workspaces.clear();
-        history.workspaces.clear();
-        for ws_index in 0..2 {
-            let (mut fixture, mut saved_history) = snapshot_with_saved_pane_history();
-            let mut workspace = fixture.workspaces.remove(0);
-            workspace.id = Some(format!("native-restore-w{ws_index}"));
-            workspace.custom_name = Some(format!("workspace-{ws_index}"));
-            workspace.identity_cwd = cwd.clone();
-            workspace.tabs.clear();
-            workspace.public_pane_numbers.clear();
-            workspace.public_tab_numbers = vec![3, 7];
-            workspace.next_public_tab_number = 12;
-            workspace.next_public_pane_number = 30;
-            workspace.active_tab = 1;
-            let mut workspace_history = saved_history.workspaces.remove(0);
-            workspace_history.tabs.clear();
-            for tab_index in 0..2 {
-                let (mut fixture, mut saved_history) = snapshot_with_saved_pane_history();
-                let mut tab = fixture.workspaces.remove(0).tabs.remove(0);
-                let mut tab_history = saved_history.workspaces.remove(0).tabs.remove(0);
-                let first = 100 + ws_index * 40 + tab_index * 10;
-                let second = first + 4;
-                tab.custom_name = Some(format!("tab-{ws_index}-{tab_index}"));
-                tab.zoomed = tab_index == 1;
-                tab.focused = Some(second);
-                tab.root_pane = Some(first);
-                tab.layout = LayoutSnapshot::Split {
-                    direction: if tab_index == 0 {
-                        DirectionSnapshot::Horizontal
-                    } else {
-                        DirectionSnapshot::Vertical
-                    },
-                    ratio: 0.35,
-                    first: Box::new(LayoutSnapshot::Pane(first)),
-                    second: Box::new(LayoutSnapshot::Pane(second)),
-                };
-                let template = tab.panes.remove(&0).unwrap();
-                tab_history.panes.clear();
-                for (leaf_index, old_id) in [first, second].into_iter().enumerate() {
-                    let value = format!("native-session-{old_id}");
-                    tab.panes.insert(
-                        old_id,
-                        super::super::snapshot::PaneSnapshot {
-                            cwd: cwd.clone(),
-                            label: Some(format!("manual-{old_id}")),
-                            agent_name: Some(format!("managed-{old_id}")),
-                            managed_agent_kind: Some("codex".into()),
-                            agent_session: Some(PaneAgentSessionSnapshot {
-                                source: "kitsune:codex".into(),
-                                agent: "codex".into(),
-                                kind: AgentSessionRefKind::Id,
-                                value,
-                            }),
-                            launch_argv: template.launch_argv.clone(),
-                        },
-                    );
-                    workspace
-                        .public_pane_numbers
-                        .insert(old_id, 2 + tab_index as usize * 10 + leaf_index * 4);
-                    tab_history.panes.insert(
-                        old_id,
-                        PaneHistorySnapshot {
-                            ansi: format!("HISTORY_SENTINEL_{old_id}\r\n"),
-                            lines: 1,
-                        },
-                    );
-                }
-                workspace.tabs.push(tab);
-                workspace_history.tabs.push(tab_history);
-            }
-            snapshot.workspaces.push(workspace);
-            history.workspaces.push(workspace_history);
-        }
-        let unusable_shell = cwd.join("native-restore-shell-must-not-run");
-        assert!(!unusable_shell.exists());
-        let (events, _events_rx) = mpsc::channel(8);
-        let (workspaces, terminals, runtimes) = restore(
-            &snapshot,
-            Some(&history),
-            24,
-            80,
-            4096,
-            unusable_shell.to_str().unwrap(),
-            crate::config::ShellModeConfig::NonLogin,
-            true,
-            events,
-            Arc::new(Notify::new()),
-            Arc::new(AtomicBool::new(false)),
-        );
-
-        // Complete survival plus exact pending plans and no runtimes verifies the
-        // deferred branch, not merely a shell spawn failure. No history replay claim.
-        assert_eq!(workspaces.len(), 2);
-        assert_eq!(terminals.len(), 8);
-        assert!(runtimes.is_empty());
-        let mut seen_panes = HashSet::new();
-        let mut seen_terminals = HashSet::new();
-        for (workspace, saved) in workspaces.iter().zip(&snapshot.workspaces) {
-            workspace.assert_invariants_for_test();
-            assert_eq!(Some(&workspace.id), saved.id.as_ref());
-            assert_eq!(workspace.custom_name, saved.custom_name);
-            assert_eq!(workspace.identity_cwd, cwd);
-            assert_eq!(workspace.active_tab, 1);
-            assert_eq!(workspace.tabs.len(), 2);
-            assert_eq!(workspace.next_public_tab_number, 12);
-            assert_eq!(workspace.next_public_pane_number, 30);
-            assert_eq!(workspace.public_pane_numbers.len(), 4);
-            for (tab_index, (tab, saved_tab)) in workspace.tabs.iter().zip(&saved.tabs).enumerate()
-            {
-                assert_eq!(tab.number, saved.public_tab_numbers[tab_index]);
-                assert_eq!(tab.custom_name, saved_tab.custom_name);
-                assert_eq!(tab.zoomed, saved_tab.zoomed);
-                let ids = tab.layout.pane_ids();
-                let mut old_ids = Vec::new();
-                collect_layout_snapshot_pane_ids(&saved_tab.layout, &mut old_ids);
-                assert_eq!(ids.len(), 2);
-                assert_eq!(tab.panes.len(), 2);
-                assert_eq!(tab.root_pane, ids[0]);
-                assert_eq!(tab.layout.focused(), ids[1]);
-                match tab.layout.root() {
-                    Node::Split {
-                        direction,
-                        ratio,
-                        first,
-                        second,
-                    } => {
-                        assert_eq!(
-                            *direction,
-                            if tab_index == 0 {
-                                Direction::Horizontal
-                            } else {
-                                Direction::Vertical
-                            }
-                        );
-                        assert_eq!(*ratio, 0.35);
-                        assert!(matches!(first.as_ref(), Node::Pane(id) if *id == ids[0]));
-                        assert!(matches!(second.as_ref(), Node::Pane(id) if *id == ids[1]));
-                    }
-                    Node::Pane(_) => panic!("split layout must survive restore"),
-                }
-                for (id, old_id) in ids.into_iter().zip(old_ids) {
-                    assert!(seen_panes.insert(id));
-                    assert_eq!(
-                        workspace.public_pane_numbers[&id],
-                        saved.public_pane_numbers[&old_id]
-                    );
-                    let terminal_id = tab.terminal_id(id).unwrap();
-                    assert!(seen_terminals.insert(terminal_id.clone()));
-                    let terminal = &terminals[terminal_id];
-                    let pane = &saved_tab.panes[&old_id];
-                    let session = pane.agent_session.as_ref().unwrap();
-                    assert_eq!(terminal.cwd, cwd);
-                    assert_eq!(terminal.manual_label, pane.label);
-                    assert_eq!(terminal.agent_name, pane.agent_name);
-                    assert_eq!(terminal.detected_agent(), Some(crate::detect::Agent::Codex));
-                    assert_eq!(
-                        terminal.historical_agent_identity(),
-                        Some(crate::detect::Agent::Codex)
-                    );
-                    assert_eq!(terminal.foreground_agent_evidence(), None);
-                    assert_eq!(terminal.state, crate::detect::AgentState::Idle);
-                    assert!(terminal.hook_authority.is_none());
-                    assert_eq!(
-                        terminal.managed_agent_kind(),
-                        Some(crate::detect::Agent::Codex)
-                    );
-                    assert!(!terminal.respawn_shell_on_exit);
-                    assert_eq!(
-                        terminal.pending_agent_resume_plan,
-                        Some(AgentResumePlan {
-                            agent: "codex".into(),
-                            argv: vec!["codex".into(), "resume".into(), session.value.clone()],
-                            dedupe_key: format!("kitsune:codex\0codex\0Id\0{}", session.value),
-                        })
-                    );
-                    assert_eq!(
-                        terminal.persisted_agent_session,
-                        Some(PersistedAgentSession {
-                            source: "kitsune:codex".into(),
-                            agent: "codex".into(),
-                            session_ref: AgentSessionRef {
-                                kind: AgentSessionRefKind::Id,
-                                value: session.value.clone()
-                            },
-                        })
-                    );
-                }
-            }
-        }
-        assert_eq!(seen_panes.len(), 8);
-        assert_eq!(seen_terminals, terminals.keys().cloned().collect());
-        let mut state = crate::app::AppState::test_new();
-        state.workspaces = workspaces;
-        state.terminals = terminals;
-        state.active = Some(0);
-        state.assert_invariants_for_test();
-    }
-
-    #[tokio::test]
-    async fn historical_restore_keeps_all_provider_identities_without_foreground_evidence() {
-        for label in [
-            "claude",
-            "codex",
-            "copilot",
-            "devin",
-            "djinn",
-            "droid",
-            "kimi",
-            "omp",
-            "mastracode",
-            "pi",
-            "hermes",
-            "opencode",
-            "qodercli",
-            "kilo",
-            "cursor",
-            "grok",
-        ] {
-            let agent = crate::detect::parse_canonical_agent_label(label).unwrap();
-            let mut state = crate::app::AppState::test_with_adversarial_identity_state();
-            state.assert_invariants_for_test();
-            for (index, terminal) in state.terminals.values_mut().enumerate() {
-                terminal.cwd = std::env::current_dir().unwrap();
-                terminal.restore_managed_agent(format!("managed-{index}"), agent);
-                terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-                    source: format!("kitsune:{label}"),
-                    agent: label.into(),
-                    session_ref: crate::agent_resume::AgentSessionRef::id(format!(
-                        "historical-{label}-{index}"
-                    ))
-                    .unwrap(),
-                });
-            }
-            let snapshot = super::super::snapshot::capture(
-                &state.workspaces,
-                &state.terminals,
-                &crate::terminal::TerminalRuntimeRegistry::new(),
-                state.active,
-                state.selected,
-                state.sidebar_width,
-                state.sidebar_section_split,
-                state.collapsed_space_keys.clone(),
-            );
-            let (workspaces, terminals, runtimes) = restore(
-                &snapshot,
-                None,
-                24,
-                80,
-                4096,
-                "/shell-must-not-run-for-historical-restore",
-                crate::config::ShellModeConfig::NonLogin,
-                true,
-                mpsc::channel(8).0,
-                Arc::new(Notify::new()),
-                Arc::new(AtomicBool::new(false)),
-            );
-            assert!(runtimes.is_empty(), "{label}");
-            assert_eq!(terminals.len(), state.terminals.len(), "{label}");
-            for terminal in terminals.values() {
-                assert_eq!(terminal.detected_agent(), Some(agent));
-                assert_eq!(terminal.historical_agent_identity(), Some(agent));
-                assert_eq!(terminal.foreground_agent_evidence(), None);
-                assert_eq!(terminal.state, crate::detect::AgentState::Idle);
-                assert!(terminal.hook_authority.is_none());
-                assert_eq!(terminal.managed_agent_kind(), Some(agent));
-                assert!(terminal.agent_name.is_some());
-                let session = terminal.persisted_agent_session.as_ref().unwrap();
-                assert_eq!(
-                    terminal.pending_agent_resume_plan,
-                    crate::agent_resume::plan(
-                        &session.source,
-                        &session.agent,
-                        &session.session_ref
-                    )
-                );
-            }
-            state.workspaces = workspaces;
-            state.terminals = terminals;
-            state.assert_invariants_for_test();
-        }
     }
 
     #[tokio::test]
@@ -2103,7 +1385,6 @@ mod tests {
             4096,
             test_restore_shell(),
             crate::config::ShellModeConfig::NonLogin,
-            false,
             events,
             render_notify,
             render_dirty,
@@ -2141,7 +1422,6 @@ mod tests {
             4096,
             test_restore_shell(),
             crate::config::ShellModeConfig::NonLogin,
-            false,
             events,
             render_notify,
             render_dirty,
@@ -2177,6 +1457,7 @@ mod tests {
                 managed_agent_kind: None,
                 agent_session: None,
                 launch_argv: None,
+                respawn_shell_on_exit: None,
             },
         );
         let history = SessionHistorySnapshot {

@@ -1505,18 +1505,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generated_workspace_ids_are_short_base32_handles() {
+    fn generated_workspace_ids_are_canonical_unique_base32_handles() {
         let first = generate_workspace_id();
         let second = generate_workspace_id();
 
-        assert!(first.starts_with('w'));
-        assert!(second.starts_with('w'));
         assert_ne!(first, second);
-        assert!(first.len() <= 3, "unexpectedly long workspace id: {first}");
-        assert!(
-            second.len() <= 3,
-            "unexpectedly long workspace id: {second}"
-        );
+        // A u64 counter, encoded through usize, needs at most ceil(bits / 5)
+        // base32 digits. Its width is not limited to the first 1024 allocations.
+        let max_digits = u64::BITS.min(usize::BITS).div_ceil(5) as usize;
+        for id in [first, second] {
+            let suffix = id.strip_prefix('w').expect("workspace prefix");
+            assert!(!suffix.is_empty());
+            assert!(
+                suffix.len() <= max_digits,
+                "workspace id exceeds counter width: {id}"
+            );
+            assert!(suffix
+                .bytes()
+                .all(|byte| PUBLIC_ID_ALPHABET.contains(&byte)));
+            let number = decode_public_number(suffix).expect("valid base32 counter");
+            assert!(number > 0);
+            assert_eq!(encode_public_number(number), suffix);
+            assert_eq!(public_workspace_number(&id), Some(number));
+        }
     }
 
     #[test]

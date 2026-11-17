@@ -13,11 +13,9 @@ pub(super) use crate::support::{
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
 pub(super) fn unique_test_dir() -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    PathBuf::from(format!("/tmp/hcli-{}-{nanos}", std::process::id()))
+    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("c{:x}-{n:x}", std::process::id()))
 }
 
 pub(super) fn run_git(repo: &Path, args: &[&str]) {
@@ -66,6 +64,11 @@ impl Drop for SpawnedServerProcess {
 impl Drop for SpawnedKitsune {
     fn drop(&mut self) {
         let pid = self.child.process_id();
+        if let Ok(Some(status)) = self.child.try_wait() {
+            if !status.success() {
+                eprintln!("test server {pid:?} exited unexpectedly: {status:?}");
+            }
+        }
         let _ = self.child.kill();
 
         if let Some(pid) = pid {
@@ -242,21 +245,6 @@ pub(super) fn run_named_cli_json(
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-pub(super) fn spawn_kitsune_with_path(
-    config_home: &Path,
-    runtime_dir: &Path,
-    socket_path: &Path,
-    path_override: Option<&Path>,
-) -> SpawnedKitsune {
-    spawn_kitsune_with_config(
-        config_home,
-        runtime_dir,
-        socket_path,
-        path_override,
-        "onboarding = false\n",
-    )
-}
-
 pub(super) fn spawn_kitsune_with_config(
     config_home: &Path,
     runtime_dir: &Path,
@@ -320,23 +308,6 @@ pub(super) fn run_cli_in_dir(
     command.current_dir(current_dir);
     command.env("KITSUNE_SOCKET_PATH", socket_path);
     command.output().unwrap()
-}
-
-pub(super) fn pane_topology_snapshot(list_response: &serde_json::Value) -> Vec<serde_json::Value> {
-    list_response["result"]["panes"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|pane| {
-            serde_json::json!({
-                "pane_id": pane["pane_id"],
-                "terminal_id": pane["terminal_id"],
-                "workspace_id": pane["workspace_id"],
-                "tab_id": pane["tab_id"],
-                "focused": pane["focused"],
-            })
-        })
-        .collect()
 }
 
 pub(super) fn run_cli_json(socket_path: &Path, args: &[&str]) -> serde_json::Value {

@@ -50,8 +50,8 @@ impl Drop for Fixture {
 
 impl Fixture {
     fn new() -> Self {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!(
-            "tests/.annotation-cli-{}-{}",
+        let root = std::env::temp_dir().join(format!(
+            "n{:x}-{:x}",
             std::process::id(),
             NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed)
         ));

@@ -8,7 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Deserialize;
@@ -20,14 +20,9 @@ use support::{
 };
 
 fn unique_test_dir() -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    PathBuf::from(format!(
-        "/tmp/kitsune-client-test-{}-{nanos}",
-        std::process::id()
-    ))
+    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("c{:x}-{n:x}", std::process::id()))
 }
 
 struct SpawnedKitsune {
@@ -477,6 +472,11 @@ fn server_crash_after_attach_causes_lost_connection_error() {
     let mut spawned = spawn_server(&config_home, &runtime_dir, &api_socket, &client_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
+    let created = send_json_request(
+        &api_socket,
+        r#"{"id":"crash-fixture","method":"workspace.create","params":{"label":"crash-check","focus":true}}"#,
+    );
+    assert!(created.get("error").is_none(), "{created}");
 
     // Attach a real thin client (client subcommand) through PTY so handshake and
     // terminal setup paths are exercised.
@@ -489,6 +489,15 @@ fn server_crash_after_attach_causes_lost_connection_error() {
         .expect("thin client master")
         .try_clone_reader()
         .expect("clone client PTY reader");
+    let fd = thin_client._master.as_ref().unwrap().as_raw_fd().unwrap();
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    assert!(flags >= 0);
+    assert_eq!(
+        unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) },
+        0
+    );
+    let controls =
+        regex::Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)").unwrap();
     let (attached_before_kill, attach_output) = {
         let deadline = Instant::now() + Duration::from_secs(8);
         let mut buf = [0u8; 4096];
@@ -499,11 +508,7 @@ fn server_crash_after_attach_causes_lost_connection_error() {
                 Ok(n) if n > 0 => {
                     let out = String::from_utf8_lossy(&buf[..n]);
                     output.push_str(&out);
-                    if out.contains("\u{2500}")
-                        || out.contains("workspace")
-                        || out.contains("pane")
-                        || out.contains("terminal")
-                    {
+                    if controls.replace_all(&output, "").contains("crash-check") {
                         seen = true;
                         break;
                     }
@@ -519,7 +524,12 @@ fn server_crash_after_attach_causes_lost_connection_error() {
     };
     assert!(
         attached_before_kill,
-        "thin client must complete attach and receive frame before server crash; output: {attach_output:?}"
+        "thin client must render the fixture workspace before server crash; output: {:?}",
+        controls
+            .replace_all(&attach_output, "")
+            .chars()
+            .take(4096)
+            .collect::<String>()
     );
 
     // Kill server unexpectedly.
@@ -765,10 +775,7 @@ fn graceful_shutdown_sends_server_shutdown_to_client() {
 }
 
 #[test]
-fn client_receives_notify_on_agent_state_change() {
-    // Notification events (sound/toast) are forwarded as
-    // ServerMessage::Notify to connected clients when an agent state change
-    // is triggered via the API (pane.report_agent).
+fn client_only_receives_notify_for_explicit_generic_notifications() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -780,7 +787,7 @@ fn client_receives_notify_on_agent_state_change() {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::write(
         config_home.join("kitsune/config.toml"),
-        "onboarding = false\n[ui.toast]\nenabled = true\n[ui.sound]\nenabled = true\n",
+        "onboarding = false\n[ui.toast]\nenabled = true\ndelivery = 'kitsune'\n[ui.sound]\nenabled = true\n",
     )
     .unwrap();
     fs::create_dir_all(&runtime_dir).unwrap();
@@ -838,12 +845,10 @@ fn client_receives_notify_on_agent_state_change() {
     let mut ws_response = String::new();
     reader.read_line(&mut ws_response).unwrap();
 
-    // Extract the workspace ID and pane ID from the response.
-    let ws_id = ws_response
-        .split('"')
-        .find(|s| s.starts_with("w_"))
-        .unwrap_or("w_1")
-        .to_string();
+    let ws_response: Value = serde_json::from_str(&ws_response).unwrap();
+    let ws_id = ws_response["result"]["workspace"]["workspace_id"]
+        .as_str()
+        .unwrap();
 
     // Get pane list to find a pane ID.
     let mut pane_stream = UnixStream::connect(&api_socket).expect("connect to API");
@@ -854,15 +859,12 @@ fn client_receives_notify_on_agent_state_change() {
     let mut pane_response = String::new();
     pane_reader.read_line(&mut pane_response).unwrap();
 
-    // Extract first pane ID (format: p_<ws>_<pane>).
-    let pane_id = pane_response
-        .split('"')
-        .find(|s| s.starts_with("p_"))
-        .unwrap_or("p_1_1")
-        .to_string();
+    let pane_response: Value = serde_json::from_str(&pane_response).unwrap();
+    let pane_id = pane_response["result"]["panes"][0]["pane_id"]
+        .as_str()
+        .unwrap();
 
-    // Report agent as Blocked via the API — this should trigger a
-    // ServerMessage::Notify with kind=Sound (Request sound).
+    // Retired reports must not produce automatic attention or completion sounds.
     let mut report_stream = UnixStream::connect(&api_socket).expect("connect to API");
     let report_request = format!(
         r#"{{"id":"3","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"blocked","source":"test"}}}}"#
@@ -871,6 +873,9 @@ fn client_receives_notify_on_agent_state_change() {
     let mut report_reader = BufReader::new(report_stream);
     let mut report_response = String::new();
     report_reader.read_line(&mut report_response).unwrap();
+    let report_response: Value = serde_json::from_str(&report_response).unwrap();
+    assert_eq!(report_response["id"], "3");
+    assert_eq!(report_response["error"]["code"], "feature_retired");
 
     // Read messages from the client stream and look for Notify (variant 5).
     // Notify = ServerMessage variant index 5.
@@ -896,13 +901,11 @@ fn client_receives_notify_on_agent_state_change() {
     }
 
     assert!(
-        found_notify,
-        "client should receive a ServerMessage::Notify after pane.report_agent"
+        !found_notify,
+        "retired pane.report_agent must not produce a Notify"
     );
 
-    // Now report Idle from Working — this should trigger a Done sound
-    // if the pane is in a background workspace.
-    // First, create a second workspace to make the first one "background".
+    // Background placement cannot restore the old completion notification policy.
     let mut ws2_stream = UnixStream::connect(&api_socket).expect("connect to API");
     let ws2_request = r#"{"id":"4","method":"workspace.create","params":{}}"#;
     writeln!(ws2_stream, "{}", ws2_request).unwrap();
@@ -911,11 +914,10 @@ fn client_receives_notify_on_agent_state_change() {
     ws2_reader.read_line(&mut ws2_response).unwrap();
 
     // Focus the new workspace (making the first one background).
-    let ws2_id = ws2_response
-        .split('"')
-        .find(|s| s.starts_with("w_"))
-        .unwrap_or("w_2")
-        .to_string();
+    let ws2_response: Value = serde_json::from_str(&ws2_response).unwrap();
+    let ws2_id = ws2_response["result"]["workspace"]["workspace_id"]
+        .as_str()
+        .unwrap();
     let mut focus_stream = UnixStream::connect(&api_socket).expect("connect to API");
     let focus_request = format!(
         r#"{{"id":"5","method":"workspace.focus","params":{{"workspace_id":"{ws2_id}"}}}}"#
@@ -924,6 +926,8 @@ fn client_receives_notify_on_agent_state_change() {
     let mut focus_reader = BufReader::new(focus_stream);
     let mut focus_response = String::new();
     focus_reader.read_line(&mut focus_response).unwrap();
+    let focus_response: Value = serde_json::from_str(&focus_response).unwrap();
+    assert!(focus_response.get("error").is_none(), "{focus_response}");
 
     assert!(
         wait_until(Duration::from_secs(2), Duration::from_millis(25), || {
@@ -932,8 +936,7 @@ fn client_receives_notify_on_agent_state_change() {
         "server should stay responsive after workspace focus"
     );
 
-    // Report agent as Working first, then Idle — this transition in a
-    // background workspace should trigger a Done sound notification.
+    // Both legacy state reports still return the retirement error while backgrounded.
     let mut work_stream = UnixStream::connect(&api_socket).expect("connect to API");
     let work_request = format!(
         r#"{{"id":"6","method":"pane.report_agent","params":{{"pane_id":"{pane_id}","agent":"pi","state":"working","source":"test"}}}}"#
@@ -942,6 +945,9 @@ fn client_receives_notify_on_agent_state_change() {
     let mut work_reader = BufReader::new(work_stream);
     let mut work_response = String::new();
     work_reader.read_line(&mut work_response).unwrap();
+    let work_response: Value = serde_json::from_str(&work_response).unwrap();
+    assert_eq!(work_response["id"], "6");
+    assert_eq!(work_response["error"]["code"], "feature_retired");
 
     assert!(
         wait_until(Duration::from_secs(2), Duration::from_millis(25), || {
@@ -958,8 +964,11 @@ fn client_receives_notify_on_agent_state_change() {
     let mut idle_reader = BufReader::new(idle_stream);
     let mut idle_response = String::new();
     idle_reader.read_line(&mut idle_response).unwrap();
+    let idle_response: Value = serde_json::from_str(&idle_response).unwrap();
+    assert_eq!(idle_response["id"], "7");
+    assert_eq!(idle_response["error"]["code"], "feature_retired");
 
-    // Read messages and look for Done sound notify.
+    // No inferred completion notification is delivered.
     stream
         .set_read_timeout(Some(Duration::from_secs(5)))
         .unwrap();
@@ -969,8 +978,6 @@ fn client_receives_notify_on_agent_state_change() {
         match read_server_message(&mut stream) {
             Ok((variant, _payload)) => {
                 if variant == 5 {
-                    // Found a Notify message — that's good enough.
-                    // The test already verified the Blocked→Notify path above.
                     found_done_notify = true;
                     break;
                 }
@@ -984,8 +991,19 @@ fn client_receives_notify_on_agent_state_change() {
     }
 
     assert!(
-        found_done_notify,
-        "client should receive a Sound Notify with 'agent done' when background pane transitions Working→Idle"
+        !found_done_notify,
+        "retired state reports must not produce a background completion Notify"
+    );
+
+    let notification = send_json_request(
+        &api_socket,
+        r#"{"id":"generic-notify","method":"notification.show","params":{"title":"explicit generic notice","sound":"request"}}"#,
+    );
+    assert_eq!(notification["id"], "generic-notify");
+    assert_eq!(notification["result"]["shown"], true, "{notification}");
+    assert!(
+        wait_for_message_variant(&mut stream, Duration::from_secs(3), 5)
+            .expect("generic notification stream should remain usable")
     );
 
     cleanup_spawned_kitsune(spawned, base);

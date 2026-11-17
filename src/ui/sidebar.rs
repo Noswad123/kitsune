@@ -40,13 +40,12 @@ pub(crate) struct AgentPanelEntry {
     #[cfg(test)]
     pub terminal_title_stripped: Option<String>,
     pub agent_label: Option<String>,
-    pub agent_kind_label: Option<String>,
     #[cfg(test)]
     pub agent: Option<crate::detect::Agent>,
     pub state: AgentState,
     pub seen: bool,
-    pub last_agent_state_change_seq: Option<u64>,
     pub state_labels: std::collections::HashMap<String, String>,
+    #[cfg(test)]
     pub tokens: std::collections::HashMap<String, String>,
 }
 
@@ -121,10 +120,6 @@ pub(crate) fn agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
     agent_panel_entries_with_runtimes(app, None)
 }
 
-pub(crate) fn all_agent_panel_entries(app: &AppState) -> Vec<AgentPanelEntry> {
-    collect_agent_panel_entries_with_runtimes(app, None)
-}
-
 pub(crate) fn agent_panel_entries_from(
     app: &AppState,
     terminal_runtimes: &TerminalRuntimeRegistry,
@@ -136,63 +131,14 @@ fn agent_panel_entries_with_runtimes(
     app: &AppState,
     terminal_runtimes: Option<&TerminalRuntimeRegistry>,
 ) -> Vec<AgentPanelEntry> {
-    let mut entries = collect_agent_panel_entries_with_runtimes(app, terminal_runtimes);
-    crate::app::agent_view::apply_agent_view(app, &mut entries);
-    entries
+    collect_agent_panel_entries_with_runtimes(app, terminal_runtimes)
 }
 
 fn collect_agent_panel_entries_with_runtimes(
-    app: &AppState,
-    terminal_runtimes: Option<&TerminalRuntimeRegistry>,
+    _: &AppState,
+    _: Option<&TerminalRuntimeRegistry>,
 ) -> Vec<AgentPanelEntry> {
-    let empty_runtimes;
-    let terminal_runtimes = match terminal_runtimes {
-        Some(terminal_runtimes) => terminal_runtimes,
-        None => {
-            empty_runtimes = TerminalRuntimeRegistry::new();
-            &empty_runtimes
-        }
-    };
-
-    app.workspaces
-        .iter()
-        .enumerate()
-        .flat_map(|(ws_idx, ws)| {
-            let multi_tab = ws.tabs.len() > 1;
-            let workspace_label = ws.display_name_from(&app.terminals, terminal_runtimes);
-            ws.pane_details(&app.terminals)
-                .into_iter()
-                .map(move |detail| {
-                    let show_tab = multi_tab
-                        || ws
-                            .tabs
-                            .get(detail.tab_idx)
-                            .is_some_and(|tab| !tab.is_auto_named());
-                    AgentPanelEntry {
-                        ws_idx,
-                        tab_idx: detail.tab_idx,
-                        pane_id: detail.pane_id,
-                        primary_label: workspace_label.clone(),
-                        primary_tab_label: show_tab.then_some(detail.tab_label),
-                        #[cfg(test)]
-                        pane_label: detail.pane_label,
-                        #[cfg(test)]
-                        terminal_title: detail.terminal_title,
-                        #[cfg(test)]
-                        terminal_title_stripped: detail.terminal_title_stripped,
-                        agent_label: Some(detail.agent_label),
-                        agent_kind_label: detail.agent_kind_label,
-                        #[cfg(test)]
-                        agent: detail.agent,
-                        state: detail.state,
-                        seen: detail.seen,
-                        last_agent_state_change_seq: detail.last_agent_state_change_seq,
-                        state_labels: detail.state_labels,
-                        tokens: detail.tokens,
-                    }
-                })
-        })
-        .collect()
+    Vec::new()
 }
 
 pub(super) fn agent_panel_status_key(state: AgentState, seen: bool) -> &'static str {
@@ -634,28 +580,6 @@ fn agent_panel_bottom_start(app: &AppState, area: Rect) -> usize {
         start = index;
     }
     start.min(entries.len().saturating_sub(1))
-}
-
-#[cfg(test)]
-pub(crate) fn agent_panel_scroll_for_target(
-    app: &AppState,
-    area: Rect,
-    current_scroll: usize,
-    target: usize,
-) -> usize {
-    let max_scroll = agent_panel_bottom_start(app, area);
-    if target < current_scroll {
-        return target.min(max_scroll);
-    }
-    let mut scroll = current_scroll.min(max_scroll);
-    while scroll < target {
-        let visible = agent_panel_visible_count_from(app, area, scroll);
-        if visible > 0 && target < scroll.saturating_add(visible) {
-            break;
-        }
-        scroll += 1;
-    }
-    scroll.min(max_scroll)
 }
 
 #[cfg(test)]
@@ -1663,38 +1587,6 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
     }
 
     #[test]
-    fn default_agent_rows_generate_pane_label_when_missing() {
-        let mut app = crate::app::state::AppState::test_new();
-        let workspace = Workspace::test_new("workspace-name");
-        let pane_id = workspace.tabs[0].root_pane;
-        app.workspaces = vec![workspace];
-        app.ensure_test_terminals();
-        let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        app.terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_fallback_agent_for_test(Some(Agent::Claude));
-
-        let entry = agent_panel_entries(&app).into_iter().next().unwrap();
-        let rows = resolved_agent_rows(&app, &entry);
-
-        assert!(rows[0].iter().any(|token| {
-            matches!(
-                &token.kind,
-                ResolvedTokenKind::Pane(label) if label == &format!("pane {}", pane_id.raw())
-            )
-        }));
-        assert!(rows[0].iter().all(|token| {
-            !matches!(
-                &token.kind,
-                ResolvedTokenKind::Workspace(label) if label == "workspace-name"
-            )
-        }));
-    }
-
-    #[test]
     fn native_title_stays_out_of_integrations_and_token_truncation_is_bounded() {
         let mut app = crate::app::state::AppState::test_new();
         let workspace = Workspace::test_new("one");
@@ -1733,53 +1625,6 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
     }
 
     #[test]
-    fn variable_agent_heights_pack_the_bottom_and_reveal_targets() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.workspaces = vec![
-            Workspace::test_new("one"),
-            Workspace::test_new("two"),
-            Workspace::test_new("three"),
-        ];
-        app.ensure_test_terminals();
-        for workspace in &app.workspaces {
-            let pane_id = workspace.tabs[0].root_pane;
-            let terminal_id = workspace.tabs[0].panes[&pane_id]
-                .attached_terminal_id
-                .clone();
-            app.terminals
-                .get_mut(&terminal_id)
-                .unwrap()
-                .set_fallback_agent_for_test(Some(Agent::Pi));
-        }
-        let first_pane = app.workspaces[0].tabs[0].root_pane;
-        let first_terminal = app.workspaces[0].tabs[0].panes[&first_pane]
-            .attached_terminal_id
-            .clone();
-        app.terminals
-            .get_mut(&first_terminal)
-            .unwrap()
-            .metadata_tokens
-            .patch(
-                std::collections::HashMap::from([
-                    ("a".into(), Some("a".into())),
-                    ("b".into(), Some("b".into())),
-                ]),
-                None,
-                std::time::Instant::now(),
-            );
-        app.sidebar_agents.rows = vec![
-            vec![crate::config::AgentSidebarToken::Agent],
-            vec![crate::config::AgentSidebarToken::Custom("a".into())],
-            vec![crate::config::AgentSidebarToken::Custom("b".into())],
-        ];
-        let area = Rect::new(0, 0, 20, 6);
-
-        let metrics = agent_panel_scroll_metrics(&app, area);
-        assert_eq!(metrics.max_offset_from_bottom, 1);
-        assert_eq!(agent_panel_scroll_for_target(&app, area, 0, 2), 1);
-    }
-
-    #[test]
     fn oversized_space_layout_is_clipped_to_the_section_body() {
         let mut app = crate::app::state::AppState::test_new();
         app.workspaces = vec![Workspace::test_new("one"), Workspace::test_new("two")];
@@ -1795,37 +1640,6 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].ws_idx, 0);
         assert_eq!(cards[0].rect.height, body.height);
-    }
-
-    #[test]
-    fn oversized_agent_override_is_clipped_to_the_panel_body() {
-        let mut app = crate::app::state::AppState::test_new();
-        let workspace = Workspace::test_new("one");
-        let pane_id = workspace.tabs[0].root_pane;
-        app.workspaces = vec![workspace];
-        app.ensure_test_terminals();
-        let terminal_id = app.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        app.terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_fallback_agent_for_test(Some(Agent::Claude));
-        app.sidebar_agents.rows_by_agent.insert(
-            "claude".into(),
-            vec![vec![crate::config::AgentSidebarToken::Agent]; 6],
-        );
-        let panel = Rect::new(0, 0, 20, 5);
-
-        let metrics = agent_panel_scroll_metrics(&app, panel);
-
-        assert_eq!(metrics.viewport_rows, 1);
-        assert_eq!(metrics.max_offset_from_bottom, 0);
-        let entry = agent_panel_entries(&app).pop().unwrap();
-        assert_eq!(
-            agent_entry_height_in_body(&app, &entry, agent_panel_body_rect(panel, false).height),
-            agent_panel_body_rect(panel, false).height
-        );
     }
 
     #[test]
@@ -1853,98 +1667,6 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
 
         assert_eq!(toggle.x, area.x + area.width - 2);
         assert_eq!(toggle.y, area.y + area.height - 1);
-    }
-
-    #[test]
-    fn agent_panel_tab_label_visibility_tracks_tab_identity() {
-        let mut app = crate::app::state::AppState::test_new();
-        let single_auto = Workspace::test_new("auto");
-        let mut single_custom = Workspace::test_new("custom");
-        single_custom.tabs[0].set_custom_name("focus".into());
-        let mut multi = Workspace::test_new("multi");
-        multi.test_add_tab(Some("logs"));
-
-        app.workspaces = vec![single_auto, single_custom, multi];
-        app.ensure_test_terminals();
-        for (ws_idx, tab_idx, agent) in [
-            (0, 0, Agent::Pi),
-            (1, 0, Agent::Claude),
-            (2, 0, Agent::Codex),
-            (2, 1, Agent::Pi),
-        ] {
-            let pane_id = app.workspaces[ws_idx].tabs[tab_idx].root_pane;
-            let terminal_id = app.workspaces[ws_idx].tabs[tab_idx].panes[&pane_id]
-                .attached_terminal_id
-                .clone();
-            app.terminals
-                .get_mut(&terminal_id)
-                .unwrap()
-                .set_fallback_agent_for_test(Some(agent));
-        }
-
-        let entries = agent_panel_entries(&app);
-        let labels: Vec<_> = entries
-            .iter()
-            .map(|entry| {
-                (
-                    entry.primary_label.as_str(),
-                    entry.primary_tab_label.as_deref(),
-                )
-            })
-            .collect();
-
-        assert_eq!(
-            labels,
-            [
-                ("auto", None),
-                ("custom", Some("focus")),
-                ("multi", Some("1")),
-                ("multi", Some("logs")),
-            ]
-        );
-    }
-
-    #[test]
-    fn priority_agent_panel_sort_uses_attention_then_space_order() {
-        let mut app = crate::app::state::AppState::test_new();
-        app.workspaces = vec![
-            Workspace::test_new("one"),
-            Workspace::test_new("two"),
-            Workspace::test_new("three"),
-            Workspace::test_new("four"),
-        ];
-        app.ensure_test_terminals();
-        app.active = Some(0);
-        app.selected = 0;
-        app.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
-
-        let set_state = |app: &mut crate::app::state::AppState, ws_idx: usize, state| {
-            let pane = app.workspaces[ws_idx].tabs[0].root_pane;
-            let terminal_id = app.workspaces[ws_idx].tabs[0].panes[&pane]
-                .attached_terminal_id
-                .clone();
-            let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-            terminal.set_fallback_agent_for_test(Some(Agent::Claude));
-            terminal.state = state;
-        };
-        set_state(&mut app, 0, AgentState::Working);
-        set_state(&mut app, 1, AgentState::Idle);
-        set_state(&mut app, 2, AgentState::Working);
-        set_state(&mut app, 3, AgentState::Blocked);
-
-        let done_pane = app.workspaces[1].tabs[0].root_pane;
-        app.workspaces[1].tabs[0]
-            .panes
-            .get_mut(&done_pane)
-            .unwrap()
-            .seen = false;
-
-        let labels: Vec<String> = agent_panel_entries(&app)
-            .into_iter()
-            .map(|entry| entry.primary_label)
-            .collect();
-
-        assert_eq!(labels, ["four", "two", "one", "three"]);
     }
 
     #[test]
@@ -1991,134 +1713,6 @@ rows = [[{ token = "git_status", fg = "#123456" }]]
         let area = Rect::new(0, 0, 4, 25);
         app.sidebar_collapsed = true;
         assert_generic_empty_lower_panel(&mut app, area);
-    }
-
-    #[test]
-    fn collapsed_sidebar_does_not_show_native_priority_agents() {
-        let first = Workspace::test_new("one");
-        let first_pane = first.tabs[0].root_pane;
-        let mut second = Workspace::test_new("two");
-        let second_pane = second.tabs[0].root_pane;
-        let urgent_pane = second.test_split(ratatui::layout::Direction::Horizontal);
-
-        let mut app = crate::app::state::AppState::test_new();
-        app.workspaces = vec![first, second];
-        app.ensure_test_terminals();
-        app.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
-
-        let set_state = |app: &mut crate::app::state::AppState, ws_idx: usize, pane_id, state| {
-            let terminal_id = app.workspaces[ws_idx].tabs[0].panes[&pane_id]
-                .attached_terminal_id
-                .clone();
-            let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-            terminal.set_fallback_agent_for_test(Some(Agent::Claude));
-            terminal.state = state;
-        };
-        set_state(&mut app, 0, first_pane, AgentState::Working);
-        set_state(&mut app, 1, second_pane, AgentState::Working);
-        set_state(&mut app, 1, urgent_pane, AgentState::Blocked);
-
-        assert_eq!(app.workspaces[1].public_pane_number(urgent_pane), Some(2));
-        assert_eq!(agent_panel_entries(&app)[0].pane_id, urgent_pane);
-
-        let area = Rect::new(0, 0, 4, 16);
-        app.sidebar_collapsed = true;
-        assert_generic_empty_lower_panel(&mut app, area);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn all_workspaces_agent_panel_entries_use_live_root_runtime_cwd_for_workspace_label() {
-        let unique = format!(
-            "kitsune-agent-panel-runtime-cwd-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        );
-        let root = std::env::temp_dir().join(unique);
-        let stale_cwd = root.join("issue-264-nix-support");
-        let live_cwd = root.join("kitsune");
-        std::fs::create_dir_all(stale_cwd.join(".git")).unwrap();
-        std::fs::create_dir_all(live_cwd.join(".git")).unwrap();
-
-        let mut app = crate::app::state::AppState::test_new();
-        let mut workspace = Workspace::test_new("stale-name");
-        workspace.custom_name = None;
-        workspace.identity_cwd = stale_cwd.clone();
-        let pane = workspace.tabs[0].root_pane;
-
-        app.workspaces = vec![workspace];
-        app.ensure_test_terminals();
-        let terminal_id = app.workspaces[0].tabs[0].panes[&pane]
-            .attached_terminal_id
-            .clone();
-        let terminal = app.terminals.get_mut(&terminal_id).unwrap();
-        terminal.cwd = stale_cwd;
-        terminal.set_fallback_agent_for_test(Some(Agent::Pi));
-        app.active = Some(0);
-        app.selected = 0;
-
-        let (events, _) = tokio::sync::mpsc::channel(4);
-        let runtime = crate::terminal::TerminalRuntime::spawn(
-            pane,
-            24,
-            80,
-            live_cwd.clone(),
-            0,
-            crate::terminal_theme::TerminalTheme::default(),
-            crate::pane::PaneShellConfig::new("/bin/sh", crate::config::ShellModeConfig::NonLogin),
-            &crate::pane::PaneLaunchEnv::default(),
-            events,
-            std::sync::Arc::new(tokio::sync::Notify::new()),
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        )
-        .unwrap();
-
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while runtime.cwd() != Some(live_cwd.clone()) && std::time::Instant::now() < deadline {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-
-        let mut runtime_registry = TerminalRuntimeRegistry::new();
-        runtime_registry.insert(terminal_id, runtime);
-        let entries = agent_panel_entries_from(&app, &runtime_registry);
-        let primary_label = entries[0].primary_label.clone();
-
-        for (_, runtime) in runtime_registry.drain() {
-            runtime.shutdown();
-        }
-        let _ = std::fs::remove_dir_all(root);
-
-        assert_eq!(primary_label, "kitsune");
-    }
-
-    #[test]
-    fn all_workspaces_agent_panel_entries_prefer_agent_names_for_agent_identity() {
-        let mut app = crate::app::state::AppState::test_new();
-        let workspace = Workspace::test_new("bridge");
-        let first_pane = workspace.tabs[0].root_pane;
-
-        app.workspaces = vec![workspace];
-        app.ensure_test_terminals();
-        let first_terminal_id = app.workspaces[0].tabs[0].panes[&first_pane]
-            .attached_terminal_id
-            .clone();
-        app.terminals
-            .get_mut(&first_terminal_id)
-            .unwrap()
-            .set_fallback_agent_for_test(Some(Agent::Pi));
-        app.terminals
-            .get_mut(&first_terminal_id)
-            .unwrap()
-            .set_agent_name("planner".into());
-        app.active = Some(0);
-        app.selected = 0;
-
-        let entries = agent_panel_entries(&app);
-        assert_eq!(entries[0].primary_label, "bridge");
-        assert_eq!(entries[0].agent_label.as_deref(), Some("planner"));
     }
 
     #[test]

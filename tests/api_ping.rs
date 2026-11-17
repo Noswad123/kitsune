@@ -1,3 +1,5 @@
+#[path = "retirement/api_cases.rs"]
+mod retirement_cases;
 mod support;
 
 use std::fs;
@@ -19,7 +21,7 @@ fn unique_test_dir() -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    PathBuf::from(format!("/tmp/hapi-{}-{nanos}", std::process::id()))
+    std::env::temp_dir().join(format!("ha{nanos:x}"))
 }
 
 struct SpawnedKitsune {
@@ -120,14 +122,28 @@ fn spawn_kitsune_with_options(
     path_override: Option<&Path>,
     shell: &str,
 ) -> SpawnedKitsune {
+    spawn_kitsune_with_config(
+        config_home,
+        runtime_dir,
+        socket_path,
+        path_override,
+        shell,
+        "onboarding = false\n",
+    )
+}
+
+fn spawn_kitsune_with_config(
+    config_home: &Path,
+    runtime_dir: &Path,
+    socket_path: &Path,
+    path_override: Option<&Path>,
+    shell: &str,
+    config: &str,
+) -> SpawnedKitsune {
     fs::create_dir_all(config_home.join("kitsune")).unwrap();
     fs::create_dir_all(runtime_dir).unwrap();
     register_runtime_dir(runtime_dir);
-    fs::write(
-        config_home.join("kitsune/config.toml"),
-        "onboarding = false\n",
-    )
-    .unwrap();
+    fs::write(config_home.join("kitsune/config.toml"), config).unwrap();
 
     let pair = native_pty_system()
         .openpty(PtySize {
@@ -142,6 +158,8 @@ fn spawn_kitsune_with_options(
     cmd.arg("server");
     cmd.env("XDG_CONFIG_HOME", config_home);
     cmd.env("XDG_RUNTIME_DIR", runtime_dir);
+    cmd.env("XDG_STATE_HOME", runtime_dir.join("state"));
+    cmd.env_remove("KITSUNE_CONFIG_PATH");
     cmd.env("KITSUNE_SOCKET_PATH", socket_path);
     cmd.env_remove("KITSUNE_CLIENT_SOCKET_PATH");
     cmd.env("SHELL", shell);
@@ -310,22 +328,35 @@ fn ping_over_socket_returns_version() {
 }
 
 #[test]
-fn server_reload_agent_manifests_reports_runtime_override() {
+fn server_manifest_management_is_retired_and_ignores_existing_files() {
     let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("kitsune.sock");
+    for external in [false, true] {
+        let base = unique_test_dir();
+        let config_home = base.join("config");
+        let runtime_dir = base.join("runtime");
+        let socket_path = runtime_dir.join("kitsune.sock");
 
-    let child = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
-    wait_for_socket(&socket_path, Duration::from_secs(5));
+        let ownership = if external {
+            "[integrations]\nsources = ['custom']\n[integrations.runtime]\nsource = 'custom'\ncommand = ['/not-installed']\nreport_command = ['/not-installed-report']\nexternal_agent_management = true\n"
+        } else {
+            "[integrations]\nsources = []\n"
+        };
+        let child = spawn_kitsune_with_config(
+            &config_home,
+            &runtime_dir,
+            &socket_path,
+            None,
+            "/bin/sh",
+            &format!("onboarding = false\n{ownership}"),
+        );
+        wait_for_socket(&socket_path, Duration::from_secs(5));
 
-    let override_dir = config_home.join("kitsune-dev").join("agent-detection");
-    fs::create_dir_all(&override_dir).unwrap();
-    let override_path = override_dir.join("codex.toml");
-    fs::write(
-        &override_path,
-        r#"
+        let override_dir = config_home.join("kitsune-dev").join("agent-detection");
+        fs::create_dir_all(&override_dir).unwrap();
+        let override_path = override_dir.join("codex.toml");
+        fs::write(
+            &override_path,
+            r#"
 id = "codex"
 
 [[rules]]
@@ -333,25 +364,56 @@ id = "reload_marker"
 state = "blocked"
 contains = ["server-reload-marker"]
 "#,
-    )
-    .unwrap();
+        )
+        .unwrap();
 
-    let response = send_request(
-        &socket_path,
-        r#"{"id":"reload_manifests","method":"server.reload_agent_manifests","params":{}}"#,
-    );
-    assert_eq!(response["id"], "reload_manifests");
-    assert_eq!(response["result"]["type"], "agent_manifest_reload");
-    let manifests = response["result"]["manifests"].as_array().unwrap();
-    let codex = manifests
-        .iter()
-        .find(|manifest| manifest["agent"] == "codex")
-        .expect("codex manifest summary");
-    assert_eq!(codex["source_kind"], "local override");
-    assert_eq!(codex["source"], override_path.display().to_string());
-    assert!(codex.get("warning").is_none());
+        let root = runtime_dir.join("state/kitsune-dev/agent-detection");
+        fs::create_dir_all(root.join("remote")).unwrap();
+        let remote = root.join("remote/codex.toml");
+        let status = root.join("status.toml");
+        fs::write(&remote, "id = 'codex'\nversion = '9999.1'\nmin_engine_version = 1\n[[rules]]\nid = 'malicious'\nstate = 'blocked'\ncontains = ['malicious']\n").unwrap();
+        fs::write(
+            &status,
+            "last_check_unix = 123\nlast_result = 'malicious'\n",
+        )
+        .unwrap();
+        let before: Vec<_> = [&override_path, &remote, &status]
+            .map(|path| fs::read(path).unwrap())
+            .into();
+        for value in ["true", "false", "'wrong type'"] {
+            let config = format!("onboarding = false\n{ownership}[agent_detection]\nmanifest_check = {value}\n[update]\nmanifest_check = true\n[terminal]\ndefault_shell = '/bin/sh'\n");
+            fs::write(config_home.join("kitsune/config.toml"), &config).unwrap();
+            let reload = send_request(
+                &socket_path,
+                r#"{"id":"config","method":"server.reload_config","params":{}}"#,
+            );
+            assert_eq!(reload["id"], "config");
+            assert!(reload["result"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|d| d.as_str().is_some_and(|s| s.contains("retired"))));
+            for method in ["server.agent_manifests", "server.reload_agent_manifests"] {
+                let response = send_request(
+                    &socket_path,
+                    &format!(r#"{{"id":"retired","method":"{method}","params":{{}}}}"#),
+                );
+                assert_eq!(response["id"], "retired");
+                assert_eq!(response["error"]["code"], "feature_retired");
+                assert_eq!(response["error"]["message"], "Built-in detector-manifest management has been retired; Kitsune no longer downloads or reloads agent-detection manifests. Generic pane/process operations remain available.");
+                assert!(response.get("result").is_none());
+            }
+            assert_eq!(
+                fs::read_to_string(config_home.join("kitsune/config.toml")).unwrap(),
+                config
+            );
+            for (path, content) in [&override_path, &remote, &status].into_iter().zip(&before) {
+                assert_eq!(fs::read(path).unwrap(), *content);
+            }
+        }
 
-    cleanup_spawned_kitsune(child, base);
+        cleanup_spawned_kitsune(child, base);
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -835,20 +897,13 @@ fn pane_info_reports_foreground_cwd_without_changing_pane_cwd() {
             pane_id
         ),
     );
-    assert_eq!(reported["result"]["type"], "ok");
+    assert_eq!(reported["error"]["code"], "feature_retired");
 
     let agents = send_request(
         &socket_path,
         r#"{"id":"fg_agents","method":"agent.list","params":{}}"#,
     );
-    assert_eq!(
-        agents["result"]["agents"][0]["cwd"],
-        base.display().to_string()
-    );
-    assert_eq!(
-        agents["result"]["agents"][0]["foreground_cwd"],
-        foreground.display().to_string()
-    );
+    assert_eq!(agents["error"]["code"], "feature_retired");
 
     let split = send_request(
         &socket_path,
@@ -1005,252 +1060,6 @@ fn new_terminal_cwd_follow_ignores_nonleader_group_member_cwd() {
         tab["result"]["root_pane"]["cwd"],
         base.display().to_string()
     );
-
-    cleanup_spawned_kitsune(child, base);
-}
-
-#[cfg(not(target_os = "macos"))]
-#[test]
-fn agent_start_targets_existing_pane_over_socket() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("kitsune.sock");
-    let bin = base.join("bin");
-    fs::create_dir_all(&bin).unwrap();
-    let fake_pi = bin.join("pi");
-    fs::write(&fake_pi, "#!/bin/sh\nKITSUNE_AGENT=pi exec /bin/sleep 20\n").unwrap();
-    fs::set_permissions(&fake_pi, fs::Permissions::from_mode(0o755)).unwrap();
-
-    let child = spawn_kitsune_with_path(&config_home, &runtime_dir, &socket_path, Some(&bin));
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-    let workspace = send_request(
-        &socket_path,
-        &serde_json::json!({
-            "id": "agent_workspace",
-            "method": "workspace.create",
-            "params": { "cwd": base.display().to_string(), "focus": false }
-        })
-        .to_string(),
-    );
-    let pane_id = workspace["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let terminal_id = workspace["result"]["root_pane"]["terminal_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let started = send_request(
-        &socket_path,
-        &serde_json::json!({
-            "id": "agent_start",
-            "method": "agent.start",
-            "params": {
-                "name": "main",
-                "kind": "pi",
-                "pane_id": pane_id,
-                "args": ["--no-session"],
-                "timeout_ms": 8_000
-            }
-        })
-        .to_string(),
-    );
-    assert_eq!(started["result"]["type"], "agent_started");
-    assert_eq!(started["result"]["agent"]["name"], "main");
-    assert_eq!(started["result"]["agent"]["pane_id"], pane_id);
-    assert_eq!(started["result"]["agent"]["terminal_id"], terminal_id);
-    assert_eq!(
-        started["result"]["argv"],
-        serde_json::json!(["pi", "--no-session"])
-    );
-
-    let duplicate = send_request(
-        &socket_path,
-        &serde_json::json!({
-            "id": "agent_start_duplicate",
-            "method": "agent.start",
-            "params": {
-                "name": "main",
-                "kind": "pi",
-                "pane_id": pane_id
-            }
-        })
-        .to_string(),
-    );
-    assert_eq!(duplicate["error"]["code"], "agent_name_taken");
-    assert!(duplicate["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains(&terminal_id));
-
-    cleanup_spawned_kitsune(child, base);
-}
-
-#[test]
-fn agent_methods_round_trip_over_socket() {
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("kitsune.sock");
-
-    let child = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-
-    let created = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"agent_ws","method":"workspace.create","params":{{"cwd":"{}","focus":true}}}}"#,
-            base.display()
-        ),
-    );
-    let workspace_id = created["result"]["workspace"]["workspace_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let pane_id = created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let terminal_id = created["result"]["root_pane"]["terminal_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let renamed = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"agent_rename_pane","method":"pane.rename","params":{{"pane_id":"{}","label":"worker"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(renamed["result"]["pane"]["label"], "worker");
-
-    let reported = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"agent_report","method":"pane.report_agent","params":{{"pane_id":"{}","source":"test","agent":"pi","state":"working"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(reported["result"]["type"], "ok");
-
-    let listed = send_request(
-        &socket_path,
-        r#"{"id":"agent_list","method":"agent.list","params":{}}"#,
-    );
-    let agents = listed["result"]["agents"].as_array().unwrap();
-    assert_eq!(agents.len(), 1);
-    assert_eq!(agents[0]["terminal_id"], terminal_id);
-    assert!(agents[0].get("name").is_none());
-    assert_eq!(agents[0]["agent"], "pi");
-    assert_eq!(agents[0]["agent_status"], "working");
-    assert_eq!(agents[0]["pane_id"], pane_id);
-
-    let fetched_by_pane = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"agent_get_pane","method":"agent.get","params":{{"target":"{}"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(
-        fetched_by_pane["result"]["agent"]["terminal_id"],
-        terminal_id
-    );
-
-    let renamed_first_agent = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"agent_rename_first","method":"agent.rename","params":{{"target":"{}","name":"worker"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(renamed_first_agent["result"]["agent"]["name"], "worker");
-
-    let fetched_by_name = send_request(
-        &socket_path,
-        r#"{"id":"agent_get_name","method":"agent.get","params":{"target":"worker"}}"#,
-    );
-    assert_eq!(fetched_by_name["result"]["agent"]["name"], "worker");
-
-    let read = send_request(
-        &socket_path,
-        r#"{"id":"agent_read","method":"agent.read","params":{"target":"worker","source":"visible"}}"#,
-    );
-    assert_eq!(read["result"]["type"], "pane_read");
-    assert_eq!(read["result"]["read"]["pane_id"], pane_id);
-
-    let sent = send_request(
-        &socket_path,
-        r#"{"id":"agent_send_keys","method":"agent.send_keys","params":{"target":"worker","keys":["enter"]}}"#,
-    );
-    assert_eq!(sent["error"]["code"], "agent_not_ready");
-
-    let tab_created = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"agent_tab","method":"tab.create","params":{{"workspace_id":"{}","focus":false}}}}"#,
-            workspace_id
-        ),
-    );
-    let second_tab_id = tab_created["result"]["tab"]["tab_id"].as_str().unwrap();
-    let second_pane_id = tab_created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap();
-    let second_terminal_id = tab_created["result"]["root_pane"]["terminal_id"]
-        .as_str()
-        .unwrap();
-
-    let second_reported = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"agent_second_report","method":"pane.report_agent","params":{{"pane_id":"{}","source":"test","agent":"codex","state":"idle"}}}}"#,
-            second_pane_id
-        ),
-    );
-    assert_eq!(second_reported["result"]["type"], "ok");
-
-    let second_renamed = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"agent_second_rename","method":"agent.rename","params":{{"target":"{}","name":"reviewer"}}}}"#,
-            second_pane_id
-        ),
-    );
-    assert_eq!(second_renamed["result"]["agent"]["name"], "reviewer");
-
-    let duplicate = send_request(
-        &socket_path,
-        r#"{"id":"agent_duplicate","method":"agent.rename","params":{"target":"reviewer","name":"worker"}}"#,
-    );
-    assert_eq!(duplicate["error"]["code"], "agent_name_taken");
-    assert!(duplicate["error"]["message"]
-        .as_str()
-        .unwrap()
-        .contains(&terminal_id));
-
-    let agent_renamed = send_request(
-        &socket_path,
-        r#"{"id":"agent_rename","method":"agent.rename","params":{"target":"reviewer","name":"qa"}}"#,
-    );
-    assert_eq!(agent_renamed["result"]["agent"]["name"], "qa");
-
-    let focused = send_request(
-        &socket_path,
-        r#"{"id":"agent_focus","method":"agent.focus","params":{"target":"qa"}}"#,
-    );
-    assert_eq!(
-        focused["result"]["agent"]["terminal_id"],
-        second_terminal_id
-    );
-    assert_eq!(focused["result"]["agent"]["tab_id"], second_tab_id);
-    assert_eq!(focused["result"]["agent"]["focused"], true);
 
     cleanup_spawned_kitsune(child, base);
 }
@@ -1421,9 +1230,9 @@ fn events_subscribe_streams_workspace_tab_and_agent_events() {
     );
     assert_eq!(send_enter["result"]["type"], "ok");
 
-    let agent_detected = wait_for_event(&mut reader, "pane_agent_detected", Duration::from_secs(3));
-    assert_eq!(agent_detected["data"]["pane_id"], pane_id);
-    assert_eq!(agent_detected["data"]["agent"], "pi");
+    assert!(reader
+        .try_read_json_line(Duration::from_millis(100))
+        .is_none());
 
     let new_tab = send_request(
         &socket_path,
@@ -1619,589 +1428,14 @@ fn events_subscribe_streams_tab_and_workspace_close_events() {
 }
 
 #[cfg(not(target_os = "macos"))]
-#[cfg(not(target_os = "macos"))]
 #[test]
-fn pane_report_agent_updates_effective_state() {
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("kitsune.sock");
-    let bin_dir = base.join("bin");
-
-    fs::create_dir_all(&bin_dir).unwrap();
-    let fake_pi = bin_dir.join("pi");
-    fs::write(&fake_pi, "#!/bin/sh\nprintf 'Working...\\n'\nsleep 3\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&fake_pi).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&fake_pi, perms).unwrap();
-    }
-
-    let inherited_path = std::env::var("PATH").unwrap_or_default();
-    let path_override = format!("{}:{}", bin_dir.display(), inherited_path);
-    let child = spawn_kitsune_with_path(
-        &config_home,
-        &runtime_dir,
-        &socket_path,
-        Some(Path::new(&path_override)),
-    );
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-
-    let created = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_1","method":"workspace.create","params":{{"cwd":"{}","focus":true}}}}"#,
-            base.display()
-        ),
-    );
-    let pane_id = created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let send_pi = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_2","method":"pane.send_text","params":{{"pane_id":"{}","text":"pi"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(send_pi["result"]["type"], "ok");
-    let send_enter = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_3","method":"pane.send_keys","params":{{"pane_id":"{}","keys":["Enter"]}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(send_enter["result"]["type"], "ok");
-
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        let pane = send_request(
-            &socket_path,
-            &format!(
-                r#"{{"id":"req_hook_detect","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-                pane_id
-            ),
-        );
-        if pane["result"]["pane"]["agent"] == "pi" {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "pi agent was never detected: {pane}"
-        );
-        thread::sleep(Duration::from_millis(100));
-    }
-
-    let session_path = base.join("pi-session.jsonl");
-    let session = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_session","method":"pane.report_agent_session","params":{{"pane_id":"{}","source":"kitsune:pi","agent":"pi","agent_session_path":"{}","session_start_source":"startup","seq":1}}}}"#,
-            pane_id,
-            session_path.display()
-        ),
-    );
-    assert_eq!(session["result"]["type"], "ok");
-    let hook = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_5","method":"pane.report_agent","params":{{"pane_id":"{}","source":"kitsune:pi","agent":"pi","state":"working","message":"thinking","agent_session_path":"{}","seq":2}}}}"#,
-            pane_id,
-            session_path.display()
-        ),
-    );
-    assert_eq!(hook["result"]["type"], "ok");
-
-    let pane = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_6","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(pane["result"]["pane"]["agent"], "pi");
-    assert_eq!(pane["result"]["pane"]["agent_status"], "working");
-    assert_eq!(
-        pane["result"]["pane"]["agent_session"]["source"],
-        "kitsune:pi"
-    );
-    assert_eq!(pane["result"]["pane"]["agent_session"]["agent"], "pi");
-    assert_eq!(pane["result"]["pane"]["agent_session"]["kind"], "path");
-    assert_eq!(
-        pane["result"]["pane"]["agent_session"]["value"],
-        session_path.display().to_string()
-    );
-
-    let metadata = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_metadata","method":"pane.report_metadata","params":{{"pane_id":"{}","source":"user:pi-display","agent":"pi","applies_to_source":"kitsune:pi","title":"Refactor auth","display_agent":"Pi auth","state_labels":{{"working":"deep in the mines"}},"tokens":{{"summary":"reviewing auth","model":"opus"}}}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(metadata["result"]["type"], "ok");
-
-    let pane = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_metadata_get","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(pane["result"]["pane"]["agent"], "pi");
-    assert_eq!(pane["result"]["pane"]["agent_status"], "working");
-    assert_eq!(pane["result"]["pane"]["title"], "Refactor auth");
-    assert_eq!(pane["result"]["pane"]["display_agent"], "Pi auth");
-    assert_eq!(
-        pane["result"]["pane"]["state_labels"]["working"],
-        "deep in the mines"
-    );
-    assert_eq!(
-        pane["result"]["pane"]["tokens"]["summary"],
-        "reviewing auth"
-    );
-    assert_eq!(pane["result"]["pane"]["tokens"]["model"], "opus");
-
-    let agent = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_metadata_agent","method":"agent.get","params":{{"target":"{}"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(agent["result"]["agent"]["agent"], "pi");
-    assert_eq!(
-        agent["result"]["agent"]["agent_session"]["source"],
-        "kitsune:pi"
-    );
-    assert_eq!(agent["result"]["agent"]["agent_session"]["agent"], "pi");
-    assert_eq!(agent["result"]["agent"]["agent_session"]["kind"], "path");
-    assert_eq!(
-        agent["result"]["agent"]["agent_session"]["value"],
-        session_path.display().to_string()
-    );
-    assert_eq!(agent["result"]["agent"]["title"], "Refactor auth");
-    assert_eq!(agent["result"]["agent"]["display_agent"], "Pi auth");
-    assert_eq!(
-        agent["result"]["agent"]["state_labels"]["working"],
-        "deep in the mines"
-    );
-    assert_eq!(
-        agent["result"]["agent"]["tokens"]["summary"],
-        "reviewing auth"
-    );
-    assert_eq!(agent["result"]["agent"]["tokens"]["model"], "opus");
-
-    let blank_source_metadata = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_metadata_blank_source","method":"pane.report_metadata","params":{{"pane_id":"{}","source":"   ","title":"x"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(
-        blank_source_metadata["error"]["code"],
-        "invalid_metadata_source"
-    );
-
-    let blank_title_clear_metadata = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_metadata_blank_title_clear","method":"pane.report_metadata","params":{{"pane_id":"{}","source":"user:pi-display","title":"   ","clear_title":true}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(
-        blank_title_clear_metadata["error"]["code"],
-        "invalid_metadata_request"
-    );
-
-    let blank_authority_source_metadata = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_metadata_blank_authority_source","method":"pane.report_metadata","params":{{"pane_id":"{}","source":"user:pi-display","applies_to_source":"   ","title":"x"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(
-        blank_authority_source_metadata["error"]["code"],
-        "invalid_metadata_source"
-    );
-
-    cleanup_spawned_kitsune(child, base);
-}
-
-#[cfg(not(target_os = "macos"))]
-#[test]
-fn pane_report_agent_accepts_unknown_agent_labels() {
+fn events_subscribe_rejects_retired_status_atomically_and_streams_generic_output() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
     let runtime_dir = base.join("runtime");
     let socket_path = runtime_dir.join("kitsune.sock");
     let child = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-
-    let created = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_generic_1","method":"workspace.create","params":{{"cwd":"{}","focus":true}}}}"#,
-            base.display()
-        ),
-    );
-    let pane_id = created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let hook = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_generic_2","method":"pane.report_agent","params":{{"pane_id":"{}","source":"custom:hermes","agent":"hermes","state":"working"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(hook["result"]["type"], "ok");
-
-    let pane = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_hook_generic_3","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(pane["result"]["pane"]["agent"], "hermes");
-    assert_eq!(pane["result"]["pane"]["agent_status"], "working");
-
-    cleanup_spawned_kitsune(child, base);
-}
-
-#[cfg(not(target_os = "macos"))]
-#[test]
-fn official_release_waits_for_confirmed_process_exit() {
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("kitsune.sock");
-    let bin_dir = base.join("bin");
-
-    fs::create_dir_all(&bin_dir).unwrap();
-    let fake_pi = bin_dir.join("pi");
-    let stop_file = base.join("pi-stop");
-    fs::write(
-        &fake_pi,
-        format!(
-            "#!/bin/sh\nprintf 'Working...\\n'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
-            stop_file.display()
-        ),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&fake_pi).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&fake_pi, perms).unwrap();
-    }
-
-    let inherited_path = std::env::var("PATH").unwrap_or_default();
-    let path_override = format!("{}:{}", bin_dir.display(), inherited_path);
-    let child = spawn_kitsune_with_path(
-        &config_home,
-        &runtime_dir,
-        &socket_path,
-        Some(Path::new(&path_override)),
-    );
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-
-    let created = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_release_1","method":"workspace.create","params":{{"cwd":"{}","focus":true}}}}"#,
-            base.display()
-        ),
-    );
-    let pane_id = created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let send_pi = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_release_2","method":"pane.send_text","params":{{"pane_id":"{}","text":"pi"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(send_pi["result"]["type"], "ok");
-    let send_enter = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_release_3","method":"pane.send_keys","params":{{"pane_id":"{}","keys":["Enter"]}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(send_enter["result"]["type"], "ok");
-
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        let pane = send_request(
-            &socket_path,
-            &format!(
-                r#"{{"id":"req_release_detect","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-                pane_id
-            ),
-        );
-        if pane["result"]["pane"]["agent"] == "pi" {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "pi agent was never detected: {pane}"
-        );
-        thread::sleep(Duration::from_millis(100));
-    }
-
-    let session_path = base.join("release-session.jsonl");
-    let session = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_release_session","method":"pane.report_agent_session","params":{{"pane_id":"{}","source":"kitsune:pi","agent":"pi","agent_session_path":"{}","session_start_source":"startup","seq":1}}}}"#,
-            pane_id,
-            session_path.display()
-        ),
-    );
-    assert_eq!(session["result"]["type"], "ok");
-    let hook = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_release_4","method":"pane.report_agent","params":{{"pane_id":"{}","source":"kitsune:pi","agent":"pi","state":"working","agent_session_path":"{}","seq":2}}}}"#,
-            pane_id,
-            session_path.display()
-        ),
-    );
-    assert_eq!(hook["result"]["type"], "ok");
-
-    let released = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_release_5","method":"pane.release_agent","params":{{"pane_id":"{}","source":"kitsune:pi","agent":"pi"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(released["result"]["type"], "ok");
-
-    let release_observation_deadline = Instant::now() + Duration::from_millis(300);
-    while Instant::now() < release_observation_deadline {
-        let pane = send_request(
-            &socket_path,
-            &format!(
-                r#"{{"id":"req_release_6","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-                pane_id
-            ),
-        );
-        assert_eq!(
-            pane["result"]["pane"]["agent"], "pi",
-            "official release hid the live Pi process: {pane}"
-        );
-        assert_eq!(pane["result"]["pane"]["agent_status"], "working");
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    fs::write(&stop_file, "stop").unwrap();
-
-    let cleared_deadline = Instant::now() + Duration::from_secs(1);
-    loop {
-        let pane = send_request(
-            &socket_path,
-            &format!(
-                r#"{{"id":"req_release_7","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-                pane_id
-            ),
-        );
-        if pane["result"]["pane"]["agent"].is_null()
-            && pane["result"]["pane"]["agent_status"] == "unknown"
-        {
-            break;
-        }
-        assert!(
-            Instant::now() < cleared_deadline,
-            "pi agent was not cleared promptly after process exit: {pane}"
-        );
-        thread::sleep(Duration::from_millis(50));
-    }
-
-    cleanup_spawned_kitsune(child, base);
-}
-
-#[cfg(not(target_os = "macos"))]
-#[test]
-fn pane_clear_agent_authority_restores_fallback_state() {
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("kitsune.sock");
-    let bin_dir = base.join("bin");
-
-    fs::create_dir_all(&bin_dir).unwrap();
-    let fake_pi = bin_dir.join("pi");
-    fs::write(&fake_pi, "#!/bin/sh\nprintf 'Working...\\n'\nsleep 3\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&fake_pi).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&fake_pi, perms).unwrap();
-    }
-
-    let inherited_path = std::env::var("PATH").unwrap_or_default();
-    let path_override = format!("{}:{}", bin_dir.display(), inherited_path);
-    let child = spawn_kitsune_with_path(
-        &config_home,
-        &runtime_dir,
-        &socket_path,
-        Some(Path::new(&path_override)),
-    );
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-
-    let created = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_clear_1","method":"workspace.create","params":{{"cwd":"{}","focus":true}}}}"#,
-            base.display()
-        ),
-    );
-    let pane_id = created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let send_pi = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_clear_2","method":"pane.send_text","params":{{"pane_id":"{}","text":"pi"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(send_pi["result"]["type"], "ok");
-    let send_enter = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_clear_3","method":"pane.send_keys","params":{{"pane_id":"{}","keys":["Enter"]}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(send_enter["result"]["type"], "ok");
-
-    let deadline = Instant::now() + Duration::from_secs(3);
-    loop {
-        let pane = send_request(
-            &socket_path,
-            &format!(
-                r#"{{"id":"req_clear_detect","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-                pane_id
-            ),
-        );
-        if pane["result"]["pane"]["agent"] == "pi" {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "pi agent was never detected: {pane}"
-        );
-        thread::sleep(Duration::from_millis(100));
-    }
-
-    let fallback_before_hook = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_clear_fallback","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-            pane_id
-        ),
-    );
-    let fallback_status = fallback_before_hook["result"]["pane"]["agent_status"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let hook = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_clear_4","method":"pane.report_agent","params":{{"pane_id":"{}","source":"kitsune:pi","agent":"pi","state":"idle"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(hook["result"]["type"], "ok");
-
-    let cleared = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_clear_5","method":"pane.clear_agent_authority","params":{{"pane_id":"{}","source":"kitsune:pi"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(cleared["result"]["type"], "ok");
-
-    let pane = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_clear_6","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(pane["result"]["pane"]["agent"], "pi");
-    assert_eq!(pane["result"]["pane"]["agent_status"], fallback_status);
-
-    cleanup_spawned_kitsune(child, base);
-}
-
-#[cfg(not(target_os = "macos"))]
-#[test]
-fn events_subscribe_streams_output_and_agent_status_events() {
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("kitsune.sock");
-    let bin_dir = base.join("bin");
-
-    fs::create_dir_all(&bin_dir).unwrap();
-    let fake_pi = bin_dir.join("pi");
-    let stop_file = base.join("pi-stop");
-    // Separate a normal turn from the detector's three-second startup grace,
-    // then keep the interactive process alive until its completion is observed.
-    fs::write(
-        &fake_pi,
-        format!(
-            "#!/bin/sh\nprintf 'starting\\n'\nsleep 4\nprintf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
-            stop_file.display()
-        ),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&fake_pi).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&fake_pi, perms).unwrap();
-    }
-
-    let inherited_path = std::env::var("PATH").unwrap_or_default();
-    let path_override = format!("{}:{}", bin_dir.display(), inherited_path);
-    let child = spawn_kitsune_with_path(
-        &config_home,
-        &runtime_dir,
-        &socket_path,
-        Some(Path::new(&path_override)),
-    );
     wait_for_socket(&socket_path, Duration::from_secs(5));
 
     let created = send_request(
@@ -2228,6 +1462,24 @@ fn events_subscribe_streams_output_and_agent_status_events() {
 
     let ack = reader.read_json_line(Duration::from_secs(2));
     assert_eq!(ack["id"], "sub_1");
+    assert_eq!(ack["error"]["code"], "feature_retired");
+    assert!(ack.get("result").is_none());
+    drop(reader);
+
+    let mut reader = open_subscription(
+        &socket_path,
+        &serde_json::json!({
+            "id":"generic-output", "method":"events.subscribe",
+            "params":{"subscriptions":[{
+                "type":"pane.output_matched", "pane_id":pane_id,
+                "source":"recent", "lines":40,
+                "match":{"type":"substring", "value":"hello from socket"}
+            }]}
+        })
+        .to_string(),
+    );
+    let ack = reader.read_json_line(Duration::from_secs(2));
+    assert_eq!(ack["id"], "generic-output");
     assert_eq!(ack["result"]["type"], "subscription_started");
 
     let send_text = send_request(
@@ -2260,217 +1512,9 @@ fn events_subscribe_streams_output_and_agent_status_events() {
         .unwrap()
         .contains("hello from socket"));
 
-    // Done is an unseen completion: a focused pane is acknowledged as idle.
-    // Keep this pane in the background for the done-filtered subscription.
-    let tab_created = send_request(
-        &socket_path,
-        &serde_json::json!({
-            "id": "req_background", "method": "tab.create",
-            "params": {
-                "workspace_id": created["result"]["workspace"]["workspace_id"],
-                "focus": true
-            }
-        })
-        .to_string(),
-    );
-    assert_eq!(tab_created["result"]["type"], "tab_created");
-
-    let send_pi = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_24","method":"pane.send_text","params":{{"pane_id":"{}","text":"pi"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(send_pi["result"]["type"], "ok");
-    let send_enter = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_25","method":"pane.send_keys","params":{{"pane_id":"{}","keys":["Enter"]}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(send_enter["result"]["type"], "ok");
-
-    let agent_done = reader
-        .try_read_json_line(Duration::from_secs(8))
-        .unwrap_or_else(|| {
-            let pane = send_request(
-                &socket_path,
-                &serde_json::json!({
-                    "id": "status_timeout_pane", "method": "pane.get",
-                    "params": {"pane_id": pane_id}
-                })
-                .to_string(),
-            );
-            let processes = send_request(
-                &socket_path,
-                &serde_json::json!({
-                    "id": "status_timeout_process", "method": "pane.process_info",
-                    "params": {"pane_id": pane_id}
-                })
-                .to_string(),
-            );
-            panic!("timed out waiting for done event; pane: {pane}; processes: {processes}");
-        });
-    assert_eq!(agent_done["event"], "pane.agent_status_changed");
-    assert_eq!(agent_done["data"]["pane_id"], pane_id);
-    assert_eq!(agent_done["data"]["agent_status"], "done");
-    assert_eq!(agent_done["data"]["agent"], "pi");
-
-    // An interactive agent stays alive after finishing; exit only after observing
-    // its done event rather than racing process disappearance with screen detection.
-    fs::write(&stop_file, "stop").unwrap();
-    cleanup_spawned_kitsune(child, base);
-}
-
-#[test]
-fn pane_info_and_subscriptions_expose_done_agent_status() {
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("kitsune.sock");
-    let bin_dir = base.join("bin");
-
-    fs::create_dir_all(&bin_dir).unwrap();
-    let fake_pi = bin_dir.join("pi");
-    let stop_file = base.join("pi-stop");
-    fs::write(
-        &fake_pi,
-        format!(
-            "#!/bin/sh\nprintf 'starting\\n'\nsleep 4\nprintf 'Working...\\n'\nsleep 1\nprintf '\\033[2J\\033[Hdone\\n'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\n",
-            stop_file.display()
-        ),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&fake_pi).unwrap().permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&fake_pi, perms).unwrap();
-    }
-
-    let inherited_path = std::env::var("PATH").unwrap_or_default();
-    let path_override = format!("{}:{}", bin_dir.display(), inherited_path);
-    let child = spawn_kitsune_with_path(
-        &config_home,
-        &runtime_dir,
-        &socket_path,
-        Some(Path::new(&path_override)),
-    );
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-
-    let created = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_status_1","method":"workspace.create","params":{{"cwd":"{}","focus":true}}}}"#,
-            base.display()
-        ),
-    );
-    let workspace_id = created["result"]["workspace"]["workspace_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let background_pane_id = created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let tab_created = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_status_2","method":"tab.create","params":{{"workspace_id":"{}","focus":true}}}}"#,
-            workspace_id
-        ),
-    );
-    assert_eq!(tab_created["result"]["type"], "tab_created");
-
-    let mut reader = open_subscription(
-        &socket_path,
-        &format!(
-            r#"{{"id":"sub_status","method":"events.subscribe","params":{{"subscriptions":[{{"type":"pane.agent_status_changed","pane_id":"{}","agent_status":"done"}}]}}}}"#,
-            background_pane_id,
-        ),
-    );
-    let ack = reader.read_json_line(Duration::from_secs(2));
-    assert_eq!(ack["id"], "sub_status");
-    assert_eq!(ack["result"]["type"], "subscription_started");
-
-    let send_pi = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_status_3","method":"pane.send_text","params":{{"pane_id":"{}","text":"pi"}}}}"#,
-            background_pane_id
-        ),
-    );
-    assert_eq!(send_pi["result"]["type"], "ok");
-    let send_enter = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_status_4","method":"pane.send_keys","params":{{"pane_id":"{}","keys":["Enter"]}}}}"#,
-            background_pane_id
-        ),
-    );
-    assert_eq!(send_enter["result"]["type"], "ok");
-
-    let status_event = reader.read_json_line(Duration::from_secs(12));
-    assert_eq!(status_event["event"], "pane.agent_status_changed");
-    assert_eq!(status_event["data"]["pane_id"], background_pane_id);
-    assert_eq!(status_event["data"]["agent_status"], "done");
-    assert_eq!(status_event["data"]["agent"], "pi");
-
-    let pane = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_status_5","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-            background_pane_id
-        ),
-    );
-    assert_eq!(pane["result"]["pane"]["agent_status"], "done");
-
-    let mut already_done_reader = open_subscription(
-        &socket_path,
-        &format!(
-            r#"{{"id":"sub_status_already_done","method":"events.subscribe","params":{{"subscriptions":[{{"type":"pane.agent_status_changed","pane_id":"{}","agent_status":"done"}}]}}}}"#,
-            background_pane_id,
-        ),
-    );
-    let ack = already_done_reader.read_json_line(Duration::from_secs(2));
-    assert_eq!(ack["id"], "sub_status_already_done");
-    assert_eq!(ack["result"]["type"], "subscription_started");
-
-    let initial_status_event = already_done_reader.read_json_line(Duration::from_secs(2));
-    assert_eq!(initial_status_event["event"], "pane.agent_status_changed");
-    assert_eq!(initial_status_event["data"]["pane_id"], background_pane_id);
-    assert_eq!(initial_status_event["data"]["agent_status"], "done");
-    assert_eq!(initial_status_event["data"]["agent"], "pi");
-
-    let focused_tab_id = created["result"]["workspace"]["active_tab_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    let tab_focus = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_status_6","method":"tab.focus","params":{{"tab_id":"{}"}}}}"#,
-            focused_tab_id
-        ),
-    );
-    assert_eq!(tab_focus["result"]["type"], "tab_info");
-
-    let pane_after_focus = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_status_7","method":"pane.get","params":{{"pane_id":"{}"}}}}"#,
-            background_pane_id
-        ),
-    );
-    assert_eq!(pane_after_focus["result"]["pane"]["agent_status"], "idle");
-
-    fs::write(&stop_file, "stop").unwrap();
-
+    assert!(reader
+        .try_read_json_line(Duration::from_millis(100))
+        .is_none());
     cleanup_spawned_kitsune(child, base);
 }
 
@@ -2600,100 +1644,5 @@ fn command_submission_real_shell_preserves_argv_and_rejects_busy_and_mismatched_
     );
     assert_eq!(mismatch["error"]["code"], "terminal_mismatch");
     fs::write(stop, "stop").unwrap();
-    cleanup_spawned_kitsune(child, base);
-}
-
-#[test]
-fn metadata_status_subscription_filter_and_ttl_expiry_are_observable() {
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let socket_path = runtime_dir.join("kitsune.sock");
-
-    let child = spawn_kitsune(&config_home, &runtime_dir, &socket_path);
-    wait_for_socket(&socket_path, Duration::from_secs(5));
-
-    let created = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_meta_sub_1","method":"workspace.create","params":{{"cwd":"{}","focus":true}}}}"#,
-            base.display()
-        ),
-    );
-    let pane_id = created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let report_agent = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_meta_sub_2","method":"pane.report_agent","params":{{"pane_id":"{}","source":"custom:pi","agent":"pi","state":"working"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(report_agent["result"]["type"], "ok");
-
-    let mut done_reader = open_subscription(
-        &socket_path,
-        &format!(
-            r#"{{"id":"sub_meta_done","method":"events.subscribe","params":{{"subscriptions":[{{"type":"pane.agent_status_changed","pane_id":"{}","agent_status":"done"}}]}}}}"#,
-            pane_id,
-        ),
-    );
-    let ack = done_reader.read_json_line(Duration::from_secs(2));
-    assert_eq!(ack["id"], "sub_meta_done");
-    assert_eq!(ack["result"]["type"], "subscription_started");
-
-    let metadata = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_meta_sub_3","method":"pane.report_metadata","params":{{"pane_id":"{}","source":"user:pi-display","agent":"pi","applies_to_source":"custom:pi","title":"filtered out"}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(metadata["result"]["type"], "ok");
-    assert!(
-        done_reader
-            .try_read_json_line(Duration::from_millis(500))
-            .is_none(),
-        "done-filtered subscription emitted for a working metadata-only change"
-    );
-
-    let mut reader = open_subscription(
-        &socket_path,
-        &format!(
-            r#"{{"id":"sub_meta_ttl","method":"events.subscribe","params":{{"subscriptions":[{{"type":"pane.agent_status_changed","pane_id":"{}"}}]}}}}"#,
-            pane_id,
-        ),
-    );
-    let ack = reader.read_json_line(Duration::from_secs(2));
-    assert_eq!(ack["id"], "sub_meta_ttl");
-    assert_eq!(ack["result"]["type"], "subscription_started");
-
-    let metadata = send_request(
-        &socket_path,
-        &format!(
-            r#"{{"id":"req_meta_sub_4","method":"pane.report_metadata","params":{{"pane_id":"{}","source":"user:pi-display","agent":"pi","applies_to_source":"custom:pi","title":"short lived","ttl_ms":100}}}}"#,
-            pane_id
-        ),
-    );
-    assert_eq!(metadata["result"]["type"], "ok");
-
-    let set_event = reader.read_json_line(Duration::from_secs(2));
-    assert_eq!(set_event["event"], "pane.agent_status_changed");
-    assert_eq!(set_event["data"]["pane_id"], pane_id);
-    assert_eq!(set_event["data"]["agent_status"], "working");
-    assert_eq!(set_event["data"]["agent"], "pi");
-    assert_eq!(set_event["data"]["title"], "short lived");
-
-    let expiry_event = reader.read_json_line(Duration::from_secs(3));
-    assert_eq!(expiry_event["event"], "pane.agent_status_changed");
-    assert_eq!(expiry_event["data"]["pane_id"], pane_id);
-    assert_eq!(expiry_event["data"]["agent_status"], "working");
-    assert_eq!(expiry_event["data"]["agent"], "pi");
-    assert!(expiry_event["data"]["title"].is_null());
-
     cleanup_spawned_kitsune(child, base);
 }

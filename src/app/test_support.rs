@@ -67,8 +67,11 @@ pub(crate) fn legacy_control_fixture() -> (App, String, crate::terminal::Termina
             session_ref: AgentSessionRef::id("held-history").unwrap(),
         };
         terminal.set_persisted_agent_session(session.clone());
-        terminal.pending_agent_resume_plan =
-            crate::agent_resume::plan(&session.source, &session.agent, &session.session_ref);
+        terminal.pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
+            agent: session.agent.clone(),
+            argv: vec!["historical-command-must-not-run".into()],
+            dedupe_key: "held-history".into(),
+        });
         terminal.set_manual_label("manual-marker".into());
         terminal.launch_argv = Some(vec!["launch-marker".into()]);
         terminal.respawn_shell_on_exit = true;
@@ -152,11 +155,8 @@ pub(crate) fn app_from_state(state: AppState) -> App {
         pending_url_click_sources: Default::default(),
         next_resize_poll: now,
         next_animation_tick: None,
-        next_agent_manifest_update_check: None,
-        update_manifest_check_enabled: false,
         loaded_host_cursor: Default::default(),
         agent_metadata_deadline: None,
-        pending_agent_resume_deadline: None,
         selection_autoscroll_deadline: None,
         selection_highlight_clear_deadline: None,
         session_save_deadline: None,

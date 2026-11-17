@@ -62,6 +62,44 @@ fn request_uses_dot_method_names() {
 }
 
 #[test]
+fn historical_integration_install_success_responses_round_trip_all_six_targets() {
+    let targets = [
+        ("pi", IntegrationTarget::Pi),
+        ("claude", IntegrationTarget::Claude),
+        ("codex", IntegrationTarget::Codex),
+        ("copilot", IntegrationTarget::Copilot),
+        ("opencode", IntegrationTarget::Opencode),
+        ("djinn", IntegrationTarget::Djinn),
+    ];
+    assert_eq!(targets.len(), IntegrationTarget::ALL.len());
+    for (name, target) in targets {
+        let historical = serde_json::json!({
+            "id":"historical-install", "result":{
+                "type":"integration_install", "target":name,
+                "details":{"messages":["legacy install succeeded", "preserve historical output"]}
+            }
+        });
+        let decoded: SuccessResponse = serde_json::from_value(historical.clone()).unwrap();
+        assert_eq!(
+            decoded,
+            SuccessResponse {
+                id: "historical-install".into(),
+                result: ResponseResult::IntegrationInstall {
+                    target,
+                    details: IntegrationInstallResult {
+                        messages: vec![
+                            "legacy install succeeded".into(),
+                            "preserve historical output".into()
+                        ]
+                    }
+                }
+            }
+        );
+        assert_eq!(serde_json::to_value(decoded).unwrap(), historical);
+    }
+}
+
+#[test]
 fn integration_views_requests_and_results_round_trip_with_explicit_types() {
     let owner = ViewOwnerParams {
         source: "example".into(),
@@ -489,6 +527,33 @@ fn agent_view_requests_round_trip() {
     let request: Request = serde_json::from_value(clear_json.clone()).unwrap();
     assert!(matches!(request.method, Method::AgentViewClear(_)));
     assert_eq!(serde_json::to_value(request).unwrap(), clear_json);
+}
+
+#[test]
+fn historical_agent_success_dtos_still_decode_after_retirement() {
+    let agent = serde_json::json!({
+        "terminal_id":"term_1", "name":"historical", "agent":"pi", "agent_status":"idle",
+        "workspace_id":"w1", "tab_id":"w1:t1", "pane_id":"w1:p1", "focused":true,
+        "revision":0, "interactive_ready":true, "launch_pending":false,
+    });
+    for result in [
+        serde_json::json!({"type":"agent_info", "agent":agent}),
+        serde_json::json!({"type":"agent_started", "agent":agent, "argv":["pi"]}),
+        serde_json::json!({"type":"agent_prompted", "agent":agent}),
+        serde_json::json!({"type":"agent_list", "agents":[agent]}),
+        serde_json::json!({"type":"agent_view", "active":true, "source":"historical"}),
+        serde_json::json!({"type":"agent_explain", "explain":{"agent":"pi"}}),
+    ] {
+        let response: SuccessResponse = serde_json::from_value(serde_json::json!({
+            "id":"historical", "result":result,
+        }))
+        .unwrap();
+        assert_eq!(response.id, "historical");
+        assert_eq!(
+            serde_json::to_value(response).unwrap()["result"]["type"],
+            result["type"]
+        );
+    }
 }
 
 #[test]

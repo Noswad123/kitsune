@@ -139,12 +139,16 @@ fn server_command() -> Command {
         .subcommand(Command::new("reload-config").about("Reload config in the running server"))
         .subcommand(
             Command::new("agent-manifests")
-                .about("Show active agent detection manifests")
+                .about("Retired detector-manifest management")
                 .arg(json_flag()),
         )
         .subcommand(
-            Command::new("reload-agent-manifests")
-                .about("Reload local agent detection manifest overrides"),
+            Command::new("update-agent-manifests")
+                .about("Retired detector-manifest management")
+                .arg(json_flag()),
+        )
+        .subcommand(
+            Command::new("reload-agent-manifests").about("Retired detector-manifest management"),
         )
 }
 
@@ -287,7 +291,8 @@ fn notification_command() -> Command {
 
 fn agent_command() -> Command {
     Command::new("agent")
-        .about("Control and inspect agent panes")
+        .about("Retired live agent commands and offline detection diagnostics")
+        .after_help("Live agent operations return feature_retired locally. Use generic terminal/pane operations or an external agent manager. Offline agent explain --file remains available.")
         .subcommand(Command::new("list").about("List agents"))
         .subcommand(id_command("get", "target", "Show an agent"))
         .subcommand(
@@ -295,7 +300,9 @@ fn agent_command() -> Command {
                 .about("Read agent terminal output")
                 .override_usage(crate::product::command("agent read <TARGET> [OPTIONS]"))
                 .arg(required("target", "TARGET"))
-                .arg(read_source_option(true))
+                .arg(read_source_option(true).value_parser([
+                    "visible", "recent", "recent-unwrapped", "recent_unwrapped", "detection",
+                ]))
                 .arg(option("lines", "N"))
                 .arg(text_ansi_format_option())
                 .arg(flag("ansi")),
@@ -332,7 +339,7 @@ fn agent_command() -> Command {
                         .help("Fail after this many milliseconds"),
                 )
                 .after_help(
-                    "When submission starts from a non-working state, --wait first requires an observed state change within 5000ms; otherwise it returns agent_prompt_stalled. A shorter --timeout returns timeout instead. It then matches idle, done, or blocked by default, or any exact --until state. It does not track turns: if the agent is already working, that active turn's completion may match. Without --timeout, the settled-state wait is indefinite.",
+                    "Retired: returns feature_retired locally, including with --wait. No prompt is submitted and no readiness/status wait is performed.",
                 ),
         )
         .subcommand(
@@ -364,7 +371,7 @@ fn agent_command() -> Command {
                 )
                 .arg(option("timeout", "MS").help("Fail after this many milliseconds"))
                 .after_help(
-                    "Without --until, matches idle, done, or blocked. Use --until unknown explicitly when needed. Without --timeout, waits indefinitely.",
+                    "Retired: returns feature_retired locally without polling or waiting, including without --timeout.",
                 ),
         )
         .subcommand(
@@ -405,7 +412,7 @@ fn agent_command() -> Command {
                         .last(true),
                 )
                 .after_help(
-                    "The pane must be at its interactive shell prompt. Success means the expected agent was detected in the same terminal and is ready for input.",
+                    "Retired: returns feature_retired locally without probing the pane, launching a process, or waiting for readiness.",
                 ),
         )
         .subcommand(

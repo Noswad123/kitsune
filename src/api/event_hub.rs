@@ -37,6 +37,7 @@ impl EventHub {
             .collect()
     }
 
+    #[cfg(test)]
     pub fn current_sequence(&self) -> u64 {
         let Ok(state) = self.inner.lock() else {
             return 0;

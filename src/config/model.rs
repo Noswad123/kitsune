@@ -11,14 +11,6 @@ use super::{
 
 pub const MAX_TOAST_DELAY_SECONDS: u64 = 3600;
 
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[serde(default)]
-pub struct AgentDetectionConfig {
-    /// Check for remote agent-detection manifest updates in the background.
-    /// This is disabled by default and requires an explicit manifest catalog URL.
-    pub manifest_check: bool,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ToastDelivery {
@@ -209,8 +201,8 @@ pub struct TerminalConfig {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct SessionConfig {
-    /// Resume supported AI-agent panes into their native conversation sessions
-    /// when restoring a Kitsune session. Default: true.
+    /// Retired compatibility setting. Never consulted by restore execution.
+    #[serde(skip)]
     pub resume_agents_on_restore: bool,
 }
 
@@ -335,8 +327,6 @@ pub struct Config {
     pub theme: ThemeConfig,
     pub terminal: TerminalConfig,
     pub session: SessionConfig,
-    #[serde(alias = "update")]
-    pub agent_detection: AgentDetectionConfig,
     pub keys: KeysConfig,
     pub ui: UiConfig,
     pub worktrees: WorktreesConfig,
@@ -943,8 +933,9 @@ pub struct ExperimentalConfig {
     pub pane_history: bool,
     /// Expose the focused pane's cursor anchor to the outer terminal even when
     /// the pane requested `?25l`, so macOS native input methods keep tracking
-    /// the candidate window when TUIs paint their own cursor (Claude Code, pi,
-    /// codex, etc.). Default: false.
+    /// the candidate window when TUIs paint their own cursor. Default: false.
+    /// The retired `cjk_ime_agents` setting is ignored; this explicit boolean
+    /// alone controls generic reveal and is never enabled by an old allow-list.
     ///
     /// When the pane reports no cursor position, falls back to the pane's
     /// top-left so a stable IME anchor is always available.
@@ -953,15 +944,6 @@ pub struct ExperimentalConfig {
     /// outer terminal for apps that hide the cursor without painting a
     /// replacement (vim normal mode, etc.). See #149.
     pub reveal_hidden_cursor_for_cjk_ime: bool,
-    /// Restrict `reveal_hidden_cursor_for_cjk_ime` to focused panes whose
-    /// detected agent matches one of these names (case-insensitive). Empty
-    /// list means apply to any focused pane. Unknown agent names are ignored;
-    /// if the list contains no valid names, the reveal does not apply.
-    /// Accepted names: pi, claude, codex, gemini, cursor, devin, cline,
-    /// opencode, copilot, kimi, kiro, droid, amp, grok, hermes, kilo,
-    /// qodercli, qoder, maki.
-    /// Default: empty.
-    pub cjk_ime_agents: Vec<String>,
     /// Cursor shape rendered for the IME anchor when
     /// `reveal_hidden_cursor_for_cjk_ime` is enabled. Default: "steady_block".
     pub cjk_ime_cursor_shape: ImeCursorShape,
@@ -1163,23 +1145,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn agent_detection_config_defaults_and_parses() {
-        let default_config = Config::default();
-        assert!(!default_config.agent_detection.manifest_check);
-
-        let toml = r#"
-[agent_detection]
-manifest_check = false
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.agent_detection.manifest_check);
-
-        let legacy_toml = r#"
-[update]
-manifest_check = true
-"#;
-        let legacy_config: Config = toml::from_str(legacy_toml).unwrap();
-        assert!(legacy_config.agent_detection.manifest_check);
+    fn retired_manifest_config_is_inert_compatibility_input() {
+        for section in ["agent_detection", "update"] {
+            for value in ["true", "false", "\"wrong type\"", "[]"] {
+                let config: Config = toml::from_str(&format!(
+                    "[{section}]\nmanifest_check = {value}\n[terminal]\ndefault_shell = \"retained\""
+                )).unwrap();
+                assert_eq!(config.terminal.default_shell, "retained");
+            }
+        }
     }
 
     #[test]
@@ -1229,7 +1203,7 @@ new_cwd = "~/Projects"
     }
 
     #[test]
-    fn resume_agents_on_restore_defaults_on_and_parses() {
+    fn retired_resume_setting_is_ignored_instead_of_enabling_execution() {
         let default_config = Config::default();
         assert!(default_config.session.resume_agents_on_restore);
 
@@ -1238,7 +1212,7 @@ new_cwd = "~/Projects"
 resume_agents_on_restore = false
 "#;
         let config: Config = toml::from_str(toml).unwrap();
-        assert!(!config.session.resume_agents_on_restore);
+        assert!(config.session.resume_agents_on_restore);
     }
 
     #[test]
@@ -1377,22 +1351,6 @@ cjk_ime_cursor_shape = "bar"
         assert_eq!(
             config.experimental.cjk_ime_cursor_shape,
             ImeCursorShape::Bar
-        );
-    }
-
-    #[test]
-    fn cjk_ime_agents_default_empty_and_parse() {
-        let default_config = Config::default();
-        assert!(default_config.experimental.cjk_ime_agents.is_empty());
-
-        let toml = r#"
-[experimental]
-cjk_ime_agents = ["claude", "codex"]
-"#;
-        let config: Config = toml::from_str(toml).unwrap();
-        assert_eq!(
-            config.experimental.cjk_ime_agents,
-            vec!["claude".to_string(), "codex".to_string()]
         );
     }
 

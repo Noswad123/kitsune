@@ -1,5 +1,148 @@
 use super::harness::*;
 
+#[test]
+fn retired_manifest_commands_do_not_probe_socket_or_load_config() {
+    struct Cleanup(PathBuf);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            fs::remove_dir_all(&self.0).unwrap();
+        }
+    }
+    let path = std::env::temp_dir().join(format!("rc{}", uuid::Uuid::new_v4().simple()));
+    fs::create_dir(&path).unwrap();
+    let cleanup = Cleanup(path);
+    let base = &cleanup.0;
+    let socket = base.join("canary.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let config = base.join("config.toml");
+    let catalog = base.join("catalog.toml");
+    fs::write(&config, "[malformed TOML").unwrap();
+    fs::write(&catalog, "catalog must not be inspected").unwrap();
+    for command in [
+        "agent-manifests",
+        "reload-agent-manifests",
+        "update-agent-manifests",
+    ] {
+        for json in [false, true] {
+            if json && command == "reload-agent-manifests" {
+                continue;
+            }
+            let mut cli = Command::new(env!("CARGO_BIN_EXE_kitsune"));
+            cli.args(["server", command]);
+            if json {
+                cli.arg("--json");
+            }
+            let output = cli
+                .env("KITSUNE_SOCKET_PATH", &socket)
+                .env("KITSUNE_CLIENT_SOCKET_PATH", &socket)
+                .env("KITSUNE_CONFIG_PATH", &config)
+                .env("XDG_CONFIG_HOME", base.join("untouched-config"))
+                .env("XDG_STATE_HOME", base.join("untouched-state"))
+                .env(
+                    "KITSUNE_AGENT_DETECTION_MANIFEST_CATALOG_URL",
+                    format!("file://{}", catalog.display()),
+                )
+                .env("PATH", base.join("no-programs"))
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(1), "{output:?}");
+            assert!(output.stdout.is_empty());
+            if json {
+                let response: serde_json::Value = serde_json::from_slice(&output.stderr).unwrap();
+                assert_eq!(response["id"], format!("cli:server:{command}"));
+                assert_eq!(response["error"]["code"], "feature_retired");
+                assert!(response["error"]["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("Generic pane/process operations remain available."));
+                assert!(response.get("result").is_none());
+            } else {
+                assert!(String::from_utf8_lossy(&output.stderr).contains(
+                    "feature_retired: Built-in detector-manifest management has been retired;"
+                ));
+            }
+            assert_eq!(
+                listener.accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+            assert_eq!(fs::read_to_string(&config).unwrap(), "[malformed TOML");
+            assert_eq!(
+                fs::read_to_string(&catalog).unwrap(),
+                "catalog must not be inspected"
+            );
+            assert!(!base.join("untouched-config").exists());
+            assert!(!base.join("untouched-state").exists());
+        }
+    }
+
+    let state_root = base
+        .join("state")
+        .join(app_dir_name())
+        .join("agent-detection");
+    fs::create_dir_all(state_root.join("remote")).unwrap();
+    let manifest = "id = 'codex'\nversion = '9999.1'\nmin_engine_version = 1\n[[rules]]\nid = 'malicious'\nstate = 'blocked'\ncontains = ['malicious-ready']\n";
+    let remote = state_root.join("remote/codex.toml");
+    let status = state_root.join("status.toml");
+    let status_content = "last_check_unix = 123\nlast_result = 'malicious-status'\n[agents.codex]\nlast_result = 'updated'\nlast_error = 'malicious-error'\n";
+    fs::write(&remote, manifest).unwrap();
+    fs::write(&status, status_content).unwrap();
+    let local = base
+        .join("config")
+        .join(app_dir_name())
+        .join("agent-detection/codex.toml");
+    fs::create_dir_all(local.parent().unwrap()).unwrap();
+    fs::write(&local, "id = 'codex'\n[[rules]]\nid = 'local'\nstate = 'working'\ncontains = ['malicious-ready']\n").unwrap();
+    let screen = base.join("screen.txt");
+    fs::write(&screen, "malicious-ready").unwrap();
+    for has_local in [true, false] {
+        if !has_local {
+            fs::remove_file(&local).unwrap();
+        }
+        let output = Command::new(env!("CARGO_BIN_EXE_kitsune"))
+            .args(["agent", "explain", "--file"])
+            .arg(&screen)
+            .args(["--agent", "codex", "--json"])
+            .env("KITSUNE_SOCKET_PATH", &socket)
+            .env("KITSUNE_CLIENT_SOCKET_PATH", &socket)
+            .env("KITSUNE_CONFIG_PATH", &config)
+            .env("XDG_CONFIG_HOME", base.join("config"))
+            .env("XDG_STATE_HOME", base.join("state"))
+            .env(
+                "KITSUNE_AGENT_DETECTION_MANIFEST_CATALOG_URL",
+                format!("file://{}", catalog.display()),
+            )
+            .env("PATH", base.join("no-programs"))
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let explain: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(explain["state"], if has_local { "working" } else { "idle" });
+        assert_eq!(
+            explain["manifest_source"],
+            if has_local {
+                local.display().to_string()
+            } else {
+                "bundled".into()
+            }
+        );
+        for key in [
+            "cached_remote_version",
+            "remote_update_status",
+            "remote_update_error",
+        ] {
+            assert!(explain[key].is_null());
+        }
+        assert_eq!(explain["local_override_shadowing_remote"], false);
+        assert_eq!(fs::read_to_string(&remote).unwrap(), manifest);
+        assert_eq!(fs::read_to_string(&status).unwrap(), status_content);
+        assert_eq!(
+            listener.accept().unwrap_err().kind(),
+            std::io::ErrorKind::WouldBlock
+        );
+    }
+}
+
 fn annotation_cli_args() -> Vec<&'static str> {
     vec![
         "pane",
@@ -452,12 +595,9 @@ fn help_commands_exit_successfully() {
 #[test]
 fn subcommand_help_explains_automation_semantics_without_a_server() {
     let cases: &[(&[&str], &str)] = &[
-        (&["agent", "wait", "--help"], "Without --until"),
-        (
-            &["agent", "prompt", "--help"],
-            "first matching state observed after submission",
-        ),
-        (&["agent", "start", "--help"], "ready for input"),
+        (&["agent", "wait", "--help"], "feature_retired locally"),
+        (&["agent", "prompt", "--help"], "No prompt is submitted"),
+        (&["agent", "start", "--help"], "without probing the pane"),
         (
             &["agent", "send-keys", "--help"],
             "canonical Escape key name",
@@ -517,7 +657,8 @@ fn removed_wait_and_agent_send_commands_are_rejected() {
         .unwrap();
     assert_eq!(send.status.code(), Some(2));
     let stderr = String::from_utf8_lossy(&send.stderr);
-    assert!(stderr.contains("kitsune agent send-keys"));
+    assert!(stderr.contains("unrecognized subcommand"), "{stderr}");
+    assert!(!stderr.contains("feature_retired"));
     assert!(!stderr.contains("kitsune agent send <"));
 }
 

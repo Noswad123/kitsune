@@ -6,7 +6,6 @@ use ratatui::{
     Frame,
 };
 
-use super::status::state_label;
 use super::text::truncate_end;
 use super::widgets::{panel_contrast_fg, render_panel_shell};
 use crate::app::AppState;
@@ -249,27 +248,13 @@ fn navigate_hpm_info(app: &AppState, max_width: usize) -> String {
     let terminal = ws.tabs[tab_idx]
         .terminal_id(pane_id)
         .and_then(|terminal_id| app.terminals.get(terminal_id));
-    let agent = terminal
-        .and_then(|terminal| terminal.effective_display_agent())
-        .or_else(|| {
-            terminal.and_then(|terminal| terminal.effective_agent_label().map(str::to_string))
-        })
-        .unwrap_or_else(|| "shell".into());
-    let seen = ws
-        .tabs
-        .get(tab_idx)
-        .and_then(|tab| tab.panes.get(&pane_id))
-        .is_none_or(|pane| pane.seen);
-    let state = terminal
-        .map(|terminal| state_label(terminal.state, seen))
-        .unwrap_or("unknown");
     let cwd = terminal
         .map(|terminal| terminal.cwd.display().to_string())
         .unwrap_or_default();
     let active_context = if cwd.is_empty() {
-        format!("selected: {pane_label}  tab: {tab_label}  workspace: {workspace}  agent: {agent}/{state}")
+        format!("selected: {pane_label}  tab: {tab_label}  workspace: {workspace}")
     } else {
-        format!("selected: {pane_label}  tab: {tab_label}  workspace: {workspace}  agent: {agent}/{state}  cwd: {cwd}")
+        format!("selected: {pane_label}  tab: {tab_label}  workspace: {workspace}  cwd: {cwd}")
     };
     let raw = if let Some(selected_workspace) = selected_workspace {
         format!("selected workspace: {selected_workspace}  {active_context}")
@@ -380,4 +365,23 @@ pub(super) fn render_context_menu(app: &AppState, frame: &mut Frame) {
         .highlight_symbol(" ");
     let mut state = ListState::default().with_selected(Some(menu.list.highlighted));
     frame.render_stateful_widget(list, inner, &mut state);
+}
+
+#[cfg(test)]
+mod retirement_tests {
+    use super::*;
+
+    #[test]
+    fn selected_terminal_context_does_not_claim_agent_identity_or_status() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![crate::workspace::Workspace::test_new("generic-workspace")];
+        app.ensure_test_terminals();
+        app.active = Some(0);
+        let context = navigate_hpm_info(&app, 512);
+        assert!(context.contains("selected: p1"));
+        assert!(context.contains("workspace: generic-workspace"));
+        assert!(context.contains("cwd:"));
+        assert!(!context.contains("agent:"));
+        assert!(!context.contains("shell/unknown"));
+    }
 }

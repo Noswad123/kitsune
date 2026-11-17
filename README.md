@@ -7,10 +7,22 @@ This fork is branded around the `kitsune` command and local Kitsune runtime stat
 
 [APP_BOUNDARIES.md](APP_BOUNDARIES.md) records the 2026-10-22 target: a general
 multiplexer, with agent-aware behavior moving to optional Coven integration.
-Built-in management remains during transition, except new Claude/Codex/Copilot hook and Pi/OpenCode reference-extension installation
-on Linux is now retired here and owned by Coven. macOS/Windows installation and
-recommendation/update paths remain until matching Coven adapters. Complete
-all-platform extraction is not shipped.
+Live built-in detector/consumer and agent management paths are now retired globally,
+including standalone mode. Without Coven, Kitsune remains a general multiplexer,
+not a fallback agent manager. Fresh legacy installation for all six targets on all
+platforms returns `feature_retired`; status/uninstall and migration data remain for
+explicit cleanup. This does not certify Coven macOS/Windows replacement support.
+
+Remote detector-manifest management is now removed globally: no catalog fetching,
+remote cache/status loading or writing, background updater or update notifications.
+Old manifest CLI/API spellings return `feature_retired`, even without Coven.
+Old `[agent_detection]` / `[update]` settings are ignored with diagnostics; existing
+cache files are left untouched. Normal/handoff live detector loops and evidence
+consumers are deleted. All 12 live agent API methods, agent-status subscriptions
+and the agent wait matcher return `feature_retired` in both ownership modes;
+convenience and raw API CLI refusal is local without connecting. Static local/
+bundled rules remain only for offline compatibility explanation. See the
+[retirement boundary and validation](AGENT_CONTROL_RETIREMENT.md).
 
 Initial opt-in observation is implemented in Coven only, using one explicitly
 selected existing `session.snapshot` API socket (protocol 18). See the
@@ -38,8 +50,9 @@ all-22-literal-family hints, ignoring Linux's optional marker, rejecting old mac
 v1 even with the marker, and rejecting Windows `selected_process`/`legacy_agent_aware`.
 macOS is **source-enabled/provisional, not native runtime certification**.
 Generic `pane.process_info` uses isolated `macos_observation`/`macos_procargs`;
-legacy detector parsing and environment hints remain unchanged. No detector
-retirement or provider/receipt contract change follows.
+Windows acquisition still uses a legacy agent-aware process selector; that separate
+known contract is rejected by Coven and is not a live lifecycle producer. No
+provider/receipt contract change follows from retirement.
 
 Peer labels/PIDs grant no local OS/PID authority. Coven reports
 `acquisition_completeness: unknown`: mutable arguments and unreadable/failed
@@ -51,7 +64,7 @@ not SDK C/native link/runtime validation; missing SDK `TargetConditionals.h` sti
 blocks native validation. No builds, tests or live endpoint use occurred in this
 documentation update. Historical [evidence-seam validation](DETECTOR_EVIDENCE_SEPARATION.md)
 is separate, not a current acquisition total. Read housekeeping may create a
-default workspace/shell; the five Linux configuration retirements stay unchanged.
+default workspace/shell; global live retirement does not remove generic housekeeping.
 
 ## Integrations: generic presentation and messaging
 
@@ -83,9 +96,9 @@ explicit executable/root pinning and guarded undo. Debug Kit uses the same `kits
 directory, not `kitsune-dev`. Existing unmanaged runtimes require a manual handoff,
 not adoption/overwrite. No provider auto-install or native trust override occurs.
 
-The generic helper is server-only (`--no-session` refuses). External ownership
-suppresses all legacy agent-status/detector and automatic-resume paths even on
-helper failure or invalid/unreadable startup config, without legacy fallback.
+The generic helper is server-only (`--no-session` refuses). Live agent status,
+detectors and automatic provider resume are retired in both ownership modes,
+including helper failure or invalid/unreadable startup config, without fallback.
 Runtime changes, degraded-helper recovery and rollback require deliberate server
 restart; activation also needs new panes/provider reload. No automatic helper
 restart; generated bootstrap isolates concurrent Kit API addresses automatically.
@@ -95,8 +108,9 @@ managed preimage; later edits refuse, and ownership handoff still needs restart.
 Select **Coven** for attributed plain rows, not old status widgets, pane focus/
 sidebar agents or mobile completions. Facts expire within 30 seconds independently
 of the five-second lease; sessions are unbound/unattested. Djinn needs an updated
-native full-TUI build; reference-only providers remain unknown. Default legacy
-compatibility remains; full migration/native macOS qualification is not claimed.
+native full-TUI build; reference-only providers remain unknown. Historical references
+remain data only; complete compatibility-source cleanup/native macOS qualification
+is not claimed.
 
 The desktop lower side menu is a generic [Integrations block](INTEGRATION_VIEWS.md),
 not an agent panel. With no providers it shows `No integrations configured` and
@@ -111,7 +125,7 @@ Coven's `group present` supplies its own group/participant model without Kitsune
 interpreting agents or roles. Use `[integrations.coven] auto_start = false` and no
 explicit runtime for that manual publisher rather than starting two Coven owners.
 This presentation-only path changes default desktop lower-menu
-presentation, not all legacy detection, APIs, mobile UI, hooks or restore behavior.
+presentation; it is independent of global live detector/API/hook/restore retirement.
 The obsolete `[external_view]` config is diagnosed/ignored, not automatically
 rewritten. See the contract for discovery, bounds and at-most-once, non-authorizing
 selection messaging.
@@ -181,16 +195,32 @@ Kitsune includes a `session_recall` action bound by default to `prefix+shift+s`.
 
 The helper receives `KITSUNE_ENV`, `KITSUNE_BIN_PATH`, `KITSUNE_SOCKET_PATH`, `KITSUNE_CLIENT_SOCKET_PATH`, and active workspace/tab/pane context. Herdr, tmux, and Kitsune are selected as normal helper backends; Kitsune does not mirror one backend's environment variables into another backend.
 
-## Agent navigation
+## Terminal Navigation
 
-Kitsune includes a session navigator and an agents-only selector:
+Kitsune retains generic session navigation and manual pane labels:
 
 - `prefix+g` opens the full session navigator.
-- `prefix+a` opens the navigator directly in agents-only scope.
-- `Tab` toggles the navigator between full tree and agents-only scope.
-- In agents-only scope, `r` renames the selected agent pane's pane label.
+- Historical agent names are not navigator aliases or fallback titles.
+- Mobile agent counts/completion cues and agent:shell menu clauses are removed.
+- OSC titles, generic terminal focus and manual pane labels remain.
 
-## Legacy agent hooks
+Generic pane reads/input, process observations, output waits and event streaming
+remain. Metadata reporting is token-only; retired presentation fields reject the
+whole request even when tokens are included. Snapshots expose `agents: []` while
+preserving old pane references/history without readiness or provider autostart.
+Explicit notifications work; idle-inferred completion notifications do not.
+See [current API examples](docs/next/README.md#generic-api-examples).
+
+## Historical Provider Transfer Notes
+
+The following provider-cut record is historical, not current installation or
+runtime guidance. Its Linux-only retirement, non-Linux install/update availability,
+live hook ingress and built-in Djinn claims are superseded by
+[global retirement](AGENT_CONTROL_RETIREMENT.md). All six fresh legacy installers
+now retire on every platform. Frozen assets/fingerprints/licenses and status/
+uninstall remain only for explicit cleanup; nothing is automatically uninstalled.
+No Coven replacement platform qualification follows. For current optional setup,
+use [Coven's normal workflow](../coven/docs/NORMAL_AGENT_WORKFLOW.md).
 
 New **OpenCode** plugin install/recommend/update/bulk paths retire **on Linux only**,
 before discovery and without running Coven. See [migration guide](OPENCODE_EXTENSION_MIGRATION.md)
@@ -321,7 +351,7 @@ Native Windows builds use the system ConPTY included with Windows 10 October 201
 
 ## Notes
 
-- Agent integrations remain available unless removed separately.
+- Generic Integrations sources/leases/views remain independent of retired legacy targets.
 - Durable decisions live in root docs; current feature details also live under `docs/next/`.
 
 Kitsune inherits Herdr's Apache-2.0 license.

@@ -107,6 +107,10 @@ pub struct PaneSnapshot {
     pub agent_session: Option<PaneAgentSessionSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch_argv: Option<Vec<String>>,
+    /// Live generic exit policy, independent of historical argv. Cold restore
+    /// never adopts this policy; only a transferred PTY may retain it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub respawn_shell_on_exit: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -327,7 +331,6 @@ fn capture_tab(
             .and_then(|pane| terminals.get(&pane.attached_terminal_id));
         let label = terminal.and_then(|terminal| terminal.manual_label.clone());
         let (agent_name, managed_agent_kind) = terminal
-            .filter(|terminal| !terminal.managed_agent_launch_pending())
             .map(|terminal| {
                 (
                     terminal.agent_name.clone(),
@@ -368,6 +371,9 @@ fn capture_tab(
                 managed_agent_kind,
                 agent_session,
                 launch_argv,
+                respawn_shell_on_exit: terminal
+                    .filter(|terminal| terminal.respawn_shell_on_exit)
+                    .map(|_| true),
             },
         );
     }
@@ -523,6 +529,14 @@ mod tests {
         state
     }
 
+    #[test]
+    fn old_pane_snapshot_does_not_infer_respawn_policy_from_argv() {
+        let old = serde_json::json!({"cwd":"/","launch_argv":["historical-provider","--resume","old-id"]});
+        let decoded: PaneSnapshot = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(decoded.respawn_shell_on_exit, None);
+        assert_eq!(serde_json::to_value(decoded).unwrap(), old);
+    }
+
     fn capture_from_state(state: &AppState) -> SessionSnapshot {
         let terminal_runtimes = TerminalRuntimeRegistry::new();
         capture_from_state_with_runtimes(state, &terminal_runtimes)
@@ -556,43 +570,6 @@ mod tests {
             LayoutSnapshot::Split { ratio, .. } => Some(*ratio),
             LayoutSnapshot::Pane(_) => None,
         }
-    }
-
-    #[test]
-    fn managed_agent_snapshot_omits_pending_and_persists_active_ownership() {
-        let mut state = state_with_workspaces(&["managed-snapshot"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = state.workspaces[0].tabs[0].panes[&root]
-            .attached_terminal_id
-            .clone();
-        let now = std::time::Instant::now();
-        state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .begin_managed_agent(
-                "reviewer".into(),
-                crate::detect::Agent::Pi,
-                now,
-                std::time::Duration::ZERO,
-                std::time::Duration::from_secs(1),
-            );
-
-        let pending = capture_from_state(&state);
-        let pending_pane = &pending.workspaces[0].tabs[0].panes[&root.raw()];
-        assert_eq!(pending_pane.agent_name, None);
-        assert_eq!(pending_pane.managed_agent_kind, None);
-
-        let terminal = state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_detected_state(
-            Some(crate::detect::Agent::Pi),
-            crate::detect::AgentState::Idle,
-        );
-        assert!(terminal.reconcile_managed_agent_at(now, false));
-        let active = capture_from_state(&state);
-        let active_pane = &active.workspaces[0].tabs[0].panes[&root.raw()];
-        assert_eq!(active_pane.agent_name.as_deref(), Some("reviewer"));
-        assert_eq!(active_pane.managed_agent_kind.as_deref(), Some("pi"));
     }
 
     #[test]
@@ -648,6 +625,7 @@ mod tests {
                 managed_agent_kind: None,
                 agent_session: None,
                 launch_argv: None,
+                respawn_shell_on_exit: None,
             },
         );
         panes.insert(
@@ -659,6 +637,7 @@ mod tests {
                 managed_agent_kind: None,
                 agent_session: None,
                 launch_argv: None,
+                respawn_shell_on_exit: None,
             },
         );
 
@@ -1118,14 +1097,14 @@ mod tests {
             agent: "pi".into(),
             session_ref: crate::agent_resume::AgentSessionRef::path(session_path.clone()).unwrap(),
         });
-        terminal.set_hook_authority_with_session_ref(
-            "kitsune:pi".into(),
-            "pi".into(),
-            crate::detect::AgentState::Working,
-            None,
-            crate::agent_resume::AgentSessionRef::path(session_path.clone()),
-            Some(20),
-        );
+        terminal.hook_authority = Some(crate::terminal::state::HookAuthority {
+            source: "kitsune:pi".into(),
+            agent_label: "pi".into(),
+            state: crate::detect::AgentState::Working,
+            message: None,
+            reported_at: std::time::Instant::now(),
+            session_ref: crate::agent_resume::AgentSessionRef::path(session_path.clone()),
+        });
 
         let snapshot = capture_from_state(&state);
         let agent_session = snapshot.workspaces[0].tabs[0].panes[&root.raw()]
@@ -1190,7 +1169,7 @@ mod tests {
         let before = capture_from_state(&state);
         for terminal in state.terminals.values_mut() {
             terminal.seed_restored_agent_identity(crate::detect::Agent::Codex);
-            assert_eq!(terminal.foreground_agent_evidence(), None);
+            assert_eq!(terminal.effective_agent_label(), None);
         }
         let after = capture_from_state(&state);
         assert_eq!(
@@ -1253,6 +1232,7 @@ mod tests {
                 managed_agent_kind: None,
                 agent_session: None,
                 launch_argv: None,
+                respawn_shell_on_exit: None,
             },
         );
         panes.insert(
@@ -1266,6 +1246,7 @@ mod tests {
                 managed_agent_kind: None,
                 agent_session: None,
                 launch_argv: None,
+                respawn_shell_on_exit: None,
             },
         );
 

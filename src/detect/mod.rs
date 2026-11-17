@@ -1,10 +1,6 @@
-//! Agent state detection via terminal tail pattern matching.
-//!
-//! Each pane's live bottom-of-buffer text is read periodically and matched
-//! against known agent output patterns to determine state.
+//! Offline agent pattern diagnostics and historical identity decoding.
 
 pub mod manifest;
-pub mod manifest_update;
 
 /// The detected state of a terminal pane.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,6 +16,7 @@ pub enum AgentState {
 }
 
 /// Screen-derived agent state plus confidence metadata used for source arbitration.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AgentDetection {
     pub state: AgentState,
@@ -141,33 +138,6 @@ pub fn agent_label(agent: Agent) -> &'static str {
     }
 }
 
-pub fn interactive_agent_executable(agent: Agent) -> &'static str {
-    match agent {
-        Agent::Pi => "pi",
-        Agent::Claude => "claude",
-        Agent::Codex => "codex",
-        Agent::Gemini => "gemini",
-        Agent::Cursor => "cursor-agent",
-        Agent::Devin => "devin",
-        Agent::Antigravity => "agy",
-        Agent::Cline => "cline",
-        Agent::Omp => "omp",
-        Agent::Mastracode => "mastracode",
-        Agent::OpenCode => "opencode",
-        Agent::GithubCopilot => "copilot",
-        Agent::Kimi => "kimi",
-        Agent::Kiro => "kiro-cli",
-        Agent::Droid => "droid",
-        Agent::Amp => "amp",
-        Agent::Grok => "grok",
-        Agent::Hermes => "hermes",
-        Agent::Kilo => "kilo",
-        Agent::Qodercli => "qodercli",
-        Agent::Maki => "maki",
-        Agent::Djinn => "djinn",
-    }
-}
-
 pub fn parse_agent_label(agent: &str) -> Option<Agent> {
     let name = normalized_agent_lookup_name(agent);
     parse_canonical_agent_label(&name).or_else(|| lookup_agent(&name))
@@ -208,21 +178,26 @@ fn lookup_agent(name: &str) -> Option<Agent> {
 
 /// Identify which agent is running from the process name.
 /// Returns `None` for plain shells or unrecognized programs.
+#[cfg(any(windows, test))]
 pub fn identify_agent(process_name: &str) -> Option<Agent> {
     parse_agent_label(process_name)
 }
 
+#[cfg(any(windows, test))]
 pub fn identify_agent_in_job(job: &crate::platform::ForegroundJob) -> Option<(Agent, String)> {
     identify_agent_in_job_with_resolver(job, &mut canonicalize_path)
 }
 
+#[cfg(any(windows, test))]
 pub(crate) type PathResolver<'a> =
     dyn FnMut(&std::path::Path) -> std::io::Result<std::path::PathBuf> + 'a;
 
+#[cfg(any(windows, test))]
 fn canonicalize_path(path: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
     std::fs::canonicalize(path)
 }
 
+#[cfg(any(windows, test))]
 pub(crate) fn identify_agent_in_job_with_resolver(
     job: &crate::platform::ForegroundJob,
     resolve: &mut PathResolver<'_>,
@@ -264,12 +239,13 @@ pub fn detect_state(agent: Option<Agent>, screen_content: &str) -> AgentState {
 }
 
 /// Detect state and whether a visible blocker is present on the current screen.
-#[allow(dead_code)] // shim for existing callers; detect_agent_with_osc is the real path
+#[cfg(test)]
 pub fn detect_agent(agent: Option<Agent>, screen_content: &str) -> AgentDetection {
     detect_agent_with_osc(agent, screen_content, "", "")
 }
 
 /// Detect state using screen content plus OSC title/progress strings.
+#[cfg(test)]
 pub fn detect_agent_with_osc(
     agent: Option<Agent>,
     screen_content: &str,
@@ -295,27 +271,6 @@ pub fn detect_agent_with_osc(
     )
 }
 
-pub fn should_skip_state_update(agent: Option<Agent>, screen_content: &str) -> bool {
-    agent.is_some_and(|agent| manifest::should_skip_state_update(agent, screen_content))
-}
-
-pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> bool {
-    matches!(
-        (source, agent_label),
-        ("kitsune:pi", "pi")
-            | ("kitsune:omp", "omp")
-            | ("kitsune:mastracode", "mastracode")
-            | ("kitsune:opencode", "opencode")
-            | ("kitsune:kilo", "kilo")
-            | ("kitsune:kimi", "kimi")
-            | ("kitsune:djinn", "djinn")
-    )
-}
-
-pub(crate) fn session_identity_only_integration(source: &str, agent_label: &str) -> bool {
-    (source, agent_label) == ("kitsune:hermes", "hermes")
-}
-
 // ---------------------------------------------------------------------------
 // Process identification (platform-specific)
 // ---------------------------------------------------------------------------
@@ -326,25 +281,12 @@ pub fn foreground_job(child_pid: u32) -> Option<crate::platform::ForegroundJob> 
     crate::platform::foreground_job(child_pid)
 }
 
-/// Get the foreground process group leader as a one-process job.
-/// This is cheaper than collecting every process in the foreground job.
-pub fn foreground_group_leader_job(
-    process_group_id: u32,
-) -> Option<crate::platform::ForegroundJob> {
-    crate::platform::foreground_group_leader_job(process_group_id)
-}
-
-/// Get the foreground process group for a pane shell PID.
-/// This is cheaper than collecting every process in the foreground job.
-pub fn foreground_process_group_id(child_pid: u32) -> Option<u32> {
-    crate::platform::foreground_process_group_id(child_pid)
-}
-
 #[cfg(test)]
 fn normalized_process_name(process: &crate::platform::ForegroundProcess) -> String {
     normalized_process_name_with_resolver(process, &mut canonicalize_path)
 }
 
+#[cfg(any(windows, test))]
 fn normalized_process_name_with_resolver(
     process: &crate::platform::ForegroundProcess,
     resolve: &mut PathResolver<'_>,
@@ -383,6 +325,7 @@ fn wrapped_agent_name_from_runtime_argv(runtime: &str, argv: Option<&[String]>) 
     wrapped_agent_name_from_runtime_argv_with_resolver(runtime, argv, &mut canonicalize_path)
 }
 
+#[cfg(any(windows, test))]
 fn wrapped_agent_name_from_runtime_argv_with_resolver(
     runtime: &str,
     argv: Option<&[String]>,
@@ -404,6 +347,7 @@ fn wrapped_agent_name_from_runtime_argv_with_resolver(
     }
 }
 
+#[cfg(any(windows, test))]
 fn windows_cmd_arg_agent_name(argv: &[String], resolve: &mut PathResolver<'_>) -> Option<String> {
     let mut args = argv.iter().skip(1);
     while let Some(arg) = args.next() {
@@ -422,6 +366,7 @@ fn windows_cmd_arg_agent_name(argv: &[String], resolve: &mut PathResolver<'_>) -
     None
 }
 
+#[cfg(any(windows, test))]
 fn powershell_arg_agent_name(argv: &[String], resolve: &mut PathResolver<'_>) -> Option<String> {
     let mut args = argv.iter().skip(1);
     while let Some(arg) = args.next() {
@@ -449,6 +394,7 @@ fn powershell_arg_agent_name(argv: &[String], resolve: &mut PathResolver<'_>) ->
     None
 }
 
+#[cfg(any(windows, test))]
 fn command_text_agent_name(command: &str, resolve: &mut PathResolver<'_>) -> Option<String> {
     let mut rest = command;
     while let Some((token, next)) = command_text_token(rest) {
@@ -465,6 +411,7 @@ fn command_text_agent_name(command: &str, resolve: &mut PathResolver<'_>) -> Opt
     None
 }
 
+#[cfg(any(windows, test))]
 fn command_text_token(input: &str) -> Option<(&str, &str)> {
     let input = input.trim_start();
     let first = input.chars().next()?;
@@ -481,6 +428,7 @@ fn command_text_token(input: &str) -> Option<(&str, &str)> {
     Some((&input[..end], &input[end..]))
 }
 
+#[cfg(any(windows, test))]
 fn script_arg_agent_name(
     argv: &[String],
     eval_flags: &[&str],
@@ -512,12 +460,14 @@ fn script_arg_agent_name(
     None
 }
 
+#[cfg(any(windows, test))]
 fn flag_matches(arg: &str, flags: &[&str]) -> bool {
     flags
         .iter()
         .any(|flag| arg == *flag || short_flag_payload(arg, flag) || long_flag_value(arg, flag))
 }
 
+#[cfg(any(windows, test))]
 fn short_flag_payload(arg: &str, flag: &str) -> bool {
     flag.starts_with('-')
         && !flag.starts_with("--")
@@ -525,6 +475,7 @@ fn short_flag_payload(arg: &str, flag: &str) -> bool {
         && arg.len() > flag.len()
 }
 
+#[cfg(any(windows, test))]
 fn long_flag_value(arg: &str, flag: &str) -> bool {
     flag.starts_with("--")
         && arg
@@ -532,6 +483,7 @@ fn long_flag_value(arg: &str, flag: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('='))
 }
 
+#[cfg(any(windows, test))]
 fn option_takes_value(arg: &str) -> bool {
     matches!(
         arg,
@@ -548,6 +500,7 @@ fn option_takes_value(arg: &str) -> bool {
     )
 }
 
+#[cfg(any(windows, test))]
 fn argv0_agent_name(argv: Option<&[String]>, resolve: &mut PathResolver<'_>) -> Option<String> {
     agent_name_from_path_token(argv?.first()?, resolve)
 }
@@ -557,6 +510,7 @@ fn cmdline_argv0_agent_name(cmdline: &str) -> Option<String> {
     cmdline_argv0_agent_name_with_resolver(cmdline, &mut canonicalize_path)
 }
 
+#[cfg(any(windows, test))]
 fn cmdline_argv0_agent_name_with_resolver(
     cmdline: &str,
     resolve: &mut PathResolver<'_>,
@@ -564,6 +518,7 @@ fn cmdline_argv0_agent_name_with_resolver(
     agent_name_from_path_token(cmdline.split_whitespace().next()?, resolve)
 }
 
+#[cfg(any(windows, test))]
 fn agent_name_from_path_token(token: &str, resolve: &mut PathResolver<'_>) -> Option<String> {
     let trimmed = token.trim_matches(|c| matches!(c, '"' | '\''));
     if trimmed.is_empty() || trimmed.starts_with('-') {
@@ -575,6 +530,7 @@ fn agent_name_from_path_token(token: &str, resolve: &mut PathResolver<'_>) -> Op
         .or_else(|| resolved_agent_name_from_path_token(trimmed, resolve))
 }
 
+#[cfg(any(windows, test))]
 fn agent_name_from_known_package_path(path: &str) -> Option<String> {
     let components: Vec<String> = path
         .split(['/', '\\'])
@@ -598,6 +554,7 @@ fn agent_name_from_known_package_path(path: &str) -> Option<String> {
     None
 }
 
+#[cfg(any(windows, test))]
 fn resolved_agent_name_from_path_token(
     token: &str,
     resolve: &mut PathResolver<'_>,
@@ -612,6 +569,7 @@ fn resolved_agent_name_from_path_token(
     agent_name_from_basename(basename)
 }
 
+#[cfg(any(windows, test))]
 fn agent_name_from_basename(basename: &str) -> Option<String> {
     let agent = parse_agent_label(basename)?;
     Some(agent_label(agent).to_string())
@@ -628,12 +586,14 @@ fn normalized_agent_lookup_name(name: &str) -> String {
     name
 }
 
+#[cfg(any(windows, test))]
 fn path_basename(path: &str) -> &str {
     path.rsplit(['/', '\\'])
         .find(|component| !component.is_empty())
         .unwrap_or(path)
 }
 
+#[cfg(any(windows, test))]
 fn process_priority(process: &crate::platform::ForegroundProcess, normalized_name: &str) -> u8 {
     let lower_name = normalized_name.to_lowercase();
     if lower_name != process.name.to_lowercase() {
@@ -645,6 +605,7 @@ fn process_priority(process: &crate::platform::ForegroundProcess, normalized_nam
     1
 }
 
+#[cfg(any(windows, test))]
 fn is_generic_runtime_or_shell(name: &str) -> bool {
     let name = normalized_agent_lookup_name(path_basename(name));
     matches!(
@@ -781,69 +742,12 @@ mod tests {
     }
 
     #[test]
-    fn every_agent_has_a_canonical_interactive_executable() {
-        let expected = [
-            (Agent::Pi, "pi"),
-            (Agent::Claude, "claude"),
-            (Agent::Codex, "codex"),
-            (Agent::Gemini, "gemini"),
-            (Agent::Cursor, "cursor-agent"),
-            (Agent::Devin, "devin"),
-            (Agent::Antigravity, "agy"),
-            (Agent::Cline, "cline"),
-            (Agent::Omp, "omp"),
-            (Agent::Mastracode, "mastracode"),
-            (Agent::OpenCode, "opencode"),
-            (Agent::GithubCopilot, "copilot"),
-            (Agent::Kimi, "kimi"),
-            (Agent::Kiro, "kiro-cli"),
-            (Agent::Droid, "droid"),
-            (Agent::Amp, "amp"),
-            (Agent::Grok, "grok"),
-            (Agent::Hermes, "hermes"),
-            (Agent::Kilo, "kilo"),
-            (Agent::Qodercli, "qodercli"),
-            (Agent::Maki, "maki"),
-            (Agent::Djinn, "djinn"),
-        ];
-        assert_eq!(expected.len(), Agent::ALL.len());
-        for (agent, executable) in expected {
-            assert_eq!(interactive_agent_executable(agent), executable);
-        }
-    }
-
-    #[test]
     fn canonical_agent_labels_are_strict() {
         assert_eq!(parse_canonical_agent_label("claude-code"), None);
         assert_eq!(parse_canonical_agent_label("Pi"), None);
         assert_eq!(parse_canonical_agent_label(" pi "), None);
         assert_eq!(parse_canonical_agent_label("opencode.exe"), None);
         assert_eq!(parse_canonical_agent_label("djinn.exe"), None);
-    }
-
-    #[test]
-    fn mastracode_is_hook_authority_without_screen_manifest() {
-        assert!(full_lifecycle_hook_authority(
-            "kitsune:mastracode",
-            "mastracode"
-        ));
-        assert!(!Agent::SCREEN_MANIFEST_AGENTS.contains(&Agent::Mastracode));
-    }
-
-    #[test]
-    fn djinn_is_full_lifecycle_hook_authority_without_screen_manifest() {
-        assert!(full_lifecycle_hook_authority("kitsune:djinn", "djinn"));
-        assert!(!Agent::SCREEN_MANIFEST_AGENTS.contains(&Agent::Djinn));
-    }
-
-    #[test]
-    fn hermes_session_integration_leaves_state_to_screen_detection() {
-        assert!(!full_lifecycle_hook_authority("kitsune:hermes", "hermes"));
-        assert!(session_identity_only_integration(
-            "kitsune:hermes",
-            "hermes"
-        ));
-        assert!(Agent::SCREEN_MANIFEST_AGENTS.contains(&Agent::Hermes));
     }
 
     #[test]

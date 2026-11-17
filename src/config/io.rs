@@ -465,24 +465,12 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut invalid_sections,
         |section| config.session = section,
     );
-    if table.contains_key("agent_detection") {
-        load_live_section(
-            table,
-            "agent_detection",
-            "agent detection config",
-            &mut diagnostics,
-            &mut invalid_sections,
-            |section| config.agent_detection = section,
-        );
-    } else {
-        load_live_section(
-            table,
-            "update",
-            "legacy update config",
-            &mut diagnostics,
-            &mut invalid_sections,
-            |section| config.agent_detection = section,
-        );
+    for section in ["agent_detection", "update"] {
+        if table.contains_key(section) {
+            diagnostics.push(format!(
+                "ignored retired {section} setting: built-in detector-manifest management has been retired"
+            ));
+        }
     }
     load_live_section(
         table,
@@ -698,6 +686,17 @@ fn unknown_config_key_diagnostics(
     paths
         .into_iter()
         .map(|path| {
+            if format_config_key_path(&path) == "experimental.cjk_ime_agents" {
+                return "ignored retired experimental.cjk_ime_agents setting: agent-based cursor filtering has been retired; reveal_hidden_cursor_for_cjk_ime alone controls generic cursor reveal".into();
+            }
+            if format_config_key_path(&path) == "session.resume_agents_on_restore" {
+                return "ignored retired session.resume_agents_on_restore setting: automatic agent resume has been retired".into();
+            }
+            if let [ConfigKeyPathSegment::Key(key)] = path.as_slice() {
+                if matches!(key.as_str(), "agent_detection" | "update") {
+                    return format!("ignored retired {key} setting: built-in detector-manifest management has been retired");
+                }
+            }
             format!(
                 "unknown config key {}; ignoring key",
                 format_config_key_path(&path)
@@ -1271,7 +1270,6 @@ external_agent_management = true
                 0,
                 "/bin/cat",
                 crate::config::ShellModeConfig::NonLogin,
-                true,
                 events,
                 std::sync::Arc::new(tokio::sync::Notify::new()),
                 std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -1289,7 +1287,9 @@ external_agent_management = true
                 assert!(terminal.pending_agent_resume_plan.is_none());
                 assert!(terminal.detected_agent().is_none());
                 assert!(terminal.hook_authority.is_none());
-                assert!(terminal.agent_name.is_none());
+                assert_eq!(terminal.agent_name.as_deref(), Some("historical"));
+                assert!(terminal.effective_agent_label().is_none());
+                assert!(!terminal.managed_agent_interactive_ready());
                 assert_eq!(
                     terminal
                         .persisted_agent_session
@@ -1842,7 +1842,57 @@ external_agent_management = true
     }
 
     #[test]
-    fn load_live_config_parses_session_section() {
+    fn retired_cjk_agent_filter_is_diagnosed_without_invalidating_generic_settings() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for reveal in [false, true] {
+            for retired in [
+                "['claude', 'codex']",
+                "[]",
+                "true",
+                "42",
+                "{ bad = 'type' }",
+            ] {
+                let text = format!("[experimental]\nreveal_hidden_cursor_for_cjk_ime = {reveal}\ncjk_ime_agents = {retired}\n[terminal]\ndefault_shell = 'kept'\n");
+                let loaded = load_live_config_from_str(&text).unwrap();
+                assert!(loaded.invalid_sections.is_empty(), "{text}");
+                assert_eq!(
+                    loaded.config.experimental.reveal_hidden_cursor_for_cjk_ime,
+                    reveal
+                );
+                assert_eq!(loaded.config.terminal.default_shell, "kept");
+                assert_eq!(loaded.diagnostics.len(), 1);
+                assert!(
+                    loaded.diagnostics[0].contains("ignored retired experimental.cjk_ime_agents")
+                );
+                let startup: Config = toml::from_str(&text).unwrap();
+                assert_eq!(
+                    startup.experimental.reveal_hidden_cursor_for_cjk_ime,
+                    reveal
+                );
+                fixture.write(&text);
+                let startup = Config::load();
+                assert!(startup.invalid_sections.is_empty());
+                assert_eq!(
+                    startup.config.experimental.reveal_hidden_cursor_for_cjk_ime,
+                    reveal
+                );
+                assert_eq!(startup.config.keys.prefix, "ctrl+space");
+                assert_eq!(startup.diagnostics, loaded.diagnostics);
+            }
+        }
+        let only_retired =
+            load_live_config_from_str("[experimental]\ncjk_ime_agents = ['claude']").unwrap();
+        assert!(
+            !only_retired
+                .config
+                .experimental
+                .reveal_hidden_cursor_for_cjk_ime
+        );
+    }
+
+    #[test]
+    fn load_live_config_diagnoses_retired_resume_setting() {
         let loaded = load_live_config_from_str(
             r#"
 [session]
@@ -1852,51 +1902,50 @@ resume_agents_on_restore = true
         .unwrap();
 
         assert!(loaded.config.session.resume_agents_on_restore);
-        assert!(loaded.diagnostics.is_empty());
+        assert_eq!(loaded.diagnostics, vec!["ignored retired session.resume_agents_on_restore setting: automatic agent resume has been retired"]);
         assert!(loaded.invalid_sections.is_empty());
     }
 
     #[test]
-    fn load_live_config_parses_agent_detection_section_and_legacy_update_alias() {
-        let loaded = load_live_config_from_str(
-            r#"
-[agent_detection]
-manifest_check = true
-"#,
-        )
-        .unwrap();
-
-        assert!(loaded.config.agent_detection.manifest_check);
-        assert!(loaded.diagnostics.is_empty());
-        assert!(loaded.invalid_sections.is_empty());
-
-        let legacy_loaded = load_live_config_from_str(
-            r#"
-[update]
-manifest_check = true
-"#,
-        )
-        .unwrap();
-
-        assert!(legacy_loaded.config.agent_detection.manifest_check);
-        assert!(legacy_loaded.diagnostics.is_empty());
-        assert!(legacy_loaded.invalid_sections.is_empty());
+    fn load_live_config_ignores_retired_manifest_settings_with_diagnostics() {
+        for section in ["agent_detection", "update"] {
+            for input in [
+                format!("[{section}]\nmanifest_check = true"),
+                format!("[{section}]\nmanifest_check = false"),
+                format!("[{section}]\nmanifest_check = \"yes\""),
+                format!("{section} = 42"),
+            ] {
+                let loaded = load_live_config_from_str(&format!(
+                    "{input}\n[terminal]\ndefault_shell = \"retained\""
+                ))
+                .unwrap();
+                assert!(loaded.invalid_sections.is_empty());
+                assert_eq!(loaded.config.terminal.default_shell, "retained");
+                assert_eq!(loaded.diagnostics.len(), 1);
+                assert!(loaded.diagnostics[0].contains("retired"));
+                assert!(loaded.diagnostics[0].contains(section));
+            }
+        }
     }
 
     #[test]
-    fn load_live_config_reports_invalid_agent_detection_section() {
-        let loaded = load_live_config_from_str(
-            r#"
-[agent_detection]
-manifest_check = "yes"
-"#,
-        )
-        .unwrap();
-
-        assert_eq!(loaded.invalid_sections, vec!["agent_detection"]);
-        assert!(!loaded.config.agent_detection.manifest_check);
-        assert_eq!(loaded.diagnostics.len(), 1);
-        assert!(loaded.diagnostics[0].contains("invalid agent detection config"));
+    fn retired_manifest_config_at_startup_preserves_unrelated_sections_and_file() {
+        let _guard = crate::config::test_config_env_lock().lock().unwrap();
+        let fixture = AnnotationConfigFixture::new();
+        for section in ["agent_detection", "update"] {
+            for value in ["true", "false", "'wrong type'"] {
+                fixture.write(&format!("[{section}]\nmanifest_check = {value}"));
+                let before = std::fs::read(&fixture.path).unwrap();
+                for loaded in [Config::load(), load_live_config().unwrap()] {
+                    assert_eq!(loaded.config.keys.prefix, "ctrl+space");
+                    assert!(loaded.config.ui.sidebar_start_collapsed);
+                    assert!(loaded.invalid_sections.is_empty());
+                    assert_eq!(loaded.diagnostics.len(), 1);
+                    assert!(loaded.diagnostics[0].contains("retired"));
+                }
+                assert_eq!(std::fs::read(&fixture.path).unwrap(), before);
+            }
+        }
     }
 
     #[test]

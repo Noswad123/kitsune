@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate bundled and published agent detection manifests."""
+"""Validate bundled agent detection manifests and optional local website fixtures offline."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BUNDLED_DIR = PROJECT_ROOT / "src" / "detect" / "manifests"
 DEFAULT_WEBSITE_DIR = PROJECT_ROOT / "website" / "agent-detection"
-ENGINE_SOURCE = PROJECT_ROOT / "src" / "detect" / "manifest_update.rs"
+ENGINE_SOURCE = PROJECT_ROOT / "src" / "detect" / "manifest" / "static_version.rs"
 
 MANIFEST_KEYS = {"id", "version", "min_engine_version", "updated_at", "aliases", "rules"}
 RULE_KEYS = {

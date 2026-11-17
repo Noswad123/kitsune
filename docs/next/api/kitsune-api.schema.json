@@ -4640,6 +4640,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only agent operations always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.list",
@@ -4656,6 +4657,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.get",
@@ -4672,6 +4674,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.read",
@@ -4688,6 +4691,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired. Offline CLI file diagnostics remain available.",
           "properties": {
             "method": {
               "const": "agent.explain",
@@ -4704,6 +4708,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.send_keys",
@@ -4720,6 +4725,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.rename",
@@ -4736,6 +4742,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.view.set",
@@ -4752,6 +4759,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.view.clear",
@@ -4768,6 +4776,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.focus",
@@ -4784,6 +4793,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired without launching or checking readiness.",
           "properties": {
             "method": {
               "const": "agent.start",
@@ -4800,6 +4810,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired, including prompts with wait options.",
           "properties": {
             "method": {
               "const": "agent.prompt",
@@ -4816,6 +4827,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired without polling, including without a timeout.",
           "properties": {
             "method": {
               "const": "agent.wait",

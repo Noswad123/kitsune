@@ -1301,7 +1301,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
 
         let detail_area = app.state.agent_panel_rect();
-        assert!(crate::ui::should_show_scrollbar(
+        assert!(!crate::ui::should_show_scrollbar(
             crate::ui::agent_panel_scroll_metrics(&app.state, detail_area)
         ));
 
