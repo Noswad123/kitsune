@@ -114,6 +114,7 @@ mod tests {
                 id: "item".into(),
                 label: "Label".into(),
                 detail: String::new(),
+                presentation: None,
             }],
         };
         let response: SuccessResponse =

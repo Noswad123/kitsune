@@ -7,10 +7,10 @@ use super::ScrollbarClickTarget;
 impl AppState {
     pub(super) fn workspace_list_rect(&self) -> Rect {
         let sidebar = self.view.sidebar_rect;
-        if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
+        if sidebar.width <= 1 || sidebar.height == 0 {
             return Rect::default();
         }
-        crate::ui::workspace_list_rect(sidebar, self.sidebar_section_split)
+        self.spaces_body()
     }
 
     #[cfg(test)]
@@ -19,9 +19,7 @@ impl AppState {
         if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
             return Rect::default();
         }
-        let (_, detail_area) =
-            crate::ui::expanded_sidebar_sections(sidebar, self.sidebar_section_split);
-        detail_area
+        self.integration_views_area()
     }
 
     pub(super) fn workspace_list_scrollbar_target_at(
@@ -65,6 +63,7 @@ impl AppState {
     }
 
     pub(super) fn set_workspace_list_offset_from_bottom(&mut self, offset_from_bottom: usize) {
+        self.integration_views_displayed = None;
         let area = self.workspace_list_rect();
         let metrics = crate::ui::workspace_list_scroll_metrics(self, area);
         self.workspace_scroll = metrics
@@ -78,6 +77,7 @@ impl AppState {
     }
 
     pub(super) fn scroll_workspace_list(&mut self, delta: i16) {
+        self.integration_views_displayed = None;
         if delta.is_negative() {
             self.workspace_scroll = self
                 .workspace_scroll
@@ -121,31 +121,26 @@ impl AppState {
 
     pub(super) fn set_agent_panel_offset_from_bottom(&mut self, _offset_from_bottom: usize) {}
 
+    #[cfg(test)]
     pub(crate) fn sidebar_footer_rect(&self) -> Rect {
-        let ws_area = self.workspace_list_rect();
-        if ws_area == Rect::default() {
-            return Rect::default();
-        }
-        let y = ws_area.y + ws_area.height.saturating_sub(1);
-        Rect::new(ws_area.x, y, ws_area.width, 1)
-    }
-
-    fn sidebar_header_row_rect(&self, row_offset: u16) -> Rect {
-        let ws_area = self.workspace_list_rect();
-        if ws_area == Rect::default() || ws_area.height <= row_offset {
-            return Rect::default();
-        }
-
-        Rect::new(ws_area.x, ws_area.y + row_offset, ws_area.width, 1)
+        self.sidebar_sections.toggle
     }
 
     pub(crate) fn sidebar_new_button_rect(&self) -> Rect {
-        let row = self.sidebar_header_row_rect(2);
+        let row = self
+            .sidebar_sections
+            .sections
+            .iter()
+            .find(|s| s.id == crate::ui::SectionId::Spaces)
+            .map_or(Rect::default(), |s| s.header);
         if row == Rect::default() {
             return Rect::default();
         }
 
-        let width = 3u16.min(row.width.max(1));
+        if row.width < 8 || self.sidebar_collapsed {
+            return Rect::default();
+        }
+        let width = 3;
         let x = row.x + row.width.saturating_sub(width);
         Rect::new(x, row.y, width, row.height)
     }
@@ -155,7 +150,7 @@ impl AppState {
             return self.view.mobile_menu_hit_area;
         }
 
-        let row = self.sidebar_header_row_rect(0);
+        let row = self.sidebar_sections.menu;
         if row == Rect::default() {
             return Rect::default();
         }
@@ -200,7 +195,11 @@ impl AppState {
         let max_x = screen.x + screen.width.saturating_sub(menu_w);
         let desired_x = launcher.x + launcher.width.saturating_sub(menu_w);
         let x = desired_x.min(max_x);
-        let y = launcher.y.saturating_sub(menu_h);
+        let y = launcher
+            .y
+            .saturating_sub(menu_h)
+            .max(screen.y)
+            .min(screen.bottom().saturating_sub(menu_h));
         Rect::new(x, y, menu_w, menu_h)
     }
 
@@ -244,37 +243,9 @@ impl AppState {
         self.mark_session_dirty();
     }
 
-    pub(super) fn on_sidebar_section_divider(&self, col: u16, row: u16) -> bool {
-        if self.sidebar_collapsed {
-            return false;
-        }
-        let rect = crate::ui::sidebar_section_divider_rect(
-            self.view.sidebar_rect,
-            self.sidebar_section_split,
-        );
-        rect.width > 0
-            && col >= rect.x
-            && col < rect.x + rect.width
-            && row >= rect.y
-            && row < rect.y + rect.height
-    }
-
-    pub(super) fn set_sidebar_section_split(&mut self, row: u16) {
-        self.integration_views_displayed = None;
-        let sidebar = self.view.sidebar_rect;
-        let content_height = sidebar.height;
-        if content_height < 6 {
-            return;
-        }
-        let relative_y = row.saturating_sub(sidebar.y);
-        let ratio = (relative_y as f32) / (content_height as f32);
-        self.sidebar_section_split = ratio.clamp(0.1, 0.9);
-        self.mark_session_dirty();
-    }
-
     pub(super) fn workspace_at_row(&self, row: u16) -> Option<usize> {
-        let footer = self.sidebar_footer_rect();
-        if footer == Rect::default() {
+        let body = self.spaces_body();
+        if body.width == 0 || row < body.y || row >= body.bottom() {
             return None;
         }
 
@@ -289,20 +260,7 @@ impl AppState {
         })
     }
 
-    pub(super) fn collapsed_workspace_at_row(&self, row: u16) -> Option<usize> {
-        if !self.sidebar_collapsed {
-            return None;
-        }
-
-        let (ws_area, _, _) = crate::ui::collapsed_sidebar_sections(self.view.sidebar_rect);
-        if ws_area == Rect::default() || row < ws_area.y || row >= ws_area.y + ws_area.height {
-            return None;
-        }
-
-        let idx = (row - ws_area.y) as usize;
-        (idx < self.workspaces.len()).then_some(idx)
-    }
-
+    #[cfg(test)]
     pub(super) fn collapsed_agent_detail_target_at(
         &self,
         _row: u16,
@@ -310,10 +268,13 @@ impl AppState {
         None
     }
 
-    pub(super) fn workspace_drop_index_at_row(&self, row: u16) -> Option<usize> {
+    pub(super) fn workspace_drop_index_at_row(
+        &self,
+        row: u16,
+        source_ws_idx: usize,
+    ) -> Option<usize> {
         let area = self.workspace_list_rect();
-        let footer = self.sidebar_footer_rect();
-        if area == Rect::default() || row < area.y || row >= footer.y {
+        if area == Rect::default() || row < area.y || row >= area.bottom() {
             return None;
         }
 
@@ -322,46 +283,53 @@ impl AppState {
         } else {
             self.view.workspace_card_areas.clone()
         };
-        if cards.is_empty() {
-            return Some(0);
+        if self
+            .workspaces
+            .get(source_ws_idx)?
+            .worktree_space()
+            .is_some()
+        {
+            return None;
         }
-
-        let mut insert_indices = Vec::with_capacity(cards.len() + 1);
-        for (idx, card) in cards.iter().enumerate() {
-            let card_group = self
-                .workspaces
-                .get(card.ws_idx)
-                .and_then(|ws| ws.worktree_space())
-                .map(|space| space.key.as_str());
-            let previous_group = idx.checked_sub(1).and_then(|prev_idx| {
-                self.workspaces
-                    .get(cards[prev_idx].ws_idx)
-                    .and_then(|ws| ws.worktree_space())
-                    .map(|space| space.key.as_str())
-            });
-            let inside_group_gap = card_group.is_some() && card_group == previous_group;
-            if !inside_group_gap {
-                insert_indices.push(card.ws_idx);
-            }
+        let target = cards.iter().min_by_key(|card| {
+            card.rect
+                .y
+                .saturating_sub(row)
+                .max(row.saturating_sub(card.rect.bottom().saturating_sub(1)))
+        })?;
+        if target.ws_idx == source_ws_idx {
+            return None;
         }
-        insert_indices.push(cards.last().map(|card| card.ws_idx + 1).unwrap_or(0));
-
-        let mut best: Option<(usize, u16)> = None;
-        for insert_idx in insert_indices {
-            let Some(slot_row) = crate::ui::workspace_drop_indicator_row(&cards, area, insert_idx)
-            else {
-                continue;
-            };
-            let distance = row.abs_diff(slot_row);
-            match best {
-                Some((best_idx, best_distance))
-                    if distance > best_distance
-                        || (distance == best_distance && insert_idx < best_idx) => {}
-                _ => best = Some((insert_idx, distance)),
-            }
+        let entries = crate::ui::workspace_list_entries(self);
+        let source = entries.iter().position(|entry| matches!(entry, crate::ui::WorkspaceListEntry::Workspace { ws_idx, .. } if *ws_idx == source_ws_idx))?;
+        let target_index = entries.iter().position(|entry| matches!(entry, crate::ui::WorkspaceListEntry::Workspace { ws_idx, .. } if *ws_idx == target.ws_idx))?;
+        let mut start = target_index;
+        while start > 0
+            && matches!(
+                entries[start],
+                crate::ui::WorkspaceListEntry::Workspace { indented: true, .. }
+            )
+        {
+            start -= 1;
         }
-
-        best.map(|(insert_idx, _)| insert_idx)
+        let mut end = start + 1;
+        while matches!(
+            entries.get(end),
+            Some(crate::ui::WorkspaceListEntry::Workspace { indented: true, .. })
+        ) {
+            end += 1;
+        }
+        // A one-row card has no separate before/after mouse cells. Direction
+        // supplies that distinction; groups are one indivisible target block.
+        let boundary = if source > target_index && row < target.rect.bottom() {
+            start
+        } else {
+            end
+        };
+        Some(match entries.get(boundary) {
+            Some(crate::ui::WorkspaceListEntry::Workspace { ws_idx, .. }) => *ws_idx,
+            None => self.workspaces.len(),
+        })
     }
 
     pub(super) fn on_agent_panel_sort_toggle(&self, _col: u16, _row: u16) -> bool {
@@ -427,6 +395,7 @@ mod integration_views_sidebar {
                             id: format!("opaque-{i}"),
                             label: format!("label {i}"),
                             detail: "detail".into(),
+                            presentation: None,
                         })
                         .collect(),
                 },
@@ -460,11 +429,84 @@ mod integration_views_sidebar {
     }
 
     #[test]
+    fn integration_views_sidebar_keyboard_toggle_roundtrip_requires_new_draw() {
+        use super::super::navigate::{ActionContext, NavigateAction};
+        let now = Instant::now();
+        let (mut app, owner) = fixture(now);
+        let body = app
+            .state
+            .sidebar_sections
+            .body(&crate::ui::SectionId::Integration(owner.source.clone()));
+        for _ in 0..2 {
+            app.execute_tui_navigate_action(NavigateAction::ToggleSidebar, ActionContext::Prefix);
+        }
+        assert!(!app.state.sidebar_collapsed);
+        assert!(app.state.integration_views_displayed.is_none());
+        assert!(!app.state.activate_integration_view_at(body.x, body.y, now));
+        draw(&mut app, now);
+        assert!(app.state.activate_integration_view_at(body.x, body.y, now));
+    }
+
+    #[test]
+    fn integration_views_sidebar_global_rows_and_collapsed_spaces_never_fall_through() {
+        let now = Instant::now();
+        let (mut app, owner) = fixture(now);
+        app.state.mode = Mode::Navigate;
+        let before = (
+            app.state.workspace_scroll,
+            app.state.selected,
+            app.state.active,
+        );
+        for row in [
+            app.state.sidebar_sections.menu.y,
+            app.state.sidebar_sections.toggle.y,
+        ] {
+            app.handle_mouse(mouse(MouseEventKind::ScrollDown, 1, row));
+            assert_eq!(
+                before,
+                (
+                    app.state.workspace_scroll,
+                    app.state.selected,
+                    app.state.active
+                )
+            );
+        }
+        let card = app.state.view.workspace_card_areas[0].rect;
+        let header = app.state.sidebar_sections.sections[0].header;
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            header.x,
+            header.y,
+        ));
+        // This intentionally arrives before another compute/draw.
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            card.x,
+            card.y,
+        ));
+        assert!(app.state.workspace_press.is_none());
+        assert_eq!(
+            before,
+            (
+                app.state.workspace_scroll,
+                app.state.selected,
+                app.state.active
+            )
+        );
+        assert!(app
+            .state
+            .integration_views
+            .poll(&owner, now)
+            .unwrap()
+            .intents
+            .is_empty());
+    }
+
+    #[test]
     fn integration_views_sidebar_short_panel_mouse_reaches_only_eighth_provider() {
-        for height in [6, 8, 10, 12] {
+        for height in [1, 3, 8] {
             let now = Instant::now();
             let (mut app, _) = fixture(now);
-            app.state.sidebar_section_split = 0.5;
             let sources = (0..8).map(|i| format!("source{i}")).collect::<Vec<_>>();
             app.state
                 .integration_views
@@ -501,6 +543,7 @@ mod integration_views_sidebar {
                                     id: "same-id".into(),
                                     label: format!("{source} label"),
                                     detail: format!("{source} detail"),
+                                    presentation: None,
                                 }],
                             },
                             now,
@@ -510,9 +553,9 @@ mod integration_views_sidebar {
                 })
                 .collect::<Vec<_>>();
             let draw = |app: &mut crate::app::App| {
-                crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, height * 2));
+                crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, height + 2));
                 app.state.compute_integration_views_snapshot(now);
-                let mut terminal = Terminal::new(TestBackend::new(106, height * 2)).unwrap();
+                let mut terminal = Terminal::new(TestBackend::new(106, height + 2)).unwrap();
                 terminal
                     .draw(|frame| {
                         crate::ui::render_with_runtime_registry(
@@ -526,18 +569,38 @@ mod integration_views_sidebar {
                 terminal.backend().buffer().clone()
             };
             draw(&mut app);
-            for source in sources.iter().skip(1) {
-                let area = app.state.integration_views_area();
-                assert_eq!(area.height, height);
-                app.handle_mouse(mouse(MouseEventKind::ScrollDown, area.x, area.y + 1));
-                assert_eq!(app.state.integration_view_selected.as_ref(), Some(source));
+            for source in &sources {
+                let header = app.state.sidebar_sections.sections[0].header;
+                app.handle_mouse(mouse(MouseEventKind::ScrollDown, header.x, header.y));
+                assert_eq!(
+                    app.state.sidebar_section_focus,
+                    crate::ui::SectionId::Integration(source.clone())
+                );
                 assert!(app.state.integration_views_displayed.is_none());
                 draw(&mut app);
             }
-            let buffer = draw(&mut app);
-            let area = app.state.integration_views_area();
+            // A single usable row deliberately has no body. Keeping the window
+            // focus while growing the viewport makes the last peer actionable.
+            crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 5));
+            app.state.compute_integration_views_snapshot(now);
+            let mut terminal = Terminal::new(TestBackend::new(106, 5)).unwrap();
+            terminal
+                .draw(|frame| {
+                    crate::ui::render_with_runtime_registry(
+                        &app.state,
+                        &app.terminal_runtimes,
+                        frame,
+                    )
+                })
+                .unwrap();
+            app.state.commit_integration_views_render();
+            let buffer = terminal.backend().buffer();
+            let area = app
+                .state
+                .sidebar_sections
+                .body(&crate::ui::SectionId::Integration("source7".into()));
             let label = (area.x..area.right())
-                .map(|x| buffer[(x, area.bottom() - 2)].symbol())
+                .map(|x| buffer[(x, area.y)].symbol())
                 .collect::<String>();
             assert!(
                 label.contains("source7 label"),
@@ -546,7 +609,7 @@ mod integration_views_sidebar {
             app.handle_mouse(mouse(
                 MouseEventKind::Down(MouseButton::Left),
                 area.x,
-                area.bottom() - 1,
+                area.y,
             ));
             for (index, owner) in owners.iter().enumerate() {
                 let intents = app
@@ -569,7 +632,7 @@ mod integration_views_sidebar {
     }
 
     #[test]
-    fn integration_views_sidebar_mouse_selects_source_locally_then_routes_rows_and_scrolls() {
+    fn integration_views_sidebar_mouse_toggles_independently_then_routes_rows_and_scrolls() {
         let now = Instant::now();
         let (mut app, alpha) = fixture(now);
         app.state
@@ -605,6 +668,7 @@ mod integration_views_sidebar {
                             id: format!("opaque-{i}"),
                             label: format!("second {i}"),
                             detail: String::new(),
+                            presentation: None,
                         })
                         .collect(),
                 },
@@ -612,7 +676,11 @@ mod integration_views_sidebar {
             )
             .unwrap();
         draw(&mut app, now);
-        let area = app.state.integration_views_area();
+        let header = app.state.sidebar_sections.sections[2].header;
+        let area = app
+            .state
+            .sidebar_sections
+            .body(&crate::ui::SectionId::Integration("second".into()));
         let native = (
             app.state.active,
             app.state.selected,
@@ -621,11 +689,11 @@ mod integration_views_sidebar {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             area.x,
-            area.y + 2,
+            header.y,
         ));
         assert_eq!(
-            app.state.integration_view_selected.as_deref(),
-            Some("second")
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Integration("second".into())
         );
         assert!(app.state.integration_views_displayed.is_none());
         assert!(app
@@ -645,7 +713,7 @@ mod integration_views_sidebar {
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             area.x,
-            area.y + 4,
+            area.y,
         ));
         assert!(app
             .state
@@ -655,10 +723,17 @@ mod integration_views_sidebar {
             .intents
             .is_empty());
         draw(&mut app, now);
+        let moved_header = app.state.sidebar_sections.sections[2].header;
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            moved_header.x,
+            moved_header.y,
+        ));
+        draw(&mut app, now);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             area.x,
-            area.y + 4,
+            area.y,
         ));
         let intents = app
             .state
@@ -676,18 +751,19 @@ mod integration_views_sidebar {
             .unwrap()
             .intents
             .is_empty());
-        app.handle_mouse(mouse(MouseEventKind::ScrollDown, area.x, area.y + 4));
+        app.handle_mouse(mouse(MouseEventKind::ScrollDown, area.x, area.y));
         assert_eq!(app.state.integration_view_scrolls["second"], 1);
         assert_eq!(app.state.integration_view_scrolls["test.source"], 0);
         draw(&mut app, now);
+        let alpha_header = app.state.sidebar_sections.sections[1].header;
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
-            area.x,
-            area.y + 1,
+            alpha_header.x,
+            alpha_header.y,
         ));
         assert_eq!(
-            app.state.integration_view_selected.as_deref(),
-            Some("test.source")
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Integration("test.source".into())
         );
         assert_eq!(
             native,
@@ -703,7 +779,10 @@ mod integration_views_sidebar {
     fn integration_views_sidebar_mouse_click_queues_intent_without_native_target_changes() {
         let now = Instant::now();
         let (mut app, owner) = fixture(now);
-        let area = app.state.integration_views_area();
+        let area = app
+            .state
+            .sidebar_sections
+            .body(&crate::ui::SectionId::Integration("test.source".into()));
         let before = (
             app.state.active,
             app.state.selected,
@@ -717,7 +796,7 @@ mod integration_views_sidebar {
                 mouse(
                     MouseEventKind::Down(MouseButton::Left),
                     area.x + 1,
-                    area.y + 3
+                    area.y + 1
                 )
             )
             .is_none());
@@ -737,7 +816,7 @@ mod integration_views_sidebar {
             .unwrap()
             .intents;
         assert_eq!(intents.len(), 1);
-        assert_eq!(intents[0].item_id, "opaque-0");
+        assert_eq!(intents[0].item_id, "opaque-1");
         assert!(app.state.drag.is_none());
         assert!(!app.state.request_new_workspace);
         assert!(!app.state.request_new_tab);
@@ -747,7 +826,10 @@ mod integration_views_sidebar {
     fn integration_views_sidebar_legacy_lower_targets_sort_scroll_and_drag_are_gated() {
         let now = Instant::now();
         let (mut app, _) = fixture(now);
-        let area = app.state.integration_views_area();
+        let area = app
+            .state
+            .sidebar_sections
+            .body(&crate::ui::SectionId::Integration("test.source".into()));
         assert!(app.state.agent_detail_target_at(area.y + 3).is_none());
         assert!(app
             .state
@@ -802,12 +884,15 @@ mod integration_views_sidebar {
         let (mut app, owner) = fixture(now);
         app.state.sidebar_collapsed = true;
         draw(&mut app, now);
-        let area = app.state.integration_views_area();
+        let area = app
+            .state
+            .sidebar_sections
+            .body(&crate::ui::SectionId::Integration("test.source".into()));
         assert!(app
             .state
             .handle_mouse(
                 &mut app.terminal_runtimes,
-                mouse(MouseEventKind::Down(MouseButton::Left), area.x, area.y + 3)
+                mouse(MouseEventKind::Down(MouseButton::Left), area.x, area.y)
             )
             .is_none());
         assert_eq!(app.state.active, Some(0));
@@ -825,7 +910,7 @@ mod integration_views_sidebar {
             .state
             .handle_mouse(
                 &mut app.terminal_runtimes,
-                mouse(MouseEventKind::ScrollDown, area.x, area.y + 3)
+                mouse(MouseEventKind::ScrollDown, area.x, area.y)
             )
             .is_none());
         assert_eq!(app.state.integration_view_scrolls["test.source"], 1);
@@ -884,7 +969,7 @@ mod tests {
     use std::fs;
 
     use crossterm::event::{MouseButton, MouseEventKind};
-    use ratatui::layout::Rect;
+    use ratatui::{backend::TestBackend, layout::Rect, Terminal};
 
     use super::super::{app_for_mouse_test, capture_snapshot, mouse, unique_temp_path};
     use crate::{
@@ -893,6 +978,394 @@ mod tests {
         detect::{Agent, AgentState},
         workspace::Workspace,
     };
+
+    fn rendered(app: &crate::app::App) -> ratatui::buffer::Buffer {
+        let screen = app.state.screen_rect();
+        let mut terminal =
+            Terminal::new(TestBackend::new(screen.right(), screen.bottom())).unwrap();
+        terminal
+            .draw(|frame| {
+                crate::ui::render_with_runtime_registry(&app.state, &app.terminal_runtimes, frame)
+            })
+            .unwrap();
+        terminal.backend().buffer().clone()
+    }
+
+    #[test]
+    fn packed_workspace_drag_matrix_reaches_every_destination_card_without_leaving_body() {
+        for source in 0..3 {
+            for target in 0..3 {
+                let mut app = app_for_mouse_test();
+                app.state.workspaces = ["A", "B", "C"].map(Workspace::test_new).into();
+                app.state.ensure_test_terminals();
+                app.state.sidebar_spaces.rows =
+                    vec![vec![crate::config::SpaceSidebarToken::Workspace]];
+                app.state.sidebar_spaces.row_gap = 0;
+                app.state
+                    .integration_views
+                    .reconfigure(vec!["coven".into()])
+                    .unwrap();
+                app.state.active = Some(1);
+                app.state.selected = 2;
+                let ids = app
+                    .state
+                    .workspaces
+                    .iter()
+                    .map(|ws| ws.id.clone())
+                    .collect::<Vec<_>>();
+                crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 12));
+                let cards = app.state.view.workspace_card_areas.clone();
+                let body = app.state.spaces_body();
+                assert_eq!(
+                    cards.iter().map(|c| c.rect.y).collect::<Vec<_>>(),
+                    vec![body.y, body.y + 1, body.y + 2]
+                );
+                app.handle_mouse(mouse(
+                    MouseEventKind::Down(MouseButton::Left),
+                    cards[source].rect.x + 1,
+                    cards[source].rect.y,
+                ));
+                app.handle_mouse(mouse(
+                    MouseEventKind::Drag(MouseButton::Left),
+                    cards[target].rect.x + 5,
+                    cards[target].rect.y,
+                ));
+                if source != target {
+                    let Some(crate::app::state::DragState {
+                        target:
+                            DragTarget::WorkspaceReorder {
+                                insert_idx: Some(insert),
+                                ..
+                            },
+                    }) = app.state.drag.as_ref()
+                    else {
+                        panic!("missing drag {source}->{target}");
+                    };
+                    let marker =
+                        crate::ui::workspace_drop_indicator_row(&app.state, body, source, *insert)
+                            .unwrap();
+                    assert_eq!(marker, cards[target].rect.y);
+                    assert!(body.contains(ratatui::layout::Position::new(body.x, marker)));
+                    let buffer = rendered(&app);
+                    assert_eq!(buffer[(body.x, marker)].symbol(), "─");
+                }
+                app.handle_mouse(mouse(
+                    MouseEventKind::Up(MouseButton::Left),
+                    cards[target].rect.x + 5,
+                    cards[target].rect.y,
+                ));
+                let mut expected = vec!["A", "B", "C"];
+                let moved = expected.remove(source);
+                expected.insert(target, moved);
+                assert_eq!(
+                    app.state
+                        .workspaces
+                        .iter()
+                        .map(|ws| ws.display_name())
+                        .collect::<Vec<_>>(),
+                    expected,
+                    "{source}->{target}"
+                );
+                assert_eq!(app.state.workspaces[app.state.active.unwrap()].id, ids[1]);
+                assert_eq!(app.state.workspaces[app.state.selected].id, ids[2]);
+            }
+        }
+    }
+
+    #[test]
+    fn packed_drag_targets_whole_noncontiguous_worktree_group_from_both_directions() {
+        for source in [0, 2, 4] {
+            for target in [1, 3] {
+                let mut app = app_for_mouse_test();
+                app.state.workspaces = vec![
+                    Workspace::test_new("A"),
+                    workspace_with_space("main", "repo"),
+                    Workspace::test_new("B"),
+                    workspace_with_space("child", "repo"),
+                    Workspace::test_new("C"),
+                ];
+                app.state.ensure_test_terminals();
+                app.state.sidebar_spaces.rows =
+                    vec![vec![crate::config::SpaceSidebarToken::Workspace]];
+                app.state.sidebar_spaces.row_gap = 0;
+                crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 16));
+                let from = app
+                    .state
+                    .view
+                    .workspace_card_areas
+                    .iter()
+                    .find(|c| c.ws_idx == source)
+                    .unwrap()
+                    .rect;
+                let to = app
+                    .state
+                    .view
+                    .workspace_card_areas
+                    .iter()
+                    .find(|c| c.ws_idx == target)
+                    .unwrap()
+                    .rect;
+                app.handle_mouse(mouse(
+                    MouseEventKind::Down(MouseButton::Left),
+                    from.x + 1,
+                    from.y,
+                ));
+                app.handle_mouse(mouse(
+                    MouseEventKind::Drag(MouseButton::Left),
+                    to.x + 5,
+                    to.y,
+                ));
+                let Some(crate::app::state::DragState {
+                    target:
+                        DragTarget::WorkspaceReorder {
+                            insert_idx: Some(insert),
+                            ..
+                        },
+                }) = app.state.drag.as_ref()
+                else {
+                    panic!("missing group drag");
+                };
+                assert_ne!(*insert, 3, "never insert at an indented child");
+                let marker = crate::ui::workspace_drop_indicator_row(
+                    &app.state,
+                    app.state.spaces_body(),
+                    source,
+                    *insert,
+                )
+                .unwrap();
+                let expected_edge = app
+                    .state
+                    .view
+                    .workspace_card_areas
+                    .iter()
+                    .find(|c| c.ws_idx == if source == 0 { 3 } else { 1 })
+                    .unwrap()
+                    .rect;
+                assert_eq!(marker, expected_edge.y);
+                app.handle_mouse(mouse(MouseEventKind::Up(MouseButton::Left), to.x + 5, to.y));
+                let order = crate::ui::workspace_list_entries(&app.state)
+                    .iter()
+                    .map(|entry| {
+                        let crate::ui::WorkspaceListEntry::Workspace { ws_idx, .. } = entry;
+                        app.state.workspaces[*ws_idx].display_name()
+                    })
+                    .collect::<Vec<_>>();
+                let expected = match source {
+                    0 => vec!["main", "child", "A", "B", "C"],
+                    2 => vec!["A", "B", "main", "child", "C"],
+                    _ => vec!["A", "C", "main", "child", "B"],
+                };
+                assert_eq!(order, expected);
+                let group = app
+                    .state
+                    .workspaces
+                    .iter()
+                    .filter_map(|ws| {
+                        ws.worktree_space().map(|space| {
+                            (
+                                ws.display_name(),
+                                space.key.clone(),
+                                space.is_linked_worktree,
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(
+                    group,
+                    vec![
+                        ("main".into(), "repo".into(), false),
+                        ("child".into(), "repo".into(), true)
+                    ]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn compact_inactive_worktree_child_has_visible_identity_before_exact_mouse_focus() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![
+            workspace_with_space("main", "repo"),
+            workspace_with_space("child", "repo"),
+        ];
+        app.state.ensure_test_terminals();
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.sidebar_collapsed = true;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 16));
+        let buffer = rendered(&app);
+        let child = app
+            .state
+            .view
+            .workspace_card_areas
+            .iter()
+            .find(|c| c.ws_idx == 1)
+            .unwrap();
+        assert!(child.indented);
+        let visual_order = app.state.visible_workspace_order();
+        for card in &app.state.view.workspace_card_areas {
+            let text = (card.rect.x..card.rect.right())
+                .map(|x| buffer[(x, card.rect.y)].symbol())
+                .collect::<String>();
+            assert!(
+                text.contains(
+                    &(visual_order
+                        .iter()
+                        .position(|idx| *idx == card.ws_idx)
+                        .unwrap()
+                        + 1)
+                    .to_string()
+                ),
+                "blank actionable compact card: {text:?}"
+            );
+        }
+        let target = child.rect;
+        assert!(app
+            .state
+            .spaces_body()
+            .contains(ratatui::layout::Position::new(target.x + 1, target.y)));
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            target.x + 1,
+            target.y,
+        ));
+        app.handle_mouse(mouse(
+            MouseEventKind::Up(MouseButton::Left),
+            target.x + 1,
+            target.y,
+        ));
+        assert_eq!(app.state.active, Some(1));
+        assert_eq!(app.state.selected, 1);
+        assert!(app.state.collapsed_space_keys.is_empty());
+    }
+
+    #[test]
+    fn compact_numbers_match_numbered_actions_for_group_order_collapse_and_scrolled_viewports() {
+        use super::super::navigate::{ActionContext, NavigateAction};
+        let screen = Rect::new(0, 0, 106, 7);
+        for collapsed in [false, true] {
+            for active in [0, 2] {
+                for scroll in [0, 3, 5] {
+                    let mut app = app_for_mouse_test();
+                    app.state.workspaces = vec![
+                        workspace_with_space("main", "repo"),
+                        Workspace::test_new("normal"),
+                        workspace_with_space("child", "repo"),
+                    ];
+                    app.state
+                        .workspaces
+                        .extend((4..=9).map(|n| Workspace::test_new(&format!("workspace-{n}"))));
+                    app.state.ensure_test_terminals();
+                    app.state.sidebar_spaces.rows =
+                        vec![vec![crate::config::SpaceSidebarToken::Workspace]];
+                    app.state.sidebar_spaces.row_gap = 0;
+                    app.state.sidebar_collapsed = true;
+                    app.state.active = Some(active);
+                    app.state.selected = active;
+                    crate::ui::compute_view(&mut app.state, screen);
+                    if collapsed {
+                        let parent = app.state.view.workspace_card_areas[0].rect;
+                        app.handle_mouse(mouse(
+                            MouseEventKind::Down(MouseButton::Left),
+                            parent.x,
+                            parent.y,
+                        ));
+                        assert!(app.state.collapsed_space_keys.contains("repo"));
+                        assert_eq!(app.state.active, Some(active));
+                    }
+                    let expected_order = if collapsed && active == 0 {
+                        vec![0, 1, 3, 4, 5, 6, 7, 8]
+                    } else {
+                        vec![0, 2, 1, 3, 4, 5, 6, 7, 8]
+                    };
+                    app.state.workspace_scroll = scroll;
+                    crate::ui::compute_view(&mut app.state, screen);
+                    assert_eq!(app.state.visible_workspace_order(), expected_order);
+                    let cards = app.state.view.workspace_card_areas.clone();
+                    assert!(!cards.is_empty());
+                    if scroll > 0 {
+                        assert!(app.state.workspace_scroll > 0);
+                    }
+                    for card in cards {
+                        // Restore the pre-shortcut focus: a collapsed group's
+                        // active child is deliberately kept in the visual order.
+                        app.state.active = Some(active);
+                        app.state.selected = active;
+                        app.state.mode = Mode::Terminal;
+                        app.state.workspace_scroll = scroll;
+                        crate::ui::compute_view(&mut app.state, screen);
+                        assert_eq!(app.state.visible_workspace_order(), expected_order);
+                        let number = expected_order
+                            .iter()
+                            .position(|idx| *idx == card.ws_idx)
+                            .unwrap()
+                            + 1;
+                        assert!(number <= 9);
+                        if card.rect.y == app.state.spaces_body().y {
+                            assert_eq!(number, app.state.workspace_scroll + 1);
+                        }
+                        let buffer = rendered(&app);
+                        let label = (card.rect.x..card.rect.right())
+                            .map(|x| buffer[(x, card.rect.y)].symbol())
+                            .collect::<String>();
+                        let displayed = label
+                            .chars()
+                            .filter(char::is_ascii_digit)
+                            .collect::<String>()
+                            .parse::<usize>()
+                            .unwrap();
+                        assert_eq!(displayed, number, "collapsed={collapsed}, active={active}, scroll={scroll}, label={label:?}");
+                        assert_eq!(
+                            app.state.workspace_at_visible_position(displayed - 1),
+                            Some(card.ws_idx)
+                        );
+                        app.execute_tui_navigate_action(
+                            NavigateAction::SwitchWorkspace(displayed - 1),
+                            ActionContext::Prefix,
+                        );
+                        assert_eq!(app.state.active, Some(card.ws_idx));
+                        assert_eq!(app.state.selected, card.ws_idx);
+                        assert!(app.state.sidebar_collapsed);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn compact_visible_menu_opens_bounded_global_menu_but_hidden_has_no_launcher() {
+        let mut app = app_for_mouse_test();
+        app.state.sidebar_collapsed = true;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 16));
+        let launcher = app.state.global_launcher_rect();
+        let buffer = rendered(&app);
+        assert_eq!(buffer[(launcher.x, launcher.y)].symbol(), "m");
+        assert_eq!(launcher.width, 3);
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            launcher.x,
+            launcher.y,
+        ));
+        assert_eq!(app.state.mode, Mode::GlobalMenu);
+        let popup = app.state.global_menu_rect();
+        let screen = app.state.screen_rect();
+        assert!(
+            popup.x >= screen.x
+                && popup.y >= screen.y
+                && popup.right() <= screen.right()
+                && popup.bottom() <= screen.bottom()
+        );
+        app.state.mode = Mode::Terminal;
+        app.state.sidebar_collapsed_mode = SidebarCollapsedModeConfig::Hidden;
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 16));
+        assert_eq!(app.state.global_launcher_rect(), Rect::default());
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            launcher.x,
+            launcher.y,
+        ));
+        assert_ne!(app.state.mode, Mode::GlobalMenu);
+    }
 
     #[test]
     fn clicking_launcher_opens_global_menu() {
@@ -1194,10 +1667,7 @@ mod tests {
         app.state.mode = Mode::Terminal;
         app.state.agent_panel_scroll = 3;
 
-        let (_, detail_area) = crate::ui::expanded_sidebar_sections(
-            app.state.view.sidebar_rect,
-            app.state.sidebar_section_split,
-        );
+        let detail_area = Rect::new(0, 10, 25, 9);
         let toggle = crate::ui::agent_panel_toggle_rect(detail_area, app.state.agent_panel_sort);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -1240,10 +1710,7 @@ mod tests {
         app.state.selected = 0;
         app.state.mode = Mode::Terminal;
 
-        let (_, detail_area) = crate::ui::expanded_sidebar_sections(
-            app.state.view.sidebar_rect,
-            app.state.sidebar_section_split,
-        );
+        let detail_area = Rect::new(0, 10, 25, 9);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x + 2,
@@ -1419,8 +1886,7 @@ mod tests {
         app.state.view.sidebar_rect = Rect::new(0, 0, 4, 20);
         app.state.view.terminal_area = Rect::new(4, 0, 80, 20);
 
-        let (_, _, detail_area) =
-            crate::ui::collapsed_sidebar_sections(app.state.view.sidebar_rect);
+        let detail_area = Rect::new(0, 10, 3, 9);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x,
@@ -1464,8 +1930,7 @@ mod tests {
         set_state(&mut app, 0, first_pane, AgentState::Working);
         set_state(&mut app, 1, second_pane, AgentState::Blocked);
 
-        let (_, _, detail_area) =
-            crate::ui::collapsed_sidebar_sections(app.state.view.sidebar_rect);
+        let detail_area = Rect::new(0, 10, 3, 9);
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
             detail_area.x,
@@ -1681,14 +2146,16 @@ mod tests {
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
         let packed_boundary_row = app.state.view.workspace_card_areas[1].rect.y;
         assert_eq!(
-            app.state.workspace_drop_index_at_row(packed_boundary_row),
+            app.state
+                .workspace_drop_index_at_row(packed_boundary_row, 0),
             Some(2)
         );
 
         let source_row = app.state.view.workspace_card_areas[1].rect.y;
         let target_row = crate::ui::workspace_drop_indicator_row(
-            &app.state.view.workspace_card_areas,
+            &app.state,
             app.state.workspace_list_rect(),
+            1,
             0,
         )
         .unwrap();
@@ -1700,7 +2167,7 @@ mod tests {
         ));
         app.handle_mouse(mouse(
             MouseEventKind::Drag(MouseButton::Left),
-            2,
+            5,
             target_row,
         ));
         assert!(matches!(
@@ -1919,17 +2386,17 @@ mod tests {
         crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
 
         let area = app.state.workspace_list_rect();
-        let cards = &app.state.view.workspace_card_areas;
-        let top_slot = crate::ui::workspace_drop_indicator_row(cards, area, 0).unwrap();
-        let gap_below_first = crate::ui::workspace_drop_indicator_row(cards, area, 1).unwrap();
+        let top_slot = crate::ui::workspace_drop_indicator_row(&app.state, area, 1, 0).unwrap();
+        let gap_below_first =
+            crate::ui::workspace_drop_indicator_row(&app.state, area, 0, 2).unwrap();
 
         assert!(top_slot < gap_below_first);
         for row in area.y..=top_slot {
-            assert_eq!(app.state.workspace_drop_index_at_row(row), Some(0));
+            assert_eq!(app.state.workspace_drop_index_at_row(row, 1), Some(0));
         }
         assert_eq!(
-            app.state.workspace_drop_index_at_row(gap_below_first),
-            Some(1)
+            app.state.workspace_drop_index_at_row(gap_below_first, 0),
+            Some(2)
         );
 
         let _ = fs::remove_dir_all(first_repo);
@@ -1937,7 +2404,7 @@ mod tests {
     }
 
     #[test]
-    fn bottom_drop_slot_stays_below_last_workspace_not_footer() {
+    fn bottom_drop_indicator_uses_last_card_edge_not_footer() {
         let mut app = app_for_mouse_test();
         app.state.workspaces = vec![
             Workspace::test_new("a"),
@@ -1948,18 +2415,22 @@ mod tests {
 
         let cards = &app.state.view.workspace_card_areas;
         let bottom_slot = crate::ui::workspace_drop_indicator_row(
-            cards,
+            &app.state,
             app.state.workspace_list_rect(),
+            0,
             cards.len(),
         )
         .unwrap();
 
         let last = cards.last().unwrap().rect;
-        assert_eq!(bottom_slot, last.y + last.height);
+        assert_eq!(bottom_slot, last.bottom() - 1);
         let footer = app.state.sidebar_footer_rect();
         assert!(bottom_slot < footer.y);
-        assert_eq!(app.state.workspace_drop_index_at_row(bottom_slot), Some(3));
-        assert_eq!(app.state.workspace_drop_index_at_row(footer.y), None);
+        assert_eq!(
+            app.state.workspace_drop_index_at_row(bottom_slot, 0),
+            Some(3)
+        );
+        assert_eq!(app.state.workspace_drop_index_at_row(footer.y, 0), None);
     }
 
     #[test]
@@ -1978,12 +2449,19 @@ mod tests {
         let order = cards.iter().map(|card| card.ws_idx).collect::<Vec<_>>();
         assert_eq!(order, vec![0, 2, 1]);
         let issue = cards.iter().find(|card| card.ws_idx == 2).unwrap();
-        let normal = cards.iter().find(|card| card.ws_idx == 1).unwrap();
 
-        assert_eq!(app.state.workspace_drop_index_at_row(issue.rect.y), Some(1));
         assert_eq!(
-            crate::ui::workspace_drop_indicator_row(cards, app.state.workspace_list_rect(), 2),
-            Some(normal.rect.y + normal.rect.height)
+            app.state.workspace_drop_index_at_row(issue.rect.y, 1),
+            Some(0)
+        );
+        assert_eq!(
+            crate::ui::workspace_drop_indicator_row(
+                &app.state,
+                app.state.workspace_list_rect(),
+                1,
+                2
+            ),
+            None
         );
     }
 
@@ -2007,12 +2485,7 @@ mod tests {
             .find(|card| card.ws_idx == 2)
             .unwrap()
             .rect;
-        let target_row = crate::ui::workspace_drop_indicator_row(
-            &app.state.view.workspace_card_areas,
-            app.state.workspace_list_rect(),
-            0,
-        )
-        .unwrap();
+        let target_row = app.state.view.workspace_card_areas[0].rect.y;
 
         app.handle_mouse(mouse(MouseEventKind::Down(MouseButton::Left), 2, source.y));
         app.handle_mouse(mouse(
@@ -2087,12 +2560,11 @@ mod tests {
     }
 
     #[test]
-    fn dragging_sidebar_section_divider_sets_split_ratio() {
+    fn section_header_toggle_cannot_start_a_divider_drag() {
         let mut app = app_for_mouse_test();
-        let divider = crate::ui::sidebar_section_divider_rect(
-            app.state.view.sidebar_rect,
-            app.state.sidebar_section_split,
-        );
+        app.state
+            .compute_sidebar_sections(app.state.view.sidebar_rect);
+        let divider = app.state.sidebar_sections.sections[0].header;
 
         app.handle_mouse(mouse(
             MouseEventKind::Down(MouseButton::Left),
@@ -2105,11 +2577,15 @@ mod tests {
             divider.y + 4,
         ));
 
-        assert!(app.state.sidebar_section_split > 0.5);
+        assert!(app.state.drag.is_none());
+        assert!(app
+            .state
+            .collapsed_sidebar_sections
+            .contains(&crate::ui::SectionId::Spaces));
         let snapshot = capture_snapshot(&app.state);
         assert_eq!(
-            snapshot.sidebar_section_split,
-            Some(app.state.sidebar_section_split)
+            snapshot.collapsed_sidebar_sections,
+            app.state.collapsed_sidebar_sections
         );
     }
 

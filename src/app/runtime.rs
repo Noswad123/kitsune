@@ -114,6 +114,21 @@ impl App {
         event: crate::raw_input::RawInputEvent,
     ) -> bool {
         let previous_mode = self.state.mode;
+        if previous_mode == crate::app::Mode::IntegrationInspector {
+            self.suspend_inspector_terminal_keys().await;
+            if let crate::raw_input::RawInputEvent::Key(key) = &event {
+                let id = pressed_key_identity(super::LOCAL_INPUT_SOURCE, key);
+                if key.kind == crossterm::event::KeyEventKind::Release {
+                    self.suppressed_repeat_keys.remove(&id);
+                } else {
+                    self.suppressed_repeat_keys.insert(id);
+                    self.state.integration_inspector_key(key.as_key_event());
+                }
+                self.sync_prefix_input_source(previous_mode);
+                self.shutdown_detached_terminal_runtimes();
+                return true;
+            }
+        }
         let changed = match event {
             crate::raw_input::RawInputEvent::Key(key) => {
                 let pressed_key_id = pressed_key_identity(super::LOCAL_INPUT_SOURCE, &key);
@@ -175,7 +190,10 @@ impl App {
                 true
             }
             crate::raw_input::RawInputEvent::Mouse(mouse) => {
-                if self.state.popup_pane.is_some() || self.state.mouse_capture {
+                if self.state.mode == crate::app::Mode::IntegrationInspector
+                    || self.state.popup_pane.is_some()
+                    || self.state.mouse_capture
+                {
                     self.handle_mouse(mouse);
                 } else {
                     self.state
@@ -210,6 +228,9 @@ impl App {
             }
             crate::raw_input::RawInputEvent::Unsupported => false,
         };
+        if self.state.mode == crate::app::Mode::IntegrationInspector {
+            self.suspend_inspector_terminal_keys().await;
+        }
         self.sync_prefix_input_source(previous_mode);
         self.shutdown_detached_terminal_runtimes();
         changed
@@ -222,6 +243,7 @@ impl App {
         if self.last_terminal_size != Some(size) {
             self.last_terminal_size = Some(size);
             self.state.integration_views_displayed = None;
+            self.state.integration_inspector.displayed = None;
             return true;
         }
         false
@@ -363,12 +385,17 @@ impl App {
         self.sync_animation_timer_with_interval(now, ANIMATION_INTERVAL);
     }
 
-    pub(crate) fn sync_headless_animation_timer(&mut self, now: Instant) {
-        self.sync_animation_timer_with_interval(now, crate::app::HEADLESS_ANIMATION_INTERVAL);
+    pub(crate) fn sync_headless_animation_timer(&mut self, now: Instant, has_app_renderer: bool) {
+        if has_app_renderer {
+            self.sync_animation_timer_with_interval(now, crate::app::HEADLESS_ANIMATION_INTERVAL);
+        } else {
+            // Saved client geometry is not an animation audience while detached.
+            self.next_animation_tick = None;
+        }
     }
 
     fn sync_animation_timer_with_interval(&mut self, now: Instant, interval: Duration) {
-        if self.agent_panel_has_animation() {
+        if self.agent_panel_has_animation() || self.state.integration_has_animation(now) {
             self.next_animation_tick.get_or_insert(now + interval);
         } else {
             self.next_animation_tick = None;
@@ -555,6 +582,99 @@ mod tests {
     use crate::workspace::Workspace;
 
     #[test]
+    fn integration_running_animates_quiet_local_and_headless_without_fact_refresh() {
+        use crate::api::schema::{
+            IntegrationViewItem, IntegrationViewPresentation, IntegrationViewStatus,
+            ViewOpenParams, ViewReplaceParams,
+        };
+        use ratatui::layout::Rect;
+        let now = Instant::now();
+        let mut state = crate::app::AppState::test_new();
+        state
+            .integration_views
+            .reconfigure(vec!["coven".into()])
+            .unwrap();
+        let owner = state
+            .integration_views
+            .open(
+                &ViewOpenParams {
+                    source: "coven".into(),
+                    version: 2,
+                },
+                now,
+            )
+            .unwrap();
+        let mut frame = ViewReplaceParams {
+            source: "coven".into(),
+            lease: owner.lease,
+            epoch: owner.epoch,
+            revision: 1,
+            items: vec![IntegrationViewItem {
+                id: "i".into(),
+                label: "Working".into(),
+                detail: "private detail".into(),
+                presentation: Some(IntegrationViewPresentation {
+                    label: "Djinn".into(),
+                    status: Some(IntegrationViewStatus::Running),
+                }),
+            }],
+        };
+        state.integration_views.replace(&frame, now).unwrap();
+        crate::ui::compute_view(&mut state, Rect::new(0, 0, 100, 28));
+        state.commit_integration_views_render();
+        let capture = state.integration_views_displayed.clone();
+        let mut app = crate::app::test_support::app_from_state(state);
+        app.next_resize_poll = now + Duration::from_secs(10);
+        assert!(!app.agent_panel_has_animation());
+        app.sync_animation_timer(now);
+        assert_eq!(app.next_animation_tick, Some(now + ANIMATION_INTERVAL));
+        let glyph = crate::ui::spinner_frame(app.state.spinner_tick);
+        for n in 1..=8 {
+            app.handle_scheduled_tasks(now + ANIMATION_INTERVAL * n, false);
+        }
+        assert_ne!(glyph, crate::ui::spinner_frame(app.state.spinner_tick));
+        assert_eq!(
+            app.state
+                .integration_views
+                .project("coven", now)
+                .unwrap()
+                .revision,
+            1
+        );
+        assert_eq!(capture, app.state.integration_views_displayed);
+        app.next_animation_tick = None;
+        app.sync_headless_animation_timer(now, true);
+        assert_eq!(
+            app.next_animation_tick,
+            Some(now + crate::app::HEADLESS_ANIMATION_INTERVAL)
+        );
+        app.state.integration_animations = false;
+        app.sync_animation_timer(now);
+        assert!(app.next_animation_tick.is_none());
+        app.state.integration_animations = true;
+        app.state
+            .collapsed_sidebar_sections
+            .insert(crate::ui::SectionId::Integration("coven".into()));
+        app.sync_animation_timer(now);
+        assert!(app.next_animation_tick.is_none());
+        app.state.open_integration_inspector();
+        app.state
+            .compute_integration_inspector(Rect::new(0, 0, 80, 24), now);
+        app.sync_animation_timer(now);
+        assert!(app.next_animation_tick.is_some());
+        frame.revision = 2;
+        frame.items[0].presentation.as_mut().unwrap().status = None;
+        app.state.integration_views.replace(&frame, now).unwrap();
+        app.sync_animation_timer(now);
+        assert!(app.next_animation_tick.is_none());
+        frame.revision = 3;
+        frame.items[0].presentation.as_mut().unwrap().status = Some(IntegrationViewStatus::Running);
+        app.state.integration_views.replace(&frame, now).unwrap();
+        app.sync_animation_timer(now + Duration::from_secs(5));
+        assert!(app.next_animation_tick.is_none());
+    }
+
+    #[test]
     fn interrupted_custom_command_wait_keeps_child_for_retry() {
         let interrupted = std::io::Error::new(std::io::ErrorKind::Interrupted, "test interrupt");
 
@@ -605,12 +725,15 @@ mod tests {
                 )
                 .unwrap();
         }
-        state.integration_view_selected = Some("beta".into());
+        state.sidebar_section_focus = crate::ui::SectionId::Integration("beta".into());
         state.integration_view_scrolls.insert("beta".into(), 9);
         state.sync_annotation_deadline(now);
         let mut app = crate::app::test_support::app_from_state(state);
         assert!(app.expire_due_annotations(now + Duration::from_secs(5)));
-        assert_eq!(app.state.integration_view_selected.as_deref(), Some("beta"));
+        assert_eq!(
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Integration("beta".into())
+        );
         assert_eq!(app.state.integration_view_scrolls["beta"], 9);
         assert_eq!(
             app.state.next_annotation_deadline,
@@ -656,6 +779,7 @@ mod tests {
                         id: "item".into(),
                         label: "external declaration".into(),
                         detail: String::new(),
+                        presentation: None,
                     }],
                 },
                 now,

@@ -188,6 +188,7 @@ fn integration_views_requests_and_results_round_trip_with_explicit_types() {
     assert_eq!(
         serde_json::to_value(IntegrationViewsInfo {
             version: 1,
+            supported_versions: None,
             sources: vec![IntegrationViewSourceInfo {
                 id: "inactive".into(),
                 epoch: None

@@ -763,6 +763,7 @@ pub enum ViewLayout {
     Mobile,
 }
 
+#[derive(Clone)]
 pub struct ViewState {
     pub layout: ViewLayout,
     pub sidebar_rect: Rect,
@@ -802,6 +803,7 @@ pub enum Mode {
     GlobalMenu,
     KeybindHelp,
     Navigator,
+    IntegrationInspector,
 }
 
 impl Mode {
@@ -1172,7 +1174,6 @@ pub(crate) enum DragTarget {
         grab_row_offset: u16,
     },
     SidebarDivider,
-    SidebarSectionDivider,
 }
 
 /// Active mouse drag on a split border or sidebar divider.
@@ -1440,8 +1441,13 @@ pub struct AppState {
     pub workspace_scroll: usize,
     pub agent_panel_scroll: usize,
     pub(crate) integration_views: crate::integration_views::IntegrationViewsState,
-    pub(crate) integration_view_selected: Option<String>,
+    pub(crate) integration_animations: bool,
+    pub(crate) integration_inspector: crate::ui::integration_inspector::Inspector,
     pub(crate) integration_view_scrolls: std::collections::HashMap<String, usize>,
+    pub(crate) collapsed_sidebar_sections: std::collections::HashSet<crate::ui::SectionId>,
+    pub(crate) sidebar_section_offset: usize,
+    pub(crate) sidebar_section_focus: crate::ui::SectionId,
+    pub(crate) sidebar_sections: crate::ui::SectionLayout,
     pub(crate) integration_views_computed: Option<crate::ui::IntegrationViewsSnapshot>,
     pub(crate) integration_views_displayed: Option<crate::ui::IntegrationViewsSnapshot>,
     pub tab_scroll: usize,
@@ -1475,8 +1481,6 @@ pub struct AppState {
     pub sidebar_width_auto: bool,
     pub sidebar_collapsed: bool,
     pub sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig,
-    /// Ratio of sidebar height allocated to the workspaces section.
-    pub sidebar_section_split: f32,
     pub agent_panel_sort: AgentPanelSort,
     /// Transient session-wide projection override for the built-in Agents view.
     #[cfg(test)]
@@ -1784,8 +1788,13 @@ impl AppState {
             workspace_scroll: 0,
             agent_panel_scroll: 0,
             integration_views: Default::default(),
-            integration_view_selected: None,
+            integration_animations: true,
+            integration_inspector: Default::default(),
             integration_view_scrolls: Default::default(),
+            collapsed_sidebar_sections: Default::default(),
+            sidebar_section_offset: 0,
+            sidebar_section_focus: crate::ui::SectionId::Spaces,
+            sidebar_sections: Default::default(),
             integration_views_computed: None,
             integration_views_displayed: None,
             tab_scroll: 0,
@@ -1829,7 +1838,6 @@ impl AppState {
             sidebar_width_auto: false,
             sidebar_collapsed: false,
             sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig::Compact,
-            sidebar_section_split: 0.5,
             agent_panel_sort: AgentPanelSort::Spaces,
             agent_view_override: None,
             sidebar_agents: crate::config::AgentsSidebarConfig::default(),

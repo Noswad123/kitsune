@@ -636,7 +636,8 @@ impl HeadlessServer {
             self.stream_host_mouse_capture_mode();
             self.stream_host_keyboard_enhancement_flags();
 
-            self.app.sync_headless_animation_timer(now);
+            self.app
+                .sync_headless_animation_timer(now, self.has_app_client());
 
             // 7. Render virtually and stream frames.
             if needs_render && self.app.can_render_now(now) {
@@ -1108,7 +1109,7 @@ impl HeadlessServer {
             self.app.state.active,
             self.app.state.selected,
             self.app.state.sidebar_width,
-            self.app.state.sidebar_section_split,
+            self.app.state.collapsed_sidebar_sections.clone(),
             self.app.state.collapsed_space_keys.clone(),
         );
 
@@ -1360,6 +1361,7 @@ impl HeadlessServer {
         if changed {
             // Equal geometry does not mean this client received the captured frame.
             self.app.state.integration_views_displayed = None;
+            self.app.state.integration_inspector.displayed = None;
             self.foreground_client_id = client_id;
         }
         changed
@@ -1411,6 +1413,9 @@ impl HeadlessServer {
                         .remove(&terminal_id);
                 }
             }
+        }
+        if !self.has_app_client() {
+            self.app.next_animation_tick = None;
         }
         if was_foreground {
             self.promote_latest_remaining_client()
@@ -3117,6 +3122,7 @@ impl HeadlessServer {
             let area = Rect::new(0, 0, cols, rows);
             let resize_panes = self.app.state.view.pane_infos.is_empty();
             let render_started = crate::render_prof::timer();
+            let presentation = self.app.state.save_sidebar_presentation();
             let _ = crate::server::render_stream::render_virtual_with_runtime_registry(
                 &mut self.app.state,
                 &self.app.terminal_runtimes,
@@ -3124,6 +3130,7 @@ impl HeadlessServer {
                 resize_panes,
                 crate::kitty_graphics::HostCellSize::default(),
             );
+            self.app.state.restore_sidebar_presentation(presentation);
             crate::render_prof::duration_since("full_render.render_virtual", render_started);
             self.app.full_redraw_pending = false;
             crate::render_prof::duration_since("full_render.total", full_started);
@@ -3139,17 +3146,11 @@ impl HeadlessServer {
         for (client_id, (cols, rows), cell_size, is_foreground, mode) in render_targets {
             let area = Rect::new(0, 0, cols, rows);
             let is_app_client = matches!(mode, ClientConnectionMode::App);
+            let presentation = (!is_foreground && is_app_client)
+                .then(|| self.app.state.save_sidebar_presentation());
             let mut frame = match mode {
                 ClientConnectionMode::App => {
                     let render_started = crate::render_prof::timer();
-                    let integration_views_client_state = (!is_foreground).then(|| {
-                        (
-                            self.app.state.integration_views_computed.clone(),
-                            self.app.state.integration_views_displayed.clone(),
-                            self.app.state.integration_view_scrolls.clone(),
-                            self.app.state.integration_view_selected.clone(),
-                        )
-                    });
                     let render_cell_size = if cell_size.is_known() {
                         cell_size
                     } else {
@@ -3163,14 +3164,6 @@ impl HeadlessServer {
                             is_foreground,
                             render_cell_size,
                         );
-                    if let Some((computed, displayed, scroll, selected)) =
-                        integration_views_client_state
-                    {
-                        self.app.state.integration_views_computed = computed;
-                        self.app.state.integration_views_displayed = displayed;
-                        self.app.state.integration_view_scrolls = scroll;
-                        self.app.state.integration_view_selected = selected;
-                    }
                     crate::render_prof::duration_since(
                         "full_render.render_virtual",
                         render_started,
@@ -3255,7 +3248,14 @@ impl HeadlessServer {
                 frame.graphics = next_graphics_cache.clear_bytes();
             }
 
+            if let Some(saved) = presentation {
+                self.app.state.restore_sidebar_presentation(saved);
+            }
+
             let Some(writer) = client.writer.as_ref().cloned() else {
+                if is_foreground && is_app_client {
+                    self.app.state.integration_inspector.displayed = None;
+                }
                 crate::render_prof::event("full_render.writer_missing");
                 continue;
             };
@@ -3278,10 +3278,23 @@ impl HeadlessServer {
                 MAX_GRAPHICS_FRAME_SIZE
             };
             let has_graphics = !frame.graphics.is_empty();
+            if is_foreground
+                && is_app_client
+                && self.app.state.mode == app::Mode::IntegrationInspector
+                && self.app.state.integration_inspector.computed
+                    != self.app.state.integration_inspector.displayed
+            {
+                // Semantic identity can change without changing a single grid cell.
+                // Establish its fence only after a frame is successfully enqueued.
+                client.render_state.request_repaint();
+            }
             let prepare_started = crate::render_prof::timer();
             let Some(mut prepared) = client.render_state.prepare_frame(frame) else {
                 if is_foreground && is_app_client {
+                    // An identical grid is not a newly enqueued semantic inspector frame.
+                    let displayed = self.app.state.integration_inspector.displayed.clone();
                     self.app.state.commit_integration_views_render();
+                    self.app.state.integration_inspector.displayed = displayed;
                 }
                 client.clear_deferred_render();
                 crate::render_prof::event("full_render.skip_identical");
@@ -3289,6 +3302,10 @@ impl HeadlessServer {
                 continue;
             };
             crate::render_prof::duration_since("full_render.prepare_frame", prepare_started);
+
+            if is_foreground && is_app_client {
+                self.app.state.integration_inspector.displayed = None;
+            }
 
             let serialize_started = crate::render_prof::timer();
             let serialized = match Self::frame_server_message_with_max(
@@ -3415,7 +3432,8 @@ impl HeadlessServer {
     fn handle_scheduled_tasks_headless(&mut self, now: Instant, _geometry_dirty: bool) -> bool {
         let mut changed = false;
 
-        self.app.sync_headless_animation_timer(now);
+        self.app
+            .sync_headless_animation_timer(now, self.has_app_client());
 
         changed |= self.app.expire_due_annotations(now);
 
@@ -3498,7 +3516,8 @@ impl HeadlessServer {
             changed = true;
         }
 
-        self.app.sync_headless_animation_timer(now);
+        self.app
+            .sync_headless_animation_timer(now, self.has_app_client());
         changed
     }
 
@@ -4331,6 +4350,471 @@ mod tests {
             IntegrationViewItem, ViewOpenParams, ViewOwnerParams, ViewReplaceParams,
         };
 
+        fn inspector_key(
+            server: &mut HeadlessServer,
+            client_id: u64,
+            code: crossterm::event::KeyCode,
+        ) {
+            server.handle_client_input_events(
+                client_id,
+                vec![crate::raw_input::RawInputEvent::Key(
+                    crate::input::TerminalKey::new(code, crossterm::event::KeyModifiers::NONE),
+                )],
+            );
+        }
+
+        #[test]
+        fn inspector_quiet_noops_keep_capture_and_identical_pixel_revisions_require_enqueue() {
+            use crossterm::event::{
+                KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+            };
+            for encoding in [RenderEncoding::TerminalAnsi, RenderEncoding::SemanticFrame] {
+                let now = Instant::now();
+                let (mut server, owner) = server(now);
+                replace(&mut server, &owner, 1, now);
+                server.app.state.integration_animations = false;
+                let (_control, output) = connect(&mut server, 1);
+                server.clients.get_mut(&1).unwrap().render_state =
+                    crate::server::render_stream::ClientRenderState::new(encoding);
+                server.app.state.open_integration_inspector();
+                server.render_and_stream();
+                output.try_recv().unwrap();
+                let capture = server.app.state.integration_inspector.displayed.clone();
+                let seq = server.clients[&1].render_state.terminal_seq();
+                let rect = server
+                    .app
+                    .state
+                    .integration_inspector_selected_rect()
+                    .unwrap();
+                for _ in 0..2 {
+                    server.handle_client_input_events(
+                        1,
+                        vec![crate::raw_input::RawInputEvent::Mouse(MouseEvent {
+                            kind: MouseEventKind::Down(MouseButton::Left),
+                            column: rect.x,
+                            row: rect.y,
+                            modifiers: KeyModifiers::NONE,
+                        })],
+                    );
+                    inspector_key(&mut server, 1, KeyCode::Up);
+                    inspector_key(&mut server, 1, KeyCode::PageDown); // Only one item, so clamped.
+                    server.render_and_stream();
+                    assert_eq!(server.app.state.integration_inspector.displayed, capture);
+                    if encoding == RenderEncoding::TerminalAnsi {
+                        assert!(output.try_recv().is_err());
+                        assert_eq!(server.clients[&1].render_state.terminal_seq(), seq);
+                    } else {
+                        let _ = output.try_recv();
+                    }
+                    inspector_key(&mut server, 1, KeyCode::Enter);
+                    assert_eq!(
+                        server
+                            .app
+                            .state
+                            .integration_views
+                            .poll(&owner, now)
+                            .unwrap()
+                            .intents
+                            .len(),
+                        1
+                    );
+                }
+                // Same id, labels, details and pixels; only the publisher revision changes.
+                let items = server
+                    .app
+                    .state
+                    .integration_views
+                    .project(&owner.source, now)
+                    .unwrap()
+                    .items
+                    .to_vec();
+                server
+                    .app
+                    .state
+                    .integration_views
+                    .replace(
+                        &ViewReplaceParams {
+                            source: owner.source.clone(),
+                            lease: owner.lease.clone(),
+                            epoch: owner.epoch.clone(),
+                            revision: 2,
+                            items,
+                        },
+                        now,
+                    )
+                    .unwrap();
+                inspector_key(&mut server, 1, KeyCode::Enter);
+                assert!(server
+                    .app
+                    .state
+                    .integration_views
+                    .poll(&owner, now)
+                    .unwrap()
+                    .intents
+                    .is_empty());
+                server.clients[&1]
+                    .writer
+                    .as_ref()
+                    .unwrap()
+                    .render
+                    .try_send(Vec::new())
+                    .unwrap();
+                server.render_and_stream();
+                assert!(server.app.state.integration_inspector.displayed.is_none());
+                inspector_key(&mut server, 1, KeyCode::Enter);
+                assert!(server
+                    .app
+                    .state
+                    .integration_views
+                    .poll(&owner, now)
+                    .unwrap()
+                    .intents
+                    .is_empty());
+                assert!(output.try_recv().unwrap().is_empty());
+                server.render_and_stream();
+                let message = read_server_message(output.try_recv().unwrap());
+                assert!(matches!(
+                    message,
+                    ServerMessage::Terminal(_) | ServerMessage::Frame(_)
+                ));
+                assert!(server.app.state.integration_inspector.displayed.is_some());
+                inspector_key(&mut server, 1, KeyCode::Enter);
+                let intents = server
+                    .app
+                    .state
+                    .integration_views
+                    .poll(&owner, now)
+                    .unwrap()
+                    .intents;
+                assert_eq!(intents.len(), 1);
+                assert_eq!(intents[0].revision, 2);
+
+                let (_other_control, other_output) = connect(&mut server, 2);
+                server.clients.get_mut(&2).unwrap().render_state =
+                    crate::server::render_stream::ClientRenderState::new(encoding);
+                inspector_key(&mut server, 2, KeyCode::Enter);
+                assert!(server
+                    .app
+                    .state
+                    .integration_views
+                    .poll(&owner, now)
+                    .unwrap()
+                    .intents
+                    .is_empty());
+                server.render_and_stream();
+                let _ = output.try_recv();
+                other_output.try_recv().unwrap();
+                inspector_key(&mut server, 2, KeyCode::Enter);
+                assert_eq!(
+                    server
+                        .app
+                        .state
+                        .integration_views
+                        .poll(&owner, now)
+                        .unwrap()
+                        .intents
+                        .len(),
+                    1
+                );
+            }
+        }
+
+        #[test]
+        fn inspector_foreground_switch_failed_queue_and_background_projection_are_fenced() {
+            use crossterm::event::KeyCode;
+            let now = Instant::now();
+            let (mut server, owner) = server(now);
+            replace(&mut server, &owner, 1, now);
+            let (_a_control, a_render) = connect(&mut server, 1);
+            let (_b_control, b_render) = connect(&mut server, 2);
+            server.clients.get_mut(&2).unwrap().terminal_size = (42, 8);
+            server.promote_client_to_foreground(1);
+            server.app.state.open_integration_inspector();
+            server.render_and_stream();
+            assert!(frame_text(&read_server_frame(a_render.try_recv().unwrap()))
+                .contains("Integration details"));
+            b_render.try_recv().unwrap();
+            let original = server.app.state.integration_inspector.clone();
+            server.render_and_stream();
+            assert_eq!(server.app.state.integration_inspector, original);
+            server.clients[&2]
+                .writer
+                .as_ref()
+                .unwrap()
+                .render
+                .try_send(Vec::new())
+                .unwrap();
+            inspector_key(&mut server, 2, KeyCode::Enter);
+            assert_eq!(server.foreground_client_id, Some(2));
+            assert!(server.app.state.integration_inspector.displayed.is_none());
+            assert!(server
+                .app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents
+                .is_empty());
+            server.render_and_stream();
+            inspector_key(&mut server, 2, KeyCode::Enter);
+            assert!(server
+                .app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents
+                .is_empty());
+            b_render.try_recv().unwrap();
+            server.render_and_stream();
+            b_render.try_recv().unwrap();
+            assert!(server.app.state.integration_inspector.displayed.is_some());
+            inspector_key(&mut server, 2, KeyCode::Enter);
+            assert_eq!(
+                server
+                    .app
+                    .state
+                    .integration_views
+                    .poll(&owner, now)
+                    .unwrap()
+                    .intents
+                    .len(),
+                1
+            );
+            let original = server.app.state.integration_inspector.clone();
+            server.clients.clear();
+            server.effective_size = (20, 3);
+            server.render_and_stream();
+            assert_eq!(server.app.state.integration_inspector, original);
+        }
+
+        #[test]
+        fn integration_animation_stops_without_app_renderers_and_restarts_on_reattach() {
+            use crate::api::schema::{IntegrationViewPresentation, IntegrationViewStatus};
+            for disconnect in [false, true] {
+                let now = Instant::now();
+                let (mut server, old) = server(now);
+                server.app.state.integration_views.close(&old, now).unwrap();
+                let opened = server
+                    .app
+                    .state
+                    .integration_views
+                    .open(
+                        &ViewOpenParams {
+                            source: old.source.clone(),
+                            version: 2,
+                        },
+                        now,
+                    )
+                    .unwrap();
+                server
+                    .app
+                    .state
+                    .integration_views
+                    .replace(
+                        &ViewReplaceParams {
+                            source: old.source.clone(),
+                            lease: opened.lease,
+                            epoch: opened.epoch,
+                            revision: 1,
+                            items: vec![IntegrationViewItem {
+                                id: "running".into(),
+                                label: "Working".into(),
+                                detail: "local detail".into(),
+                                presentation: Some(IntegrationViewPresentation {
+                                    label: "Djinn".into(),
+                                    status: Some(IntegrationViewStatus::Running),
+                                }),
+                            }],
+                        },
+                        now,
+                    )
+                    .unwrap();
+                let (_control, render) = connect(&mut server, 1);
+                server.app.state.open_integration_inspector();
+                server.render_and_stream();
+                render.try_recv().unwrap();
+                server.handle_scheduled_tasks_headless(now, false);
+                assert!(server.app.next_animation_tick.is_some());
+                assert!(server.handle_server_event(if disconnect {
+                    ServerEvent::ClientDisconnected { client_id: 1 }
+                } else {
+                    ServerEvent::ClientDetach { client_id: 1 }
+                }));
+                assert!(server.app.next_animation_tick.is_none());
+                // Keep the last foreground presentation, even though it would animate.
+                assert!(server.app.state.integration_has_animation(now));
+                let inspector = server.app.state.integration_inspector.clone();
+                let sidebar = server.app.state.integration_views_computed.clone();
+                let geometry = (
+                    server.app.state.view.sidebar_rect,
+                    server.app.state.view.terminal_area,
+                );
+                let tick = server.app.state.spinner_tick;
+                server.render_and_stream(); // Empty-target renders must not manufacture an audience.
+                server
+                    .handle_scheduled_tasks_headless(now + app::HEADLESS_ANIMATION_INTERVAL, false);
+                assert_eq!(server.app.state.spinner_tick, tick);
+                assert!(server.app.next_animation_tick.is_none());
+                assert_eq!(server.app.state.integration_inspector, inspector);
+                assert_eq!(server.app.state.integration_views_computed, sidebar);
+                assert_eq!(
+                    (
+                        server.app.state.view.sidebar_rect,
+                        server.app.state.view.terminal_area
+                    ),
+                    geometry
+                );
+
+                let (_pane_control, _pane_render) = connect(&mut server, 2);
+                for mode in [
+                    ClientConnectionMode::TerminalAttach {
+                        terminal_id: "pane-only".into(),
+                    },
+                    ClientConnectionMode::TerminalObserve {
+                        terminal_id: "pane-only".into(),
+                    },
+                    ClientConnectionMode::App,
+                ] {
+                    let client = server.clients.get_mut(&2).unwrap();
+                    client.pending_terminal_attach = matches!(mode, ClientConnectionMode::App);
+                    client.mode = mode;
+                    assert!(!server.has_app_client());
+                    server.handle_scheduled_tasks_headless(
+                        now + app::HEADLESS_ANIMATION_INTERVAL,
+                        false,
+                    );
+                    assert!(server.app.next_animation_tick.is_none());
+                    assert_eq!(server.app.state.spinner_tick, tick);
+                }
+                let client = server.clients.get_mut(&2).unwrap();
+                client.pending_terminal_attach = false;
+                client.writer = None;
+                server
+                    .handle_scheduled_tasks_headless(now + app::HEADLESS_ANIMATION_INTERVAL, false);
+                assert!(server.app.next_animation_tick.is_none()); // Writerless Apps cannot render either.
+                assert!(
+                    server.handle_server_event(ServerEvent::ClientDisconnected { client_id: 2 })
+                );
+
+                let (_reattach_control, reattach_render) = connect(&mut server, 3);
+                server.render_and_stream();
+                reattach_render.try_recv().unwrap();
+                // Background App renderers count even without a foreground App id.
+                server.set_foreground_client_id(None);
+                server
+                    .handle_scheduled_tasks_headless(now + app::HEADLESS_ANIMATION_INTERVAL, false);
+                let deadline = server
+                    .app
+                    .next_animation_tick
+                    .expect("reattached running view animates");
+                server.handle_scheduled_tasks_headless(deadline, false);
+                assert_eq!(
+                    server.app.state.spinner_tick,
+                    tick + app::HEADLESS_ANIMATION_TICK_STEP
+                );
+                assert_eq!(
+                    server
+                        .app
+                        .state
+                        .integration_views
+                        .project(&old.source, deadline)
+                        .unwrap()
+                        .revision,
+                    1
+                );
+                assert!(
+                    server.handle_server_event(ServerEvent::ClientDisconnected { client_id: 3 })
+                );
+                assert!(server.app.next_animation_tick.is_none());
+            }
+        }
+
+        #[test]
+        fn quiet_headless_integration_spinner_advances_without_replacing_owner_facts() {
+            use crate::api::schema::{IntegrationViewPresentation, IntegrationViewStatus};
+            let now = Instant::now();
+            let (mut server, old) = server(now);
+            server.app.state.integration_views.close(&old, now).unwrap();
+            let opened = server
+                .app
+                .state
+                .integration_views
+                .open(
+                    &ViewOpenParams {
+                        source: old.source.clone(),
+                        version: 2,
+                    },
+                    now,
+                )
+                .unwrap();
+            let owner = ViewOwnerParams {
+                source: old.source,
+                lease: opened.lease,
+                epoch: opened.epoch,
+            };
+            server
+                .app
+                .state
+                .integration_views
+                .replace(
+                    &ViewReplaceParams {
+                        source: owner.source.clone(),
+                        lease: owner.lease.clone(),
+                        epoch: owner.epoch.clone(),
+                        revision: 1,
+                        items: vec![IntegrationViewItem {
+                            id: "item".into(),
+                            label: "Working".into(),
+                            detail: String::new(),
+                            presentation: Some(IntegrationViewPresentation {
+                                label: "Djinn".into(),
+                                status: Some(IntegrationViewStatus::Running),
+                            }),
+                        }],
+                    },
+                    now,
+                )
+                .unwrap();
+            let (_control, render) = connect(&mut server, 1);
+            server.render_and_stream();
+            let first = frame_text(&read_server_frame(render.try_recv().unwrap()));
+            server
+                .app
+                .sync_headless_animation_timer(now, server.has_app_client());
+            assert_eq!(
+                server.app.next_animation_tick,
+                Some(now + app::HEADLESS_ANIMATION_INTERVAL)
+            );
+            let tick = server.app.state.spinner_tick;
+            server.handle_scheduled_tasks_headless(now + app::HEADLESS_ANIMATION_INTERVAL, false);
+            assert_eq!(
+                server.app.state.spinner_tick,
+                tick + app::HEADLESS_ANIMATION_TICK_STEP
+            );
+            server.render_and_stream();
+            let second = frame_text(&read_server_frame(render.try_recv().unwrap()));
+            assert_ne!(first, second);
+            assert_eq!(
+                server
+                    .app
+                    .state
+                    .integration_views
+                    .project(&owner.source, now)
+                    .unwrap()
+                    .revision,
+                1
+            );
+            assert!(server
+                .app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents
+                .is_empty());
+        }
+
         fn server(now: Instant) -> (HeadlessServer, ViewOwnerParams) {
             let mut state = AppState::test_new();
             state.mode = crate::app::Mode::Terminal;
@@ -4376,6 +4860,7 @@ mod tests {
                             id: format!("item-{revision}"),
                             label: format!("revision {revision}"),
                             detail: String::new(),
+                            presentation: None,
                         }],
                     },
                     now,
@@ -4406,7 +4891,12 @@ mod tests {
         }
 
         fn click(server: &mut HeadlessServer, client_id: u64) {
-            let area = server.app.state.integration_views_area();
+            let source = server.app.state.integration_views.configured_sources()[0].clone();
+            let area = server
+                .app
+                .state
+                .sidebar_sections
+                .body(&crate::ui::SectionId::Integration(source));
             assert!(server.handle_client_input_events(
                 client_id,
                 vec![crate::raw_input::RawInputEvent::Mouse(
@@ -4415,11 +4905,138 @@ mod tests {
                             crossterm::event::MouseButton::Left
                         ),
                         column: area.x + 1,
-                        row: area.y + 3,
+                        row: area.y,
                         modifiers: crossterm::event::KeyModifiers::NONE,
                     },
                 )]
             ));
+        }
+
+        #[test]
+        fn smaller_background_and_unattached_render_preserve_full_foreground_presentation() {
+            let now = Instant::now();
+            let (mut server, owner) = server(now);
+            server.app.state.workspaces = (0..40)
+                .map(|i| crate::workspace::Workspace::test_new(&format!("workspace-{i}")))
+                .collect();
+            server.app.state.ensure_test_terminals();
+            server
+                .app
+                .state
+                .integration_views
+                .replace(
+                    &ViewReplaceParams {
+                        source: owner.source.clone(),
+                        lease: owner.lease.clone(),
+                        epoch: owner.epoch.clone(),
+                        revision: 1,
+                        items: (0..128)
+                            .map(|i| IntegrationViewItem {
+                                id: format!("item-{i}"),
+                                label: format!("item {i}"),
+                                detail: "detail".into(),
+                                presentation: None,
+                            })
+                            .collect(),
+                    },
+                    now,
+                )
+                .unwrap();
+            let (_a_control, a_render) = connect(&mut server, 1);
+            let (_b_control, b_render) = connect(&mut server, 2);
+            server.clients.get_mut(&2).unwrap().terminal_size = (90, 5);
+            assert!(server.promote_client_to_foreground(1));
+            server.app.state.workspace_scroll = 12;
+            server.app.state.mobile_switcher_scroll = 1000;
+            server.app.state.sidebar_section_offset = 1;
+            server.app.state.mode = crate::app::Mode::Navigate;
+            server
+                .app
+                .state
+                .collapsed_sidebar_sections
+                .insert(crate::ui::SectionId::Spaces);
+            server
+                .app
+                .state
+                .integration_view_scrolls
+                .insert(owner.source.clone(), 11);
+            server.app.state.sidebar_section_focus =
+                crate::ui::SectionId::Integration(owner.source.clone());
+            server.render_and_stream();
+            a_render.try_recv().unwrap();
+            b_render.try_recv().unwrap();
+            let displayed = server.app.state.integration_views_displayed.clone();
+            let computed = server.app.state.integration_views_computed.clone();
+            let layout = server.app.state.sidebar_sections.clone();
+            let scrolls = server.app.state.integration_view_scrolls.clone();
+            let workspace_scroll = server.app.state.workspace_scroll;
+            let focus = server.app.state.sidebar_section_focus.clone();
+            let presentation = |state: &AppState| {
+                let view = &state.view;
+                (
+                    (
+                        state.sidebar_section_offset,
+                        state.tab_scroll,
+                        state.mobile_switcher_scroll,
+                        state.collapsed_sidebar_sections.clone(),
+                    ),
+                    (
+                        view.layout,
+                        view.sidebar_rect,
+                        view.terminal_area,
+                        view.tab_bar_rect,
+                        view.mobile_header_rect,
+                        view.mobile_menu_hit_area,
+                        view.toast_hit_area,
+                    ),
+                    (
+                        view.workspace_card_areas.clone(),
+                        view.tab_hit_areas.clone(),
+                        view.tab_scroll_left_hit_area,
+                        view.tab_scroll_right_hit_area,
+                        view.new_tab_hit_area,
+                    ),
+                    view.pane_infos
+                        .iter()
+                        .map(|p| {
+                            (
+                                p.id,
+                                p.rect,
+                                p.inner_rect,
+                                p.scrollbar_rect,
+                                p.borders,
+                                p.is_focused,
+                            )
+                        })
+                        .collect::<Vec<_>>(),
+                    view.split_borders
+                        .iter()
+                        .map(|b| (b.pos, b.direction, b.ratio, b.area, b.path.clone()))
+                        .collect::<Vec<_>>(),
+                )
+            };
+            let saved = presentation(&server.app.state);
+            for size in [(90, 5), (44, 6)] {
+                server.clients.get_mut(&2).unwrap().terminal_size = size;
+                server.render_and_stream();
+                assert_eq!(server.app.state.integration_views_displayed, displayed);
+                assert_eq!(server.app.state.integration_views_computed, computed);
+                assert_eq!(server.app.state.sidebar_sections, layout);
+                assert_eq!(server.app.state.integration_view_scrolls, scrolls);
+                assert_eq!(server.app.state.workspace_scroll, workspace_scroll);
+                assert_eq!(server.app.state.sidebar_section_focus, focus);
+                assert_eq!(presentation(&server.app.state), saved);
+            }
+            // No attached renderer is allowed to adopt a new tiny layout either.
+            server.clients.clear();
+            server.effective_size = (90, 5);
+            server.render_and_stream();
+            assert_eq!(server.app.state.integration_views_displayed, displayed);
+            assert_eq!(server.app.state.integration_views_computed, computed);
+            assert_eq!(server.app.state.sidebar_sections, layout);
+            assert_eq!(server.app.state.integration_view_scrolls, scrolls);
+            assert_eq!(server.app.state.workspace_scroll, workspace_scroll);
+            assert_eq!(presentation(&server.app.state), saved);
         }
 
         #[test]
@@ -4656,11 +5273,11 @@ mod tests {
             .configured_sources()
             .is_empty());
         assert!(
-            rendered.contains("Integrations"),
+            rendered.contains("▾ Spaces"),
             "rendered frame: {rendered:?}"
         );
         assert!(
-            rendered.contains("No integrations configured"),
+            !rendered.contains("Integrations"),
             "rendered frame: {rendered:?}"
         );
         assert!(

@@ -2103,6 +2103,9 @@
             },
             "label": {
               "type": "string"
+            },
+            "presentation": {
+              "$ref": "#/schemas/request/$defs/IntegrationViewPresentation"
             }
           },
           "required": [
@@ -2111,6 +2114,32 @@
             "detail"
           ],
           "type": "object"
+        },
+        "IntegrationViewPresentation": {
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/schemas/request/$defs/IntegrationViewStatus"
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "type": "object"
+        },
+        "IntegrationViewStatus": {
+          "enum": [
+            "pending",
+            "running",
+            "attention",
+            "error",
+            "success",
+            "unknown"
+          ],
+          "type": "string"
         },
         "LayoutApplyParams": {
           "properties": {
@@ -6716,6 +6745,17 @@
                 "$ref": "#/schemas/success_response/$defs/IntegrationViewSourceInfo"
               },
               "type": "array"
+            },
+            "supported_versions": {
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
             },
             "version": {
               "format": "uint64",

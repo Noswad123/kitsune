@@ -337,14 +337,12 @@ mod tests {
             .iter()
             .map(|cell| cell.symbol.as_str())
             .collect::<String>();
-        assert!(text.contains(&crate::annotations::render_text(
-            "No integrations configured",
-            usize::from(app.integration_views_area().width),
-        )));
+        assert!(text.contains("▾ Spaces"));
+        assert!(!text.contains("Integrations"));
         assert!(!text.contains("Agents"));
         assert_eq!(
             frame_digest(&frame),
-            "101b79bcc66557ea1049cd77cc79db9746be6ff236360e32e085e40e9c1159c4"
+            "ce1d38a541053e1fced635c88caf2a32323c04dbc262541f436fe1a3550234ba"
         );
     }
 

@@ -792,7 +792,7 @@ mod tests {
                 Some(0),
                 0,
                 26,
-                0.5,
+                Default::default(),
                 Default::default(),
             );
             let encoded = serde_json::to_vec(&captured).unwrap();
@@ -989,7 +989,7 @@ mod tests {
             active: Some(0),
             selected: 0,
             sidebar_width: None,
-            sidebar_section_split: None,
+            collapsed_sidebar_sections: Default::default(),
             collapsed_space_keys: Default::default(),
         };
         let (events, _event_rx) = mpsc::channel(4);
@@ -1084,7 +1084,7 @@ mod tests {
             active: Some(0),
             selected: 0,
             sidebar_width: None,
-            sidebar_section_split: None,
+            collapsed_sidebar_sections: Default::default(),
             collapsed_space_keys: Default::default(),
         };
         let (events, _event_rx) = mpsc::channel(4);
@@ -1192,7 +1192,7 @@ mod tests {
             active: Some(0),
             selected: 0,
             sidebar_width: None,
-            sidebar_section_split: None,
+            collapsed_sidebar_sections: Default::default(),
             collapsed_space_keys: Default::default(),
         };
         let (events, _event_rx) = mpsc::channel(4);
@@ -1309,7 +1309,7 @@ mod tests {
             active: Some(0),
             selected: 0,
             sidebar_width: None,
-            sidebar_section_split: None,
+            collapsed_sidebar_sections: Default::default(),
             collapsed_space_keys: Default::default(),
         };
         let (events, _event_rx) = mpsc::channel(4);
@@ -1502,7 +1502,7 @@ mod tests {
             active: Some(0),
             selected: 0,
             sidebar_width: Some(26),
-            sidebar_section_split: Some(0.5),
+            collapsed_sidebar_sections: Default::default(),
             collapsed_space_keys: Default::default(),
         };
         (snapshot, history)

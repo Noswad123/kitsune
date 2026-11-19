@@ -77,6 +77,10 @@ impl App {
         &mut self,
         key: TerminalKey,
     ) -> Option<super::TerminalInputTarget> {
+        if self.state.mode == Mode::IntegrationInspector {
+            self.state.integration_inspector_key(key.as_key_event());
+            return None;
+        }
         if self.state.popup_pane.is_some() {
             return self.handle_terminal_key(key).await;
         }
@@ -115,6 +119,7 @@ impl App {
                 Mode::Navigator => {
                     handle_navigator_key(&mut self.state, &self.terminal_runtimes, key_event)
                 }
+                Mode::IntegrationInspector => self.state.integration_inspector_key(key_event),
                 Mode::Terminal => unreachable!(),
             },
         }
@@ -122,6 +127,9 @@ impl App {
     }
 
     pub(super) async fn handle_paste(&mut self, text: String) {
+        if self.state.mode == Mode::IntegrationInspector {
+            return;
+        }
         if self.state.popup_pane.is_some() {
             if let Some(runtime) = self.popup_runtime() {
                 let _ = runtime.send_paste(text).await;
@@ -273,6 +281,10 @@ impl App {
         source_id: super::InputSourceId,
         mouse: MouseEvent,
     ) {
+        if self.state.mode == Mode::IntegrationInspector {
+            self.state.integration_inspector_mouse(mouse);
+            return;
+        }
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.pending_url_click_sources.remove(&source_id);
@@ -308,6 +320,7 @@ impl App {
             self.last_sidebar_divider_click = Some(now);
 
             if is_double_click {
+                self.state.integration_views_displayed = None;
                 self.state.sidebar_width = self.state.default_sidebar_width;
                 self.state.sidebar_width_source =
                     crate::app::state::SidebarWidthSource::ConfigDefault;
@@ -740,6 +753,8 @@ fn app_for_mouse_test() -> App {
     app.state.latest_release_notes_available = false;
     app.state.view.sidebar_rect = ratatui::layout::Rect::new(0, 0, 26, 20);
     app.state.view.terminal_area = ratatui::layout::Rect::new(26, 0, 80, 20);
+    app.state
+        .compute_sidebar_sections(app.state.view.sidebar_rect);
     app
 }
 
@@ -775,7 +790,7 @@ fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
         state.active,
         state.selected,
         state.sidebar_width,
-        state.sidebar_section_split,
+        state.collapsed_sidebar_sections.clone(),
         state.collapsed_space_keys.clone(),
     )
 }

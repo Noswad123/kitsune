@@ -12,7 +12,7 @@ fn cold_historical_reference_and_generic_history_survive_actual_handoff_without_
         }
         let base = unique_test_dir();
         let _cleanup = Cleanup(base.clone());
-        let config_home = base.join("config");
+        let config_home = base.join("c");
         let data = config_home.join("kitsune-dev");
         let runtime = base.join("runtime");
         let socket = runtime.join("kitsune.sock");
@@ -103,7 +103,7 @@ fn cold_historical_reference_and_generic_history_survive_actual_handoff_without_
 fn live_handoff_cannot_reenable_retired_agent_controls() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let socket = runtime_dir.join("kitsune.sock");
     let spawned = spawn_server(&config_home, &runtime_dir, &socket);
@@ -218,6 +218,7 @@ fn test_lock() -> MutexGuard<'static, ()> {
 }
 
 fn unique_test_dir() -> PathBuf {
+    // Keep named-session handoff sockets within SUN_LEN under disk-backed TMPDIR.
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!("h{:x}-{n:x}", std::process::id()))
@@ -686,7 +687,7 @@ fn wait_for_http_contains(port: u16, needle: &str, timeout: Duration) -> String 
 fn live_server_holds_one_pty_master_fd_per_pane() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
 
@@ -783,7 +784,7 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
 fn live_handoff_preserves_named_session_socket_paths() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let session_dir = config_home.join("kitsune-dev/sessions/work");
     let api_socket = session_dir.join("kitsune.sock");
@@ -816,7 +817,7 @@ fn live_handoff_preserves_named_session_socket_paths() {
 fn live_handoff_ignores_leaked_default_socket_env_for_named_session() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let default_session_dir = config_home.join("kitsune-dev");
     let default_api_socket = default_session_dir.join("kitsune.sock");
@@ -863,7 +864,7 @@ fn live_handoff_ignores_leaked_default_socket_env_for_named_session() {
 fn live_handoff_preserves_client_socket_env_without_api_socket_env() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = config_home.join("kitsune-dev/kitsune.sock");
     let client_socket = runtime_dir.join("custom-client.sock");
@@ -898,7 +899,7 @@ fn live_handoff_preserves_client_socket_env_without_api_socket_env() {
 fn live_handoff_preserves_pane_process_io() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
@@ -1071,7 +1072,7 @@ fn live_handoff_preserves_pane_process_io() {
 fn live_handoff_preserves_keyboard_protocol_for_client_input() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
@@ -1162,7 +1163,7 @@ pathlib.Path({received:?}).write_text(data.hex())
 fn live_handoff_preserves_modify_other_keys_for_client_input() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
@@ -1257,7 +1258,7 @@ pathlib.Path({received:?}).write_text(data.hex())
 fn live_handoff_accepts_canonical_pane_id_from_child_env() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let pane_id_marker = base.join("pane-id");
@@ -1317,7 +1318,7 @@ fn live_handoff_accepts_canonical_pane_id_from_child_env() {
 fn live_handoff_keeps_shell_pane_after_foreground_process_exits() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let started_marker = base.join("foreground-started");
@@ -1384,7 +1385,7 @@ fn live_handoff_keeps_shell_pane_after_foreground_process_exits() {
 fn live_handoff_preserves_python_http_server() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
@@ -1456,7 +1457,7 @@ fn live_handoff_preserves_python_http_server() {
 fn live_handoff_preserves_http_servers_across_multiple_sessions() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let sessions = [
         (None, config_home.join("kitsune-dev/kitsune.sock")),
@@ -1549,7 +1550,7 @@ fn live_handoff_preserves_http_servers_across_multiple_sessions() {
 fn live_handoff_bad_expected_protocol_rolls_back_old_server() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let marker = base.join("child.pid");
@@ -1629,7 +1630,7 @@ fn live_handoff_bad_expected_protocol_rolls_back_old_server() {
 fn live_handoff_import_failure_rolls_back_old_server_at(failure_point: &str) {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");

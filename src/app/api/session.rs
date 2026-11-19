@@ -147,6 +147,7 @@ mod tests {
             snapshot.integration_views,
             Some(crate::api::schema::IntegrationViewsInfo {
                 version: 1,
+                supported_versions: Some(vec![1, 2]),
                 sources: Vec::new(),
             })
         );

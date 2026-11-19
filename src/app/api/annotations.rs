@@ -587,7 +587,7 @@ mod tests {
                 app.state.active,
                 app.state.selected,
                 app.state.sidebar_width,
-                app.state.sidebar_section_split,
+                app.state.collapsed_sidebar_sections.clone(),
                 app.state.collapsed_space_keys.clone(),
             ))
             .unwrap()

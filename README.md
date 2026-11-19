@@ -86,7 +86,7 @@ presentation-only. `[integrations.coven] auto_start = false` preserves that olde
 behavior for manual Coven publishers, disabling the implicit runtime and inferred
 ownership. See [startup semantics](INTEGRATION_VIEWS.md).
 
-Then restart Kit, open new panes, select **Coven** in Integrations and invoke
+Then restart Kit, open new panes, expand the **Coven** section if collapsed and invoke
 `djinn`, `codex`, `copilot`, etc. normally. Djinn needs an updated native full-TUI
 build; other providers need separate explicit hook/extension setup in the guide.
 No Coven launcher/group/artifact join, manual workspace initialization or socket
@@ -105,26 +105,98 @@ restart; generated bootstrap isolates concurrent Kit API addresses automatically
 Crash/partial state refuses reuse and needs deliberate manual recovery, not
 self-healing. Guarded `coven integration disable --apply` restores only the exact
 managed preimage; later edits refuse, and ownership handoff still needs restart.
-Select **Coven** for attributed plain rows, not old status widgets, pane focus/
+The **Coven** section shows attributed plain rows, not old status widgets, pane focus/
 sidebar agents or mobile completions. Facts expire within 30 seconds independently
 of the five-second lease; sessions are unbound/unattested. Djinn needs an updated
 native full-TUI build; reference-only providers remain unknown. Historical references
 remain data only; complete compatibility-source cleanup/native macOS qualification
 is not claimed.
 
-The desktop lower side menu is a generic [Integrations block](INTEGRATION_VIEWS.md),
-not an agent panel. With no providers it shows `No integrations configured` and
-never falls back to detected agents. Manually configure `[integrations]` with
-`sources = ["coven", "build"]` (up to eight ordered unique ASCII source IDs), then
-select an app locally from its vertical list to see its label/detail rows.
+The desktop sidebar has ordered [peer sections](INTEGRATION_VIEWS.md): **Spaces**
+first, then all configured integrations simultaneously, not an agent panel or
+provider selector. With no sources, only Spaces remains, without a lower placeholder
+or detected-agent fallback. Configure `[integrations]` with
+`sources = ["coven", "build"]` (up to eight ordered unique ASCII source IDs) for
+independently collapsible Spaces, Coven and literal `build` sections. Expanded
+bodies share height equally, with at most one row difference; collapsed sections
+use only a header. Header-wheel navigation reaches sections in short layouts;
+body-wheel input stays within its section, retaining workspace selection when
+Spaces content fits. The global menu and bottom sidebar toggle remain separate.
+Per-section collapse persists independently of global compact/hidden mode; compact
+headers retain distinct identities. Width dragging and workspace navigation remain,
+but the old vertical two-section divider is retired. See the contract for snapshot
+compatibility, compact numbering and successful-frame activation fences.
 Independent producers use `integration.view.open/replace/poll/close` with per-source
 five-second leases, frames and selection queues. Missing/expired apps show
-`Unavailable`; other producers and terminals keep working.
+`Unavailable` only in expanded bodies; healthy bodies show rows without an
+`Available` preamble. Other producers and terminals keep working.
+
+Integration items are one-line summaries. `prefix+a` (the existing customizable
+`agent_selector` keybinding) opens **Integration details**, a generic local inspector
+with source/item lists, search and wrapped scrollable details. Tab/Shift+Tab changes
+focus; arrows or `j`/`k` and PageUp/PageDown navigate or scroll; `/` edits search.
+Esc first blurs search, then closes. Source/item clicks only inspect locally and
+queue no intent. Enter in Items explicitly sends the existing publisher selection
+intent; Enter in Details activates nothing. No native focus, acknowledgement,
+input, start, resume or cancel is provided; the old agent navigator is not revived.
+
+The additive JSON v2 profile optionally supplies a short presentation label and
+generic status glyph. Coven's `item.label` is human-name-only: provider default
+(e.g. Djinn), preferring a valid associated explicit manual pane name, already set
+or renamed now. V2 sends blank `presentation.label` for sidebar icon/animation-only
+status, no words/hashes. Stable opaque row IDs remain internal selection identity,
+not native session IDs or displayed labels. Duplicate names have no ID/suffix
+disambiguation. V1 stays name-only, exactly `{id,label,detail}` with no metadata;
+nonempty generic third-party captions still render. Fresh Working maps to `running`,
+Blocked to `attention`; Idle/Ended intentionally share a neutral icon, distinguished
+by detailed state text. `prefix+a` shows full `Status: running`/`Status: neutral`
+even with blank captions. Expired/historical/unordered facts are Unknown. Idle never
+means success. Generic `success`/`error` require explicit source assertions, not
+normal Coven job-outcome proof. `[ui] integration_animations` defaults to `true`;
+`false` disables local working spinners, which never refresh facts. Server source
+facts are separate from client inspector focus/search/scroll. See the contract for
+strict v1/v2 negotiation and successful-frame fences; binary protocol 18 is unchanged.
+
+Name lookup requires a fresh association, exact endpoint binding and live terminal
+runtime generation. OSC title/CWD/old `agent_name` are not manual identity fallbacks.
+Publisher-only private hints stay out of public raw targets; the 300 ms bounded
+read never blocks on the receiver mutex or creates association/focus/input/ack.
+Failed checks use the provider default; name refresh changes no activity/authority.
+Djinn separately queries actual local native session/status services after pure
+root qualification, at most once/second within 1,900 ms. Successful fresh native
+queries renew only activity through the existing event contract, never pending
+occurrences/acks/outcomes; attachment heartbeat alone does not. Native canonical
+idle is not process liveness or sparse SDK absence inference. Failed queries leave
+clocks unchanged and Unknown after 30 seconds; quiet mounted normal full-TUI roots
+can recover, not all live Unknown causes. Unmounted/event-only/remote/unavailable
+profiles still have no automatic status heartbeat.
+Native status commit/publication is ordered by a per-instance/per-session semaphore;
+`get`/`list` remain unlocked for callback reads. Samples preserve query-start time
+through the total 1,900 ms query/queue/IPC budget, not completion-time freshness
+or replay. Other provider profiles are unchanged.
+
+The name/icon/quiet-root increment is **QUALIFIED**. Final Kit validation passed
+2,578 binary tests (five ignored), 193 integration tests across 11 targets and one
+explicit real-Coven roundtrip, including duplicate/icon/name changes. Separately,
+the latest unified run passed 19 sidebar, 32 normal, four adoption and 16 hosting/
+status-sampling gates, six Coven presentation integration tests, 127 filtered
+agent-management units, 26 Djinn tests in three files and one actual-source interop
+fixture. After the subsequent type-binding-only fix, full-package installed tsgo
+passed with zero errors and the broader Djinn run passed 84 tests in nine files.
+Independent review found no P1/P2 after the semaphore race fix. These are separate
+results, not a unified rerun after the binding fix; see the
+[gate record](../coven/tools/normal-workflow-check/README.md#sidebar-qualification).
+Owned children stopped/reaped; cached runs were empty and no artifacts retained.
+No full CI/full Coven suite, new provider/mobile/remote or actual model qualification.
+The two existing user Djinn instances were not live-inspected: the source addresses
+known quiet/resumed selected-root initial/expiry gaps, not a proven current-row fix.
+Activation still requires all new Djinn/Coven/Kit builds and explicit user approval;
+this docs-only update performs no builds, installs, configuration edits or activation.
 
 Coven's `group present` supplies its own group/participant model without Kitsune
 interpreting agents or roles. Use `[integrations.coven] auto_start = false` and no
 explicit runtime for that manual publisher rather than starting two Coven owners.
-This presentation-only path changes default desktop lower-menu
+This presentation-only path changes desktop sidebar
 presentation; it is independent of global live detector/API/hook/restore retirement.
 The obsolete `[external_view]` config is diagnosed/ignored, not automatically
 rewritten. See the contract for discovery, bounds and at-most-once, non-authorizing

@@ -6,6 +6,8 @@ use ratatui::{
 };
 
 mod dialogs;
+pub(crate) mod integration_inspector;
+mod integration_visual;
 mod keybind_help;
 mod menus;
 mod mobile;
@@ -53,10 +55,11 @@ pub(crate) use self::scrollbar::{
 };
 use self::settings::render_settings_overlay;
 pub(crate) use self::sidebar::integrations::IntegrationViewsSnapshot;
+pub(crate) use self::sidebar::sections::{SectionId, SectionLayout};
 #[cfg(test)]
 pub(crate) use self::sidebar::{
     agent_panel_body_rect, agent_panel_entries, agent_panel_scroll_metrics,
-    agent_panel_toggle_rect, expanded_sidebar_sections,
+    agent_panel_toggle_rect, workspace_drop_indicator_row,
 };
 use self::sidebar::{render_sidebar, render_sidebar_collapsed};
 use self::status::{
@@ -80,11 +83,10 @@ pub(crate) use self::{
         SETTINGS_POPUP_WIDTH,
     },
     sidebar::{
-        collapsed_sidebar_sections, collapsed_sidebar_toggle_rect, compute_workspace_card_areas,
-        expanded_sidebar_toggle_rect, normalized_workspace_scroll, sidebar_section_divider_rect,
-        workspace_drop_indicator_row, workspace_list_entries, workspace_list_entries_expanded,
-        workspace_list_rect, workspace_list_scroll_metrics, workspace_list_scrollbar_rect,
-        workspace_parent_group_state, WorkspaceListEntry,
+        collapsed_sidebar_toggle_rect, compute_workspace_card_areas, expanded_sidebar_toggle_rect,
+        normalized_workspace_scroll, workspace_list_entries, workspace_list_entries_expanded,
+        workspace_list_scroll_metrics, workspace_list_scrollbar_rect, workspace_parent_group_state,
+        WorkspaceListEntry,
     },
 };
 pub(crate) use self::{
@@ -234,8 +236,10 @@ fn compute_view_internal(
     cell_size: crate::kitty_graphics::HostCellSize,
 ) {
     if is_mobile_width(area, app.mobile_width_threshold) {
+        app.sidebar_sections = Default::default();
         compute_mobile_view(app, terminal_runtimes, area, resize_panes, cell_size);
         app.compute_integration_views_snapshot(std::time::Instant::now());
+        app.compute_integration_inspector(area, std::time::Instant::now());
         return;
     }
 
@@ -258,20 +262,10 @@ fn compute_view_internal(
         .map(|ws| desktop_tab_bar_and_terminal_area(app, ws, main_area))
         .unwrap_or((Rect::default(), main_area));
 
-    if !app.sidebar_collapsed {
-        app.workspace_scroll = normalized_workspace_scroll(app, sidebar_area, app.workspace_scroll);
-    } else {
-        app.workspace_scroll = app
-            .workspace_scroll
-            .min(app.workspaces.len().saturating_sub(1));
-        app.agent_panel_scroll = 0;
-    }
+    app.compute_sidebar_sections(sidebar_area);
+    app.workspace_scroll = normalized_workspace_scroll(app, sidebar_area, app.workspace_scroll);
 
-    let workspace_card_areas = if app.sidebar_collapsed {
-        Vec::new()
-    } else {
-        compute_workspace_card_areas(app, sidebar_area)
-    };
+    let workspace_card_areas = compute_workspace_card_areas(app, sidebar_area);
 
     let tab_bar_view = app
         .active
@@ -339,6 +333,7 @@ fn compute_view_internal(
     };
     app.sync_copy_mode_search_geometry();
     app.compute_integration_views_snapshot(std::time::Instant::now());
+    app.compute_integration_inspector(area, std::time::Instant::now());
 }
 
 fn compute_mobile_view(
@@ -475,6 +470,7 @@ pub fn render_with_runtime_registry(
         Mode::GlobalMenu => render_global_launcher_menu(app, frame),
         Mode::KeybindHelp => render_keybind_help_overlay(app, frame),
         Mode::Navigator => render_navigator_overlay(app, terminal_runtimes, frame),
+        Mode::IntegrationInspector => integration_inspector::render(app, frame),
         Mode::Terminal => {}
     }
 }
@@ -1035,9 +1031,14 @@ mod tests {
         terminal.draw(|frame| render(&app, frame)).unwrap();
         let buffer = terminal.backend().buffer();
 
-        let (ws_area, _, _) = collapsed_sidebar_sections(app.view.sidebar_rect);
-        let active_row = ws_area.y + 1;
-        let active_style = buffer[(ws_area.x, active_row)].style();
+        let active = app
+            .view
+            .workspace_card_areas
+            .iter()
+            .find(|card| card.ws_idx == 1)
+            .unwrap()
+            .rect;
+        let active_style = buffer[(active.x, active.y)].style();
 
         assert_eq!(active_style.bg, Some(app.palette.surface_dim));
     }

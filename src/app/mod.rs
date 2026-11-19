@@ -354,7 +354,7 @@ impl App {
             selected,
             sidebar_width,
             sidebar_width_source,
-            sidebar_section_split,
+            collapsed_sidebar_sections,
             collapsed_space_keys,
         ) = if no_session {
             (
@@ -363,7 +363,7 @@ impl App {
                 0,
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
-                0.5_f32,
+                Default::default(),
                 std::collections::HashSet::new(),
             )
         } else if let Some(snap) = crate::persist::load() {
@@ -398,7 +398,7 @@ impl App {
                     } else {
                         state::SidebarWidthSource::ConfigDefault
                     },
-                    snap.sidebar_section_split.unwrap_or(0.5),
+                    snap.collapsed_sidebar_sections,
                     snap.collapsed_space_keys,
                 )
             } else {
@@ -415,7 +415,7 @@ impl App {
                     } else {
                         state::SidebarWidthSource::ConfigDefault
                     },
-                    snap.sidebar_section_split.unwrap_or(0.5),
+                    snap.collapsed_sidebar_sections,
                     snap.collapsed_space_keys,
                 )
             }
@@ -426,7 +426,7 @@ impl App {
                 0,
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
-                0.5_f32,
+                Default::default(),
                 std::collections::HashSet::new(),
             )
         };
@@ -537,9 +537,14 @@ impl App {
             integration_views: crate::integration_views::IntegrationViewsState::new(
                 config.integrations.sources.clone(),
             ),
-            integration_view_selected: config.integrations.sources.first().cloned(),
             integration_view_scrolls: Default::default(),
+            collapsed_sidebar_sections,
+            sidebar_section_offset: 0,
+            sidebar_section_focus: crate::ui::SectionId::Spaces,
+            sidebar_sections: Default::default(),
             integration_views_computed: None,
+            integration_animations: config.ui.integration_animations,
+            integration_inspector: Default::default(),
             integration_views_displayed: None,
             tab_scroll: 0,
             tab_scroll_follow_active: true,
@@ -582,7 +587,6 @@ impl App {
             sidebar_width_auto: false,
             sidebar_collapsed: config.ui.sidebar_start_collapsed,
             sidebar_collapsed_mode: config.ui.sidebar_collapsed_mode,
-            sidebar_section_split,
             agent_panel_sort,
             #[cfg(test)]
             agent_view_override: None,
@@ -748,9 +752,7 @@ impl App {
             app.state.sidebar_width = width;
             app.state.sidebar_width_source = state::SidebarWidthSource::Persisted;
         }
-        if let Some(split) = snapshot.sidebar_section_split {
-            app.state.sidebar_section_split = split;
-        }
+        app.state.collapsed_sidebar_sections = snapshot.collapsed_sidebar_sections.clone();
         app.state.collapsed_space_keys = snapshot.collapsed_space_keys.clone();
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
@@ -1295,6 +1297,7 @@ impl App {
                 diagnostics.push(format!("{diagnostic}; keeping previous [ui] settings"));
             } else {
                 diagnostics.extend(config.ui.sound.diagnostics());
+                self.state.integration_animations = config.ui.integration_animations;
 
                 self.state.default_sidebar_width = config.ui.sidebar_width;
                 if self.state.sidebar_width_source == state::SidebarWidthSource::ConfigDefault {
@@ -1452,6 +1455,29 @@ impl App {
     ) {
         for event in events {
             let previous_mode = self.state.mode;
+            if previous_mode == Mode::IntegrationInspector {
+                self.suspend_inspector_terminal_keys_headless();
+                match &event {
+                    crate::raw_input::RawInputEvent::Key(key) => {
+                        let id = pressed_key_identity(source_id, key);
+                        self.pressed_terminal_keys.remove(&id);
+                        if key.kind != crossterm::event::KeyEventKind::Release {
+                            self.suppressed_repeat_keys.insert(id);
+                            self.state.integration_inspector_key(key.as_key_event());
+                        } else {
+                            self.suppressed_repeat_keys.remove(&id);
+                        }
+                        self.sync_prefix_input_source(previous_mode);
+                        continue;
+                    }
+                    crate::raw_input::RawInputEvent::Mouse(mouse) => {
+                        self.state.integration_inspector_mouse(*mouse);
+                        continue;
+                    }
+                    crate::raw_input::RawInputEvent::Paste(_) => continue,
+                    _ => {}
+                }
+            }
             match event {
                 crate::raw_input::RawInputEvent::Key(key) => {
                     let pressed_key_id = pressed_key_identity(source_id, &key);
@@ -1557,6 +1583,9 @@ impl App {
                 }
                 crate::raw_input::RawInputEvent::Unsupported => {}
             }
+            if self.state.mode == Mode::IntegrationInspector {
+                self.suspend_inspector_terminal_keys_headless();
+            }
             self.sync_prefix_input_source(previous_mode);
         }
     }
@@ -1632,6 +1661,7 @@ impl App {
             Mode::Navigator => {
                 input::handle_navigator_key(&mut self.state, &self.terminal_runtimes, key_event);
             }
+            Mode::IntegrationInspector => self.state.integration_inspector_key(key_event),
             Mode::Terminal => {
                 // Should not be called in terminal mode.
             }
@@ -2320,8 +2350,8 @@ mod tests {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(&config, true, None, api_rx, crate::api::EventHub::default());
         assert_eq!(
-            app.state.integration_view_selected.as_deref(),
-            Some("alpha")
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Spaces
         );
         let now = Instant::now();
         let owner = app
@@ -2335,12 +2365,22 @@ mod tests {
                 now,
             )
             .unwrap();
-        app.state.integration_view_selected = Some("beta".into());
+        app.state.sidebar_section_focus = crate::ui::SectionId::Integration("beta".into());
+        app.state
+            .collapsed_sidebar_sections
+            .insert(crate::ui::SectionId::Integration("beta".into()));
         app.state.integration_view_scrolls =
             std::collections::HashMap::from([("alpha".into(), 4), ("beta".into(), 7)]);
         config.integrations.sources.reverse();
         app.apply_live_config(&config, &[], &[], false);
-        assert_eq!(app.state.integration_view_selected.as_deref(), Some("beta"));
+        assert_eq!(
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Integration("beta".into())
+        );
+        assert!(app
+            .state
+            .collapsed_sidebar_sections
+            .contains(&crate::ui::SectionId::Integration("beta".into())));
         assert_eq!(app.state.integration_view_scrolls["alpha"], 4);
         assert_eq!(app.state.integration_view_scrolls["beta"], 7);
         assert_eq!(
@@ -2352,8 +2392,8 @@ mod tests {
         config.integrations.sources = vec!["alpha".into()];
         app.apply_live_config(&config, &[], &[], false);
         assert_eq!(
-            app.state.integration_view_selected.as_deref(),
-            Some("alpha")
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Spaces
         );
         assert_eq!(app.state.integration_view_scrolls.len(), 1);
         assert_eq!(app.state.integration_view_scrolls["alpha"], 4);
@@ -2364,7 +2404,7 @@ mod tests {
             &["alpha".to_owned()]
         );
         app.apply_live_config(&config, &[], &[], false);
-        assert!(app.state.integration_view_selected.is_none());
+        assert!(app.state.collapsed_sidebar_sections.is_empty());
         assert!(app.state.integration_view_scrolls.is_empty());
     }
 
@@ -3333,6 +3373,74 @@ mod tests {
             bytes::Bytes::from_static(b"\x1b[106;1:3u")
         );
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn integration_inspector_raw_routes_release_prior_ownership_and_suppress_held_repeats() {
+        for headless in [false, true] {
+            let mut app = test_app();
+            let mut workspace = Workspace::test_new("test");
+            let focused = workspace.focused_pane_id().unwrap();
+            let (runtime, mut rx) = TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                80,
+                24,
+                0,
+                b"\x1b[>15u",
+                16,
+            );
+            workspace.tabs[0].runtimes.insert(focused, runtime);
+            app.state.workspaces = vec![workspace];
+            app.state.active = Some(0);
+            app.state.selected = 0;
+            app.state.mode = Mode::Terminal;
+            for (code, modifiers) in [
+                (KeyCode::Char('x'), KeyModifiers::NONE),
+                (KeyCode::Char('b'), KeyModifiers::CONTROL),
+                (KeyCode::Char('a'), KeyModifiers::NONE),
+            ] {
+                let event = raw_key(code, modifiers, KeyEventKind::Press);
+                if headless {
+                    app.route_client_events_from(41, vec![event], false);
+                } else {
+                    app.handle_raw_input_event(event).await;
+                }
+            }
+            assert_eq!(app.state.mode, Mode::IntegrationInspector);
+            assert_eq!(rx.try_recv().unwrap().as_ref(), b"\x1b[120;1:1u");
+            // Closing the prior protocol press is allowed; modal repeats are not.
+            assert_eq!(rx.try_recv().unwrap().as_ref(), b"\x1b[120;1:3u");
+            assert!(app.pressed_terminal_keys.is_empty());
+            for (code, kind) in [
+                (KeyCode::Char('x'), KeyEventKind::Repeat),
+                (KeyCode::Char('y'), KeyEventKind::Press),
+                (KeyCode::Esc, KeyEventKind::Press),
+                (KeyCode::Char('x'), KeyEventKind::Repeat),
+                (KeyCode::Char('y'), KeyEventKind::Repeat),
+                (KeyCode::Char('x'), KeyEventKind::Release),
+                (KeyCode::Char('y'), KeyEventKind::Release),
+            ] {
+                let event = raw_key(code, KeyModifiers::NONE, kind);
+                if headless {
+                    app.route_client_events_from(41, vec![event], false);
+                } else {
+                    app.handle_raw_input_event(event).await;
+                }
+            }
+            assert_eq!(app.state.mode, Mode::Terminal);
+            assert!(rx.try_recv().is_err());
+            assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(focused));
+            for kind in [KeyEventKind::Press, KeyEventKind::Release] {
+                let event = raw_key(KeyCode::Char('x'), KeyModifiers::NONE, kind);
+                if headless {
+                    app.route_client_events_from(41, vec![event], false);
+                } else {
+                    app.handle_raw_input_event(event).await;
+                }
+            }
+            assert_eq!(rx.try_recv().unwrap().as_ref(), b"\x1b[120;1:1u");
+            assert_eq!(rx.try_recv().unwrap().as_ref(), b"\x1b[120;1:3u");
+            assert!(rx.try_recv().is_err());
+        }
     }
 
     #[tokio::test]

@@ -690,6 +690,7 @@ impl App {
             }
             NavigateAction::EnterResizeMode => self.state.mode = Mode::Resize,
             NavigateAction::ToggleSidebar => {
+                self.state.integration_views_displayed = None;
                 self.state.sidebar_collapsed = !self.state.sidebar_collapsed;
                 leave_navigate_mode(&mut self.state);
             }
@@ -724,9 +725,7 @@ impl App {
             NavigateAction::OpenNavigator => {
                 self.state.open_navigator_from(&self.terminal_runtimes)
             }
-            NavigateAction::OpenAgentNavigator => self
-                .state
-                .open_agent_navigator_from(&self.terminal_runtimes),
+            NavigateAction::OpenAgentNavigator => self.state.open_integration_inspector(),
         }
 
         finish_action_context(&mut self.state, context, previous_mode);
@@ -2180,6 +2179,7 @@ pub(super) fn execute_navigate_action_in_context(
         }
         NavigateAction::EnterResizeMode => state.mode = Mode::Resize,
         NavigateAction::ToggleSidebar => {
+            state.integration_views_displayed = None;
             state.sidebar_collapsed = !state.sidebar_collapsed;
             leave_navigate_mode(state);
         }
@@ -2212,7 +2212,7 @@ pub(super) fn execute_navigate_action_in_context(
             leave_navigate_mode(state);
         }
         NavigateAction::OpenNavigator => state.open_navigator_from(terminal_runtimes),
-        NavigateAction::OpenAgentNavigator => state.open_agent_navigator_from(terminal_runtimes),
+        NavigateAction::OpenAgentNavigator => state.open_integration_inspector(),
     }
 
     finish_action_context(state, context, previous_mode);
@@ -2340,11 +2340,7 @@ mod tests {
     use super::super::{state_with_workspaces, unique_temp_path};
     use super::*;
     use crate::{
-        app::{state::NavigatorScope, App},
-        config::Config,
-        input::TerminalKey,
-        terminal::TerminalState,
-        workspace::Workspace,
+        app::App, config::Config, input::TerminalKey, terminal::TerminalState, workspace::Workspace,
     };
 
     fn mark_worktree_space_member(state: &mut AppState, ws_idx: usize, key: &str) {
@@ -2509,7 +2505,7 @@ mod tests {
     }
 
     #[test]
-    fn default_agent_selector_key_opens_agent_navigator_scope() {
+    fn default_agent_selector_key_opens_integration_inspector() {
         let mut state = state_with_workspaces(&["test"]);
 
         handle_navigate_key(
@@ -2517,8 +2513,11 @@ mod tests {
             KeyEvent::new(KeyCode::Char('a'), KeyModifiers::empty()),
         );
 
-        assert_eq!(state.mode, Mode::Navigator);
-        assert_eq!(state.navigator.scope, NavigatorScope::Agents);
+        assert_eq!(state.mode, Mode::IntegrationInspector);
+        assert_eq!(
+            state.navigator.scope,
+            crate::app::state::NavigatorScope::Tree
+        );
     }
 
     #[test]

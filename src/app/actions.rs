@@ -131,13 +131,6 @@ impl AppState {
         self.open_navigator_with_scope_from(terminal_runtimes, NavigatorScope::Tree);
     }
 
-    pub(crate) fn open_agent_navigator_from(
-        &mut self,
-        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
-    ) {
-        self.open_navigator_with_scope_from(terminal_runtimes, NavigatorScope::Agents);
-    }
-
     fn open_navigator_with_scope_from(
         &mut self,
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,

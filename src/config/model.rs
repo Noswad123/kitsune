@@ -823,6 +823,8 @@ pub struct WorktreesConfig {
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct UiConfig {
+    /// Animate declared running integrations. Default: true.
+    pub integration_animations: bool,
     pub sidebar_width: u16,
     /// Minimum sidebar width (columns) when expanded. Default: 18.
     pub sidebar_min_width: u16,
@@ -1047,6 +1049,7 @@ impl Default for UiConfig {
             show_agent_labels_on_pane_borders: false,
             hide_tab_bar_when_single_tab: false,
             agent_panel_sort: AgentPanelSortConfig::Spaces,
+            integration_animations: true,
             sidebar: SidebarConfig::default(),
             accent: "cyan".into(),
             toast: ToastConfig::default(),
@@ -1217,6 +1220,10 @@ resume_agents_on_restore = false
 
     #[test]
     fn agent_panel_sort_config_parses_alias_and_defaults() {
+        assert!(Config::default().ui.integration_animations);
+        let config: Config = toml::from_str("[ui]\nintegration_animations = false\n").unwrap();
+        assert!(!config.ui.integration_animations);
+        assert!(toml::from_str::<Config>("[ui]\nintegration_animations = 'off'\n").is_err());
         assert_eq!(
             Config::default().ui.agent_panel_sort,
             AgentPanelSortConfig::Spaces
