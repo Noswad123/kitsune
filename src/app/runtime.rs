@@ -610,6 +610,7 @@ mod tests {
             epoch: owner.epoch,
             revision: 1,
             items: vec![IntegrationViewItem {
+                information: None,
                 id: "i".into(),
                 label: "Working".into(),
                 detail: "private detail".into(),
@@ -776,6 +777,7 @@ mod tests {
                     epoch: owner.epoch,
                     revision: 1,
                     items: vec![IntegrationViewItem {
+                        information: None,
                         id: "item".into(),
                         label: "external declaration".into(),
                         detail: String::new(),

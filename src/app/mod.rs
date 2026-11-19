@@ -650,6 +650,8 @@ impl App {
                 .resolved_identity_cwd_from(&state.terminals, &restored_terminal_runtimes);
             state.workspaces[ws_idx].cached_git_branch =
                 cwd.as_deref().and_then(crate::workspace::git_branch);
+            // Restored runtime CWD can differ from the identity metadata cache.
+            state.workspaces[ws_idx].cached_git_branch_identity = None;
         }
 
         let last_focus = state.active.and_then(|idx| {

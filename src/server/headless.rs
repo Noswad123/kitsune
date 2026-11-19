@@ -4618,6 +4618,7 @@ mod tests {
                             epoch: opened.epoch,
                             revision: 1,
                             items: vec![IntegrationViewItem {
+                                information: None,
                                 id: "running".into(),
                                 label: "Working".into(),
                                 detail: "local detail".into(),
@@ -4764,6 +4765,7 @@ mod tests {
                         epoch: owner.epoch.clone(),
                         revision: 1,
                         items: vec![IntegrationViewItem {
+                            information: None,
                             id: "item".into(),
                             label: "Working".into(),
                             detail: String::new(),
@@ -4857,6 +4859,7 @@ mod tests {
                         epoch: owner.epoch.clone(),
                         revision,
                         items: vec![IntegrationViewItem {
+                            information: None,
                             id: format!("item-{revision}"),
                             label: format!("revision {revision}"),
                             detail: String::new(),
@@ -4932,6 +4935,7 @@ mod tests {
                         revision: 1,
                         items: (0..128)
                             .map(|i| IntegrationViewItem {
+                                information: None,
                                 id: format!("item-{i}"),
                                 label: format!("item {i}"),
                                 detail: "detail".into(),

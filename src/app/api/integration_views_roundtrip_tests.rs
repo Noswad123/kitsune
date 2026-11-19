@@ -257,6 +257,7 @@ fn integration_views_real_coven_roundtrip() {
     let build_owner =
         json!({"source":"build","lease":build_open["lease"],"epoch":build_open["epoch"]});
     let build_item = schema::IntegrationViewItem {
+        information: None,
         id: participant_item_id.clone(),
         label: "Build running".into(),
         detail: "Independent build provider".into(),

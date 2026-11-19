@@ -1046,6 +1046,12 @@
             "focused": {
               "type": "boolean"
             },
+            "git_branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "label": {
               "type": "string"
             },
@@ -2092,6 +2098,30 @@
           ],
           "type": "object"
         },
+        "IntegrationViewInformation": {
+          "additionalProperties": false,
+          "properties": {
+            "activity": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "attention": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "context": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
         "IntegrationViewItem": {
           "additionalProperties": false,
           "properties": {
@@ -2100,6 +2130,9 @@
             },
             "id": {
               "type": "string"
+            },
+            "information": {
+              "$ref": "#/schemas/request/$defs/IntegrationViewInformation"
             },
             "label": {
               "type": "string"
@@ -8980,6 +9013,12 @@
             },
             "focused": {
               "type": "boolean"
+            },
+            "git_branch": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "label": {
               "type": "string"

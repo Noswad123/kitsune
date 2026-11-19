@@ -1534,17 +1534,16 @@ impl PaneRuntime {
 
     /// Get the current working directory of the child shell process.
     pub fn cwd(&self) -> Option<std::path::PathBuf> {
-        if let Some(cwd) = self
-            .reported_cwd
-            .lock()
-            .ok()
-            .and_then(|reported_cwd| reported_cwd.clone())
-        {
+        if let Some(cwd) = self.cached_cwd() {
             return Some(cwd);
         }
 
         let pid = self.child_pid.load(Ordering::Relaxed);
         crate::platform::process_cwd(pid)
+    }
+
+    pub(crate) fn cached_cwd(&self) -> Option<std::path::PathBuf> {
+        self.reported_cwd.lock().ok().and_then(|cwd| cwd.clone())
     }
 
     pub fn child_pid(&self) -> Option<u32> {
@@ -1985,6 +1984,16 @@ mod tests {
     #[test]
     fn shutdown_liveness_treats_reaped_direct_child_as_gone() {
         assert!(!process_alive_for_shutdown(42, 42, true, |_| true));
+    }
+
+    #[test]
+    fn cached_cwd_is_only_reported_memory_without_process_fallback() {
+        let (runtime, mut input) = PaneRuntime::test_with_channel(80, 24);
+        assert_eq!(runtime.cached_cwd(), None);
+        let cwd = std::path::PathBuf::from("/__kitsune_cached_only_no_filesystem__");
+        *runtime.reported_cwd.lock().unwrap() = Some(cwd.clone());
+        assert_eq!(runtime.cached_cwd(), Some(cwd));
+        assert!(input.try_recv().is_err());
     }
 
     #[test]

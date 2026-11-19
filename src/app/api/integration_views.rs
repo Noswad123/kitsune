@@ -74,6 +74,44 @@ mod tests {
     use crate::api::schema::{ErrorResponse, IntegrationViewItem, SuccessResponse};
 
     #[test]
+    fn integration_v3_generic_json_dispatch_accepts_information_without_bootstrap() {
+        let mut state = crate::app::AppState::test_new();
+        state
+            .integration_views
+            .reconfigure(vec!["generic".into()])
+            .unwrap();
+        let mut app = crate::app::test_support::app_from_state(state);
+        let request = serde_json::from_str(r#"{"id":"open","method":"integration.view.open","params":{"source":"generic","version":3}}"#).unwrap();
+        let opened: serde_json::Value =
+            serde_json::from_str(&app.handle_api_request(request)).unwrap();
+        let request = serde_json::from_value(serde_json::json!({
+            "id":"replace", "method":"integration.view.replace", "params": {
+                "source":"generic", "lease":opened["result"]["lease"], "epoch":opened["result"]["epoch"],
+                "revision":1, "items":[{"id":"i", "label":"Owner", "detail":"fallback",
+                    "information":{"attention":["Check output"], "activity":["Compiling"], "context":["Project: sample"]}}]
+            }
+        })).unwrap();
+        let response: SuccessResponse =
+            serde_json::from_str(&app.handle_api_request(request)).unwrap();
+        assert!(matches!(
+            response.result,
+            ResponseResult::ViewReplaced { revision: 1, .. }
+        ));
+        let projected = app
+            .state
+            .integration_views
+            .project("generic", Instant::now())
+            .unwrap();
+        assert_eq!(
+            projected.items[0].information.as_ref().unwrap().activity,
+            ["Compiling"]
+        );
+        assert!(app.state.workspaces.is_empty());
+        assert_eq!(app.terminal_runtimes.len(), 0);
+        assert!(app.event_hub.events_after(0).is_empty());
+    }
+
+    #[test]
     fn integration_views_handlers_return_typed_results_and_static_errors() {
         let mut state = crate::app::AppState::test_new();
         state
@@ -111,6 +149,7 @@ mod tests {
             epoch: owner.epoch.clone(),
             revision: 1,
             items: vec![IntegrationViewItem {
+                information: None,
                 id: "item".into(),
                 label: "Label".into(),
                 detail: String::new(),

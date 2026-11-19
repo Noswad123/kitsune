@@ -522,6 +522,33 @@ mod tests {
                 .await;
             assert_eq!(rx.try_recv().unwrap().as_ref(), b"a");
             let pane_before = app.state.workspaces[0].focused_pane_id();
+            use crate::api::schema::{ViewOpenParams, ViewOwnerParams, ViewReplaceParams};
+            app.state
+                .integration_views
+                .reconfigure(vec!["generic".into()])
+                .unwrap();
+            let now = std::time::Instant::now();
+            let opened = app
+                .state
+                .integration_views
+                .open(
+                    &ViewOpenParams {
+                        source: "generic".into(),
+                        version: 3,
+                    },
+                    now,
+                )
+                .unwrap();
+            let owner = ViewOwnerParams {
+                source: "generic".into(),
+                lease: opened.lease,
+                epoch: opened.epoch,
+            };
+            let frame: ViewReplaceParams = serde_json::from_value(serde_json::json!({
+                "source":owner.source, "lease":owner.lease, "epoch":owner.epoch, "revision":1,
+                "items":[{"id":"i", "label":"Owner", "detail":"private diagnostics", "information":{}}]
+            })).unwrap();
+            app.state.integration_views.replace(&frame, now).unwrap();
             app.state.mode = Mode::Prefix;
             app.handle_key(TerminalKey::new(
                 KeyCode::Char(binding.chars().next().unwrap()),
@@ -529,6 +556,30 @@ mod tests {
             ))
             .await;
             assert_eq!(app.state.mode, Mode::IntegrationInspector);
+            for code in [
+                KeyCode::Tab,
+                KeyCode::Char('d'),
+                KeyCode::Enter,
+                KeyCode::Char('/'),
+                KeyCode::Char('d'),
+                KeyCode::Esc,
+            ] {
+                let mut terminal =
+                    ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 30)).unwrap();
+                crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 80, 30));
+                terminal.draw(|f| crate::ui::render(&app.state, f)).unwrap();
+                app.state.commit_integration_views_render();
+                app.handle_key(TerminalKey::new(code, KeyModifiers::NONE))
+                    .await;
+                assert!(rx.try_recv().is_err());
+            }
+            assert!(app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents
+                .is_empty());
             app.handle_key(TerminalKey::new(KeyCode::Char('x'), KeyModifiers::NONE))
                 .await;
             app.handle_key(TerminalKey::new(KeyCode::Enter, KeyModifiers::NONE))

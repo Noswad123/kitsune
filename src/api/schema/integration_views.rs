@@ -38,6 +38,24 @@ pub struct IntegrationViewItem {
     )]
     #[schemars(with = "IntegrationViewPresentation")]
     pub presentation: Option<IntegrationViewPresentation>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "present"
+    )]
+    #[schemars(with = "IntegrationViewInformation")]
+    pub information: Option<IntegrationViewInformation>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct IntegrationViewInformation {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attention: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub activity: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context: Vec<String>,
 }
 
 // Missing is neutral; explicit null is malformed, including on legacy leases.
@@ -119,6 +137,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn integration_information_strict_optional_nonnullable_json() {
+        for invalid in [
+            "null",
+            r#"{"attention":null}"#,
+            r#"{"attention":[null]}"#,
+            r#"{"activity":[["nested"]]}"#,
+            r#"{"context":[{}]}"#,
+            r#"{"attention":[],"attention":[]}"#,
+            r#"{"diagnostics":[]}"#,
+        ] {
+            let raw = format!(r#"{{"id":"i","label":"l","detail":"d","information":{invalid}}}"#);
+            assert!(
+                serde_json::from_str::<IntegrationViewItem>(&raw).is_err(),
+                "{raw}"
+            );
+        }
+        assert!(serde_json::from_str::<IntegrationViewItem>(
+            r#"{"id":"i","label":"l","detail":"d","information":{},"information":{}}"#
+        )
+        .is_err());
+        let item: IntegrationViewItem =
+            serde_json::from_str(r#"{"id":"i","label":"l","detail":"d","information":{}}"#)
+                .unwrap();
+        assert_eq!(
+            item.information,
+            Some(IntegrationViewInformation::default())
+        );
+        assert_eq!(
+            serde_json::to_value(item).unwrap()["information"],
+            serde_json::json!({})
+        );
+    }
+
+    #[test]
     fn integration_presentation_strict_optional_nonnullable_json() {
         for invalid in [
             r#"null"#,
@@ -181,6 +233,8 @@ mod tests {
             r#"{"id":"test","method":"integration.view.open","params":{"source":"a","version":1,"version":1}}"#,
             r#"{"id":"test","method":"integration.view.poll","params":{"source":"a","lease":"l","lease":"other","epoch":"e"}}"#,
             r#"{"id":"test","method":"integration.view.replace","params":{"source":"a","lease":"l","epoch":"e","revision":1,"items":[{"id":"i","label":"one","label":"two","detail":"d"}]}}"#,
+            r#"{"id":"test","method":"integration.view.replace","params":{"source":"a","lease":"l","epoch":"e","revision":1,"items":[{"id":"i","label":"one","detail":"d","information":{},"information":{}}]}}"#,
+            r#"{"id":"test","method":"integration.view.replace","params":{"source":"a","lease":"l","epoch":"e","revision":1,"items":[{"id":"i","label":"one","detail":"d","information":{"activity":["first"],"activity":["second"]}}]}}"#,
         ] {
             assert!(serde_json::from_str::<crate::api::schema::Request>(raw).is_err());
         }

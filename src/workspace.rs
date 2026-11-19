@@ -182,6 +182,8 @@ pub struct Workspace {
     pub(crate) cached_git_status_key: PathBuf,
     /// Cached current git branch for the workspace repo.
     pub(crate) cached_git_branch: Option<String>,
+    /// Provenance of the last branch acquisition, not a filesystem check during projection.
+    pub(crate) cached_git_branch_identity: Option<(PathBuf, Option<GitSpaceMetadata>)>,
     /// Cached ahead/behind counts for the workspace repo's current branch upstream.
     pub(crate) cached_git_ahead_behind: Option<(usize, usize)>,
     /// Cached derived Git repo metadata for worktree actions and status display.
@@ -249,6 +251,7 @@ impl Workspace {
             identity_cwd: identity_cwd.clone(),
             cached_identity_cwd: identity_cwd.clone(),
             cached_auto_label,
+            cached_git_branch_identity: Some((identity_cwd.clone(), cached_git_space.clone())),
             cached_git_status_key,
             cached_git_branch: git_branch(&identity_cwd),
             cached_git_ahead_behind: None,
@@ -437,6 +440,7 @@ impl Workspace {
                 identity_cwd: initial_cwd.clone(),
                 cached_identity_cwd: initial_cwd.clone(),
                 cached_auto_label,
+                cached_git_branch_identity: Some((initial_cwd.clone(), cached_git_space.clone())),
                 cached_git_status_key,
                 cached_git_branch: git_branch(&initial_cwd),
                 cached_git_ahead_behind: None,
@@ -1146,6 +1150,30 @@ impl Workspace {
         self.cached_git_branch.clone()
     }
 
+    pub(crate) fn verified_branch_from(
+        &self,
+        terminals: &HashMap<TerminalId, TerminalState>,
+        terminal_runtimes: &TerminalRuntimeRegistry,
+    ) -> Option<String> {
+        let terminal_id = self
+            .tabs
+            .first()
+            .and_then(|tab| tab.terminal_id(tab.root_pane));
+        let cwd = match terminal_id.and_then(|id| terminal_runtimes.get(id)) {
+            Some(runtime) => runtime.cached_cwd()?,
+            None => terminal_id.and_then(|id| terminals.get(id)).map_or_else(
+                || self.identity_cwd.clone(),
+                |terminal| terminal.cwd.clone(),
+            ),
+        };
+        let (branch_cwd, branch_space) = self.cached_git_branch_identity.as_ref()?;
+        (cwd == self.cached_identity_cwd
+            && &cwd == branch_cwd
+            && branch_space == &self.cached_git_space)
+            .then(|| self.cached_git_branch.clone())
+            .flatten()
+    }
+
     pub fn git_ahead_behind(&self) -> Option<(usize, usize)> {
         self.cached_git_ahead_behind
     }
@@ -1164,6 +1192,7 @@ impl Workspace {
         self.cached_git_branch = cwd.as_deref().and_then(git_branch);
         self.cached_git_ahead_behind = cwd.as_deref().and_then(git_ahead_behind);
         self.cached_git_space = cwd.as_deref().and_then(git_space_metadata);
+        self.cached_git_branch_identity = cwd.map(|cwd| (cwd, self.cached_git_space.clone()));
     }
 
     pub fn find_tab_index_for_pane(&self, pane_id: PaneId) -> Option<usize> {
@@ -1273,6 +1302,7 @@ impl Workspace {
             cached_identity_cwd: identity_cwd.clone(),
             cached_auto_label: fallback_label_from_cwd(&identity_cwd),
             cached_git_status_key: identity_cwd.clone(),
+            cached_git_branch_identity: None,
             cached_git_branch: git_branch(&identity_cwd),
             cached_git_ahead_behind: None,
             cached_git_space: None,
@@ -1503,6 +1533,62 @@ impl Workspace {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verified_branch_requires_matching_acquisition_cwd_and_git_identity_without_io() {
+        let mut ws = Workspace::test_new("project");
+        ws.identity_cwd = "/not/a/real/checkout".into();
+        ws.cached_identity_cwd = ws.identity_cwd.clone();
+        ws.cached_git_space = None;
+        ws.cached_git_branch = Some("feature/owner".into());
+        let terminals = HashMap::new();
+        let runtimes = TerminalRuntimeRegistry::new();
+        assert_eq!(ws.verified_branch_from(&terminals, &runtimes), None);
+        ws.cached_git_branch_identity = Some((ws.identity_cwd.clone(), None));
+        assert_eq!(
+            ws.verified_branch_from(&terminals, &runtimes).as_deref(),
+            Some("feature/owner")
+        );
+        ws.identity_cwd = "/other/checkout".into();
+        assert_eq!(ws.verified_branch_from(&terminals, &runtimes), None);
+        ws.cached_identity_cwd = ws.identity_cwd.clone();
+        assert_eq!(ws.verified_branch_from(&terminals, &runtimes), None);
+        ws.cached_git_branch_identity = Some((ws.identity_cwd.clone(), None));
+        ws.cached_git_space = Some(GitSpaceMetadata {
+            key: "new-identity".into(),
+            checkout_key: "checkout".into(),
+            label: "project".into(),
+            repo_root: ws.identity_cwd.clone(),
+            is_linked_worktree: false,
+        });
+        assert_eq!(ws.verified_branch_from(&terminals, &runtimes), None);
+        ws.cached_git_branch_identity =
+            Some((ws.identity_cwd.clone(), ws.cached_git_space.clone()));
+        assert!(ws.verified_branch_from(&terminals, &runtimes).is_some());
+        ws.cached_git_branch = None;
+        assert_eq!(ws.verified_branch_from(&terminals, &runtimes), None);
+        ws.cached_git_branch = Some("main".into());
+        let terminal_id = ws.tabs[0]
+            .terminal_id(ws.tabs[0].root_pane)
+            .unwrap()
+            .clone();
+        let mut terminals = HashMap::from([(
+            terminal_id.clone(),
+            TerminalState::new(terminal_id.clone(), ws.identity_cwd.clone()),
+        )]);
+        assert_eq!(
+            ws.verified_branch_from(&terminals, &runtimes).as_deref(),
+            Some("main")
+        );
+        terminals.get_mut(&terminal_id).unwrap().cwd = "/different/root/pane/cwd".into();
+        assert_eq!(ws.verified_branch_from(&terminals, &runtimes), None);
+        terminals.get_mut(&terminal_id).unwrap().cwd = ws.identity_cwd.clone();
+        let mut runtimes = runtimes;
+        let (runtime, mut input) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        runtimes.insert(terminal_id, runtime);
+        assert_eq!(ws.verified_branch_from(&terminals, &runtimes), None);
+        assert!(input.try_recv().is_err());
+    }
 
     #[test]
     fn generated_workspace_ids_are_canonical_unique_base32_handles() {

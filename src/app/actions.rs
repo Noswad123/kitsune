@@ -2317,6 +2317,20 @@ impl AppState {
             }
 
             let ws = &mut self.workspaces[ws_idx];
+            if !result.demand.branch
+                && (ws.cached_identity_cwd != result.resolved_identity_cwd
+                    || ws.cached_git_space != result.space)
+            {
+                changed |=
+                    ws.cached_git_branch_identity.is_some() && ws.cached_git_branch.is_some();
+                ws.cached_git_branch_identity = None;
+            }
+            if result.demand.branch {
+                let identity = Some((result.resolved_identity_cwd.clone(), result.space.clone()));
+                changed |= ws.cached_git_branch_identity != identity
+                    && (ws.cached_git_branch.is_some() || result.branch.is_some());
+                ws.cached_git_branch_identity = identity;
+            }
             if ws.cached_identity_cwd != result.resolved_identity_cwd {
                 ws.cached_identity_cwd = result.resolved_identity_cwd;
             }
@@ -3104,6 +3118,52 @@ mod tests {
         assert!(!changed);
         assert_eq!(state.workspaces[0].branch().as_deref(), Some("old"));
         assert_eq!(state.workspaces[0].git_ahead_behind(), Some((1, 0)));
+    }
+
+    #[test]
+    fn git_identity_refresh_without_branch_demand_invalidates_branch_provenance() {
+        let mut state = app_with_workspaces(&["one"]);
+        let ws = &mut state.workspaces[0];
+        ws.cached_git_branch = Some("old".into());
+        ws.cached_git_branch_identity =
+            Some((ws.cached_identity_cwd.clone(), ws.cached_git_space.clone()));
+        let old_identity = ws.cached_git_branch_identity.clone();
+        ws.identity_cwd = "/new/unverified/identity".into();
+        let result = WorkspaceGitStatus {
+            workspace_id: ws.id.clone(),
+            resolved_identity_cwd: ws.identity_cwd.clone(),
+            status_cache_key: ws.identity_cwd.clone(),
+            demand: crate::workspace::GitStatusRefreshDemand {
+                branch: false,
+                ahead_behind: false,
+            },
+            auto_label: "new".into(),
+            branch: None,
+            ahead_behind: None,
+            space: None,
+        };
+        let terminal_id = ws.tabs[0]
+            .terminal_id(ws.tabs[0].root_pane)
+            .unwrap()
+            .clone();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = result.resolved_identity_cwd.clone();
+        let runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        assert!(state.apply_workspace_git_statuses(&runtimes, vec![result.clone()]));
+        assert!(state.workspaces[0].cached_git_branch_identity.is_none());
+        assert!(state.workspaces[0]
+            .verified_branch_from(&state.terminals, &runtimes)
+            .is_none());
+        let mut result = result;
+        result.demand.branch = true;
+        result.branch = Some("current".into());
+        assert!(state.apply_workspace_git_statuses(&runtimes, vec![result]));
+        assert_ne!(state.workspaces[0].cached_git_branch_identity, old_identity);
+        assert_eq!(
+            state.workspaces[0]
+                .verified_branch_from(&state.terminals, &runtimes)
+                .as_deref(),
+            Some("current")
+        );
     }
 
     #[test]

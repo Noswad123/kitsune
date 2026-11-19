@@ -447,6 +447,7 @@ mod integration_views_sidebar {
                         .into_iter()
                         .enumerate()
                         .map(|(n, label)| IntegrationViewItem {
+                            information: None,
                             id: format!("session-hash-{n}"),
                             label: label.into(),
                             detail: "provenance remains in details".into(),
@@ -511,6 +512,7 @@ mod integration_views_sidebar {
                     .into_iter()
                     .enumerate()
                     .map(|(n, status)| IntegrationViewItem {
+                        information: None,
                         id: n.to_string(),
                         label: "idle ended".into(),
                         detail: "DETAIL ONLY IN INSPECTOR".into(),
@@ -601,6 +603,7 @@ mod integration_views_sidebar {
                     revision,
                     items: (0..count)
                         .map(|i| IntegrationViewItem {
+                            information: None,
                             id: format!("opaque-{i}"),
                             label: format!("{} label {i}", owner.source),
                             detail: format!("{} detail {i}", owner.source),
@@ -1052,6 +1055,7 @@ mod integration_views_sidebar {
                     epoch: owner.epoch.clone(),
                     revision: 1,
                     items: vec![IntegrationViewItem {
+                        information: None,
                         id: "opaque".into(),
                         label: "label\u{202e}".into(),
                         detail: "detail".into(),

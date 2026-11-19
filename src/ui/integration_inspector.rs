@@ -25,6 +25,7 @@ pub(crate) struct Inspector {
     source_scroll: usize,
     item_scroll: usize,
     detail_scroll: usize,
+    expanded: bool,
     pub(crate) computed: Option<Capture>,
     pub(crate) displayed: Option<Capture>,
 }
@@ -57,6 +58,9 @@ pub(crate) struct Capture {
     item_hits: Vec<(Rect, String)>,
     details: Rect,
     detail_lines: Vec<String>,
+    expanded: bool,
+    structured: bool,
+    expander_hit: Option<Rect>,
 }
 
 fn text(value: &str, width: usize) -> String {
@@ -128,12 +132,16 @@ impl AppState {
             .iter()
             .find(|s| Some(&s.id) == self.integration_inspector.source.as_ref());
         let i = &mut self.integration_inspector;
+        let previous = (i.source.clone(), i.epoch.clone(), i.item.clone());
         i.epoch = s.and_then(|s| s.epoch.clone());
         i.item = s
             .and_then(|s| s.items.iter().find(|item| matches_query(item, &i.query)))
             .map(|item| item.id.clone());
-        i.item_scroll = 0;
-        i.detail_scroll = 0;
+        if previous != (i.source.clone(), i.epoch.clone(), i.item.clone()) {
+            i.item_scroll = 0;
+            i.detail_scroll = 0;
+            i.expanded = false;
+        }
     }
 
     fn inspector_capture(&self, area: Rect, now: Instant) -> Capture {
@@ -209,22 +217,70 @@ impl AppState {
                 .find(|item| Some(&item.id) == i.item.as_ref() && matches_query(item, &i.query))
         });
         let mut detail_lines = Vec::new();
+        let mut expander_hit = None;
+        let structured = selected.is_some_and(|item| item.information.is_some());
         if let Some(item) = selected {
-            if let Some(p) = &item.presentation {
-                let status = p
-                    .status
-                    .map_or("neutral".to_owned(), |s| format!("{s:?}").to_lowercase());
-                let heading = if p.label.is_empty() {
-                    format!("Status: {status}")
-                } else {
-                    format!("{}: {}", p.label, status)
-                };
-                detail_lines.extend(wrapped(&heading, details.width));
+            if let Some(info) = &item.information {
+                for (heading, values, empty) in [
+                    (
+                        "Attention",
+                        &info.attention,
+                        "No attention information supplied.",
+                    ),
+                    (
+                        "Current activity",
+                        &info.activity,
+                        "No activity information supplied.",
+                    ),
+                    (
+                        "Working context",
+                        &info.context,
+                        "No working context supplied.",
+                    ),
+                ] {
+                    detail_lines.extend(wrapped(heading, details.width));
+                    if values.is_empty() {
+                        detail_lines.extend(wrapped(empty, details.width));
+                    } else {
+                        for value in values {
+                            detail_lines.extend(wrapped(value, details.width));
+                        }
+                    }
+                }
+                if !i.expanded && !i.query.is_empty() && !matches_main(item, &i.query) {
+                    detail_lines.extend(wrapped(
+                        "Match in Diagnostics — expand to view.",
+                        details.width,
+                    ));
+                }
+                let start = detail_lines.len();
+                detail_lines.extend(wrapped(
+                    if i.expanded {
+                        "▾ Diagnostics [d]"
+                    } else {
+                        "▸ Diagnostics [d]"
+                    },
+                    details.width,
+                ));
+                let visible_start = start.max(i.detail_scroll);
+                let visible_end = detail_lines
+                    .len()
+                    .min(i.detail_scroll.saturating_add(details.height as usize));
+                if details.width > 0 && visible_start < visible_end {
+                    expander_hit = Some(Rect::new(
+                        details.x,
+                        details.y + (visible_start - i.detail_scroll) as u16,
+                        details.width,
+                        (visible_end - visible_start) as u16,
+                    ));
+                }
+                if i.expanded {
+                    detail_lines.extend(wrapped(&item.detail, details.width));
+                }
             } else {
-                detail_lines.extend(wrapped("Plain item (neutral)", details.width));
+                detail_lines.extend(wrapped("Details", details.width));
+                detail_lines.extend(wrapped(&item.detail, details.width));
             }
-            detail_lines.extend(wrapped(&item.label, details.width));
-            detail_lines.extend(wrapped(&item.detail, details.width));
         } else {
             detail_lines.extend(wrapped(
                 if sources.is_empty() {
@@ -253,6 +309,9 @@ impl AppState {
             item_hits,
             details,
             detail_lines,
+            expanded: i.expanded,
+            structured,
+            expander_hit,
         }
     }
 
@@ -270,6 +329,7 @@ impl AppState {
             i.item = None;
             i.detail_scroll = 0;
             i.item_scroll = 0;
+            i.expanded = false;
         }
         if i.item.as_ref().is_some_and(|id| {
             !source.is_some_and(|s| {
@@ -280,6 +340,7 @@ impl AppState {
         }) {
             i.item = None;
             i.detail_scroll = 0;
+            i.expanded = false;
         }
         let capture = self.inspector_capture(area, now);
         let i = &mut self.integration_inspector;
@@ -365,6 +426,7 @@ impl AppState {
         let i = &mut self.integration_inspector;
         match i.focus {
             0 => {
+                let previous = i.source.clone();
                 let current = sources
                     .iter()
                     .position(|s| Some(&s.id) == i.source.as_ref());
@@ -372,6 +434,10 @@ impl AppState {
                     .map_or(0, |n| n.saturating_add_signed(delta))
                     .min(sources.len().saturating_sub(1));
                 i.source = sources.get(next).map(|s| s.id.clone());
+                if i.source != previous {
+                    i.expanded = false;
+                    i.detail_scroll = 0;
+                }
                 let capacity = i
                     .computed
                     .as_ref()
@@ -393,10 +459,14 @@ impl AppState {
                 let next = current
                     .map_or(0, |n| n.saturating_add_signed(delta))
                     .min(items.len().saturating_sub(1));
-                i.item = items.get(next).map(|item| item.id.clone());
+                let next_item = items.get(next).map(|item| item.id.clone());
+                if i.item != next_item {
+                    i.expanded = false;
+                    i.detail_scroll = 0;
+                }
+                i.item = next_item;
                 let capacity = i.computed.as_ref().map_or(1, |c| c.item_hits.len().max(1));
                 i.item_scroll = follow(next, i.item_scroll, capacity);
-                i.detail_scroll = 0;
             }
             _ => i.detail_scroll = i.detail_scroll.saturating_add_signed(delta),
         }
@@ -431,6 +501,18 @@ impl AppState {
             return;
         }
         match key.code {
+            KeyCode::Char('d')
+                if !key.modifiers.intersects(
+                    crossterm::event::KeyModifiers::CONTROL | crossterm::event::KeyModifiers::ALT,
+                ) =>
+            {
+                if self
+                    .inspector_current_capture(now)
+                    .is_some_and(|c| c.focus == 2 && c.structured)
+                {
+                    self.integration_inspector.expanded = !self.integration_inspector.expanded;
+                }
+            }
             KeyCode::Esc => {
                 self.mode = if self.active.is_some() {
                     Mode::Terminal
@@ -483,12 +565,23 @@ impl AppState {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 self.integration_inspector.focus = focus;
-                if let Some((_, source)) = c.source_hits.iter().find(|(r, _)| r.contains(point)) {
+                if c.expander_hit.is_some_and(|r| r.contains(point)) {
+                    self.integration_inspector.expanded = !c.expanded;
+                } else if let Some((_, source)) =
+                    c.source_hits.iter().find(|(r, _)| r.contains(point))
+                {
+                    if self.integration_inspector.source.as_ref() != Some(source) {
+                        self.integration_inspector.expanded = false;
+                        self.integration_inspector.detail_scroll = 0;
+                    }
                     self.integration_inspector.source = Some(source.clone());
                     self.inspector_select_source(now);
                 } else if let Some((_, id)) = c.item_hits.iter().find(|(r, _)| r.contains(point)) {
+                    if self.integration_inspector.item.as_ref() != Some(id) {
+                        self.integration_inspector.expanded = false;
+                        self.integration_inspector.detail_scroll = 0;
+                    }
                     self.integration_inspector.item = Some(id.clone());
-                    self.integration_inspector.detail_scroll = 0;
                 }
             }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp => {
@@ -561,9 +654,19 @@ fn running(item: &IntegrationViewItem) -> bool {
 }
 
 fn matches_query(item: &IntegrationViewItem, query: &str) -> bool {
+    matches_main(item, query) || item.detail.to_lowercase().contains(&query.to_lowercase())
+}
+
+fn matches_main(item: &IntegrationViewItem, query: &str) -> bool {
     let query = query.to_lowercase();
     item.label.to_lowercase().contains(&query)
-        || item.detail.to_lowercase().contains(&query)
+        || item.information.as_ref().is_some_and(|info| {
+            info.attention
+                .iter()
+                .chain(&info.activity)
+                .chain(&info.context)
+                .any(|value| value.to_lowercase().contains(&query))
+        })
         || item
             .presentation
             .as_ref()
@@ -588,6 +691,7 @@ pub(super) fn render(app: &AppState, frame: &mut Frame) {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" Integration details ")
+        .title_bottom(if c.structured { " d: diagnostics " } else { "" })
         .style(
             Style::default()
                 .fg(app.palette.text)
@@ -677,6 +781,9 @@ pub(super) fn render(app: &AppState, frame: &mut Frame) {
 }
 
 #[cfg(test)]
+mod profile_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::api::schema::{
@@ -700,6 +807,7 @@ mod tests {
                         .into_iter()
                         .enumerate()
                         .map(|(n, label)| IntegrationViewItem {
+                            information: None,
                             id: format!("session-hash-{n}"),
                             label: label.into(),
                             detail: "full provenance: session-hash".into(),
@@ -730,12 +838,12 @@ mod tests {
                 .collect();
             assert_eq!(rendered.trim_end(), expected);
         }
-        assert_eq!(capture.detail_lines[0], "Status: running");
+        assert_eq!(capture.detail_lines[0], "Details");
         assert!(capture
             .detail_lines
             .join("")
             .contains("full provenance: session-hash"));
-        for (n, (rect, id)) in capture.item_hits.iter().enumerate() {
+        for (rect, id) in &capture.item_hits {
             app.integration_inspector_mouse(MouseEvent {
                 kind: MouseEventKind::Down(MouseButton::Left),
                 column: rect.x,
@@ -754,11 +862,7 @@ mod tests {
                     .as_ref()
                     .unwrap()
                     .detail_lines[0],
-                if n < 2 {
-                    "Status: running"
-                } else {
-                    "Status: neutral"
-                }
+                "Details"
             );
         }
     }
@@ -772,7 +876,15 @@ mod tests {
         }
     }
 
-    fn setup() -> (AppState, Vec<ViewOwnerParams>, Instant) {
+    pub(super) fn setup() -> (AppState, Vec<ViewOwnerParams>, Instant) {
+        setup_version(2)
+    }
+
+    pub(super) fn setup_v3() -> (AppState, Vec<ViewOwnerParams>, Instant) {
+        setup_version(3)
+    }
+
+    fn setup_version(version: u64) -> (AppState, Vec<ViewOwnerParams>, Instant) {
         let now = Instant::now();
         let mut app = AppState::test_new();
         app.integration_views
@@ -785,7 +897,7 @@ mod tests {
                 .open(
                     &ViewOpenParams {
                         source: source.into(),
-                        version: 2,
+                        version,
                     },
                     now,
                 )
@@ -812,6 +924,7 @@ mod tests {
                     revision,
                     items: (0..24)
                         .map(|n| IntegrationViewItem {
+                            information: None,
                             id: format!("same-{n}"),
                             label: format!("Item {n}"),
                             detail: "long detail with wide 界 text ".repeat(12),
@@ -827,14 +940,14 @@ mod tests {
             .unwrap();
     }
 
-    fn draw(app: &mut AppState, now: Instant) {
+    pub(super) fn draw(app: &mut AppState, now: Instant) {
         app.compute_integration_inspector(Rect::new(0, 0, 40, 24), now);
         let mut terminal = Terminal::new(TestBackend::new(40, 24)).unwrap();
         terminal.draw(|f| render(app, f)).unwrap();
         app.commit_integration_views_render();
     }
 
-    fn key(app: &mut AppState, code: KeyCode) {
+    pub(super) fn key(app: &mut AppState, code: KeyCode) {
         app.integration_inspector_key(KeyEvent::new(code, KeyModifiers::NONE));
     }
 

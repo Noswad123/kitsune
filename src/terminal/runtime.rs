@@ -445,6 +445,10 @@ impl TerminalRuntime {
         self.0.cwd()
     }
 
+    pub(crate) fn cached_cwd(&self) -> Option<std::path::PathBuf> {
+        self.0.cached_cwd()
+    }
+
     pub fn follow_cwd(&self) -> Option<std::path::PathBuf> {
         self.0.follow_cwd()
     }

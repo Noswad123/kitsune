@@ -392,6 +392,7 @@ mod integration_views_sidebar {
                     revision: 1,
                     items: (0..128)
                         .map(|i| IntegrationViewItem {
+                            information: None,
                             id: format!("opaque-{i}"),
                             label: format!("label {i}"),
                             detail: "detail".into(),
@@ -540,6 +541,7 @@ mod integration_views_sidebar {
                                 epoch: owner.epoch.clone(),
                                 revision: 1,
                                 items: vec![IntegrationViewItem {
+                                    information: None,
                                     id: "same-id".into(),
                                     label: format!("{source} label"),
                                     detail: format!("{source} detail"),
@@ -665,6 +667,7 @@ mod integration_views_sidebar {
                     revision: 4,
                     items: (0..128)
                         .map(|i| IntegrationViewItem {
+                            information: None,
                             id: format!("opaque-{i}"),
                             label: format!("second {i}"),
                             detail: String::new(),

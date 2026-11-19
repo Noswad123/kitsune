@@ -45,6 +45,7 @@ mod tests {
     fn item_labels_preserve_optional_publisher_captions_without_id_fallback() {
         use crate::api::schema::IntegrationViewPresentation;
         let mut item = IntegrationViewItem {
+            information: None,
             id: "never-display-session-hash".into(),
             label: "Djinn".into(),
             detail: String::new(),

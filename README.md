@@ -140,6 +140,16 @@ queue no intent. Enter in Items explicitly sends the existing publisher selectio
 intent; Enter in Details activates nothing. No native focus, acknowledgement,
 input, start, resume or cancel is provided; the old agent navigator is not revived.
 
+With structured JSON v3 information, `prefix+a` shows the selected name only in
+Items, then concise **Attention**, **Current activity** and **Working context**
+instead of a metadata dump. **Diagnostics** is collapsed by default: focus Details
+with Tab and press `d` outside search, or click its visible header. The footer
+shows the toggle hint. Search covers hidden diagnostics too, reporting a hidden-only
+match without expanding it. Ordinary revisions preserve expansion; changing
+source/epoch/item, disappearance or close/reopen resets it. Empty sections are
+honest unavailable placeholders, not idle/all-clear. Plain v3 and old v1/v2 items
+keep useful visible flat Details; Kitsune parses no Coven-specific prose.
+
 The additive JSON v2 profile optionally supplies a short presentation label and
 generic status glyph. Coven's `item.label` is human-name-only: provider default
 (e.g. Djinn), preferring a valid associated explicit manual pane name, already set
@@ -149,19 +159,58 @@ not native session IDs or displayed labels. Duplicate names have no ID/suffix
 disambiguation. V1 stays name-only, exactly `{id,label,detail}` with no metadata;
 nonempty generic third-party captions still render. Fresh Working maps to `running`,
 Blocked to `attention`; Idle/Ended intentionally share a neutral icon, distinguished
-by detailed state text. `prefix+a` shows full `Status: running`/`Status: neutral`
-even with blank captions. Expired/historical/unordered facts are Unknown. Idle never
+by detailed state text. Flat fallback Details shows `Status: running`/`Status: neutral`
+even with blank captions; structured v3 uses source-owned concise information.
+Expired/historical/unordered facts are Unknown. Idle never
 means success. Generic `success`/`error` require explicit source assertions, not
 normal Coven job-outcome proof. `[ui] integration_animations` defaults to `true`;
 `false` disables local working spinners, which never refresh facts. Server source
 facts are separate from client inspector focus/search/scroll. See the contract for
-strict v1/v2 negotiation and successful-frame fences; binary protocol 18 is unchanged.
+strict v1/v2/v3 negotiation and successful-frame fences; binary protocol 18 is unchanged.
+
+Descriptor version 1 advertises `[1,2,3]`; Coven validates the whole list and
+opens the highest advertised profile, with absent list meaning v1 only and no
+uncertain-mutation downgrade. V1 is exactly `{id,label,detail}`; v2 adds only optional
+presentation. V3 optionally adds non-null `information` with `attention`, `activity`
+and `context` string arrays (default empty, at most four strings each, nonblank,
+256 UTF-8 bytes/string, no controls/bidi). Its 1,536-byte/item text counts toward
+the existing 96 KiB/source quota; 128 maximum-size rows need not fit. Required
+512-byte `detail` is Diagnostics only when information is present. V1/v2 reject
+information atomically without lease renewal or partial frame/queue changes.
+
+Coven's meaningful attention is based on fresh reported counts, not exhaustive
+native inventory; "No pending request in recent reports" is not global all-clear.
+Current activity reports Working/Idle/Blocked or honest missing/reference-only
+evidence, never guessed tool commands or task summaries. Evidence age belongs to
+the selected fact, sampled by its owner once/second, not last receipt or a continuous
+TUI clock; it can freeze on publisher stall until lease expiry. Context labels
+`Kit project`/`Kit branch` are multiplexer metadata, not native Djinn CWD proof.
+No task history, tool commands, cost or native prompt scope is added.
 
 Name lookup requires a fresh association, exact endpoint binding and live terminal
 runtime generation. OSC title/CWD/old `agent_name` are not manual identity fallbacks.
 Publisher-only private hints stay out of public raw targets; the 300 ms bounded
 read never blocks on the receiver mutex or creates association/focus/input/ack.
-Failed checks use the provider default; name refresh changes no activity/authority.
+Confirmed association/runtime/endpoint loss uses the provider default; name refresh
+changes no activity/authority. Temporary contention or unavailable lookup evidence
+instead defers publication, preserving coherent name-filtered selection.
+The same lookup now qualifies the whole name/project/branch bundle after I/O and
+at pre-send, including unique pane/workspace/tab, association epoch, admission and
+original deadline. Coherently established loss clears all borrowed metadata, not
+an otherwise current row. Project is associated worktree `repo_name`, else workspace
+human label;
+optional JSON `NewWorkspaceInfo.git_branch` carries cached current provenance in
+snapshot/event contexts, with no projection-time Git/filesystem/process I/O or
+label/path/native branch inference. Missing context stays unavailable. These
+qualification fields stay private and refresh no native clock.
+All candidate frames, even empty/partial, bracket receiver projection, lookup and
+actual pre-send. Temporary lock contention or changed/odd admission defers rather
+than publishing fake absence/fallback. Last-shown data remains bounded by original
+membership/context deadlines and the five-second view TTL; deferral cannot renew
+it indefinitely. Real membership expiry still drops rows. Read-only observers do
+not invalidate admission or renew evidence/association clocks; mutations stay fenced.
+Only safely Unsent refresh-needed candidates rebuild within that ceiling on the
+same owner/revision, never attempted/uncertain writes.
 Djinn separately queries actual local native session/status services after pure
 root qualification, at most once/second within 1,900 ms. Successful fresh native
 queries renew only activity through the existing event contract, never pending
@@ -175,7 +224,16 @@ Native status commit/publication is ordered by a per-instance/per-session semaph
 through the total 1,900 ms query/queue/IPC budget, not completion-time freshness
 or replay. Other provider profiles are unchanged.
 
-The name/icon/quiet-root increment is **QUALIFIED**. Final Kit validation passed
+Current structured-information validation is recorded in the
+[gate record](../coven/tools/normal-workflow-check/README.md#current-structured-information-increment),
+separate from the preserved current-Djinn/history filter and earlier qualifications.
+Final observed qualification passed with independent review READY and no P1/P2;
+the central record separates the earlier full Kit suite from the latest Coven-only
+continuity-fix rerun. Cached branch acquisition is unit-qualified, not physical
+provider/branch acquisition. Activation requires explicit approval to rebuild/install
+Kit and Coven, then restart Kit to pin the Coven generation; no new Djinn rebuild
+is required by this increment. No activation is performed here.
+The historical name/icon/quiet-root baseline is **QUALIFIED**. Final Kit validation passed
 2,578 binary tests (five ignored), 193 integration tests across 11 targets and one
 explicit real-Coven roundtrip, including duplicate/icon/name changes. Separately,
 the latest unified run passed 19 sidebar, 32 normal, four adoption and 16 hosting/
@@ -190,7 +248,7 @@ Owned children stopped/reaped; cached runs were empty and no artifacts retained.
 No full CI/full Coven suite, new provider/mobile/remote or actual model qualification.
 The two existing user Djinn instances were not live-inspected: the source addresses
 known quiet/resumed selected-root initial/expiry gaps, not a proven current-row fix.
-Activation still requires all new Djinn/Coven/Kit builds and explicit user approval;
+That historical baseline required new Djinn/Coven/Kit builds and explicit user approval;
 this docs-only update performs no builds, installs, configuration edits or activation.
 
 Coven's `group present` supplies its own group/participant model without Kitsune
