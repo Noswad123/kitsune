@@ -3,8 +3,7 @@ use std::time::{Duration, Instant};
 use crossterm::terminal;
 
 use super::{
-    background_update_check_enabled, pressed_key_identity, App, ANIMATION_INTERVAL,
-    AUTO_UPDATE_CHECK_INTERVAL, MIN_RENDER_INTERVAL, RESIZE_POLL_INTERVAL,
+    pressed_key_identity, App, ANIMATION_INTERVAL, MIN_RENDER_INTERVAL, RESIZE_POLL_INTERVAL,
     SELECTION_AUTOSCROLL_INTERVAL,
 };
 fn retain_custom_command_after_wait(
@@ -50,6 +49,19 @@ impl App {
         &mut self,
         msg: crate::api::ApiRequestMessage,
     ) -> bool {
+        if crate::api::schema::retired_request_response(&msg.request).is_some()
+            || matches!(
+                msg.request.method,
+                crate::api::schema::Method::PaneReportAgent(_)
+                    | crate::api::schema::Method::PaneReportAgentSession(_)
+                    | crate::api::schema::Method::PaneClearAgentAuthority(_)
+                    | crate::api::schema::Method::PaneReleaseAgent(_)
+            )
+        {
+            let response = self.handle_api_request(msg.request);
+            let _ = msg.respond_to.send(response);
+            return false;
+        }
         let previous_mode = self.state.mode;
         let mut changed = self.expire_due_metadata(Instant::now());
         changed |= crate::api::request_changes_ui(&msg.request);
@@ -102,6 +114,21 @@ impl App {
         event: crate::raw_input::RawInputEvent,
     ) -> bool {
         let previous_mode = self.state.mode;
+        if previous_mode == crate::app::Mode::IntegrationInspector {
+            self.suspend_inspector_terminal_keys().await;
+            if let crate::raw_input::RawInputEvent::Key(key) = &event {
+                let id = pressed_key_identity(super::LOCAL_INPUT_SOURCE, key);
+                if key.kind == crossterm::event::KeyEventKind::Release {
+                    self.suppressed_repeat_keys.remove(&id);
+                } else {
+                    self.suppressed_repeat_keys.insert(id);
+                    self.state.integration_inspector_key(key.as_key_event());
+                }
+                self.sync_prefix_input_source(previous_mode);
+                self.shutdown_detached_terminal_runtimes();
+                return true;
+            }
+        }
         let changed = match event {
             crate::raw_input::RawInputEvent::Key(key) => {
                 let pressed_key_id = pressed_key_identity(super::LOCAL_INPUT_SOURCE, &key);
@@ -163,7 +190,10 @@ impl App {
                 true
             }
             crate::raw_input::RawInputEvent::Mouse(mouse) => {
-                if self.state.popup_pane.is_some() || self.state.mouse_capture {
+                if self.state.mode == crate::app::Mode::IntegrationInspector
+                    || self.state.popup_pane.is_some()
+                    || self.state.mouse_capture
+                {
                     self.handle_mouse(mouse);
                 } else {
                     self.state
@@ -198,6 +228,9 @@ impl App {
             }
             crate::raw_input::RawInputEvent::Unsupported => false,
         };
+        if self.state.mode == crate::app::Mode::IntegrationInspector {
+            self.suspend_inspector_terminal_keys().await;
+        }
         self.sync_prefix_input_source(previous_mode);
         self.shutdown_detached_terminal_runtimes();
         changed
@@ -210,20 +243,19 @@ impl App {
         if self.last_terminal_size != Some(size) {
             self.last_terminal_size = Some(size);
             self.state.integration_views_displayed = None;
+            self.state.integration_inspector.displayed = None;
             return true;
         }
         false
     }
 
-    pub(crate) fn handle_scheduled_tasks(&mut self, now: Instant, geometry_dirty: bool) -> bool {
+    pub(crate) fn handle_scheduled_tasks(&mut self, now: Instant, _geometry_dirty: bool) -> bool {
         let mut changed = false;
-        let mut resized = false;
 
         self.sync_animation_timer(now);
 
         if now >= self.next_resize_poll {
-            resized = self.handle_resize_poll();
-            changed |= resized;
+            changed |= self.handle_resize_poll();
             self.next_resize_poll = now + RESIZE_POLL_INTERVAL;
         }
 
@@ -240,36 +272,6 @@ impl App {
             self.toast_deadline = None;
             self.state.toast = None;
             changed = true;
-        }
-
-        if self
-            .state
-            .next_pending_agent_notification_deadline()
-            .is_some_and(|deadline| now >= deadline)
-        {
-            let previous_toast = self.state.toast.clone();
-            let mut deliveries = self.state.drain_due_agent_notifications(now);
-            if !deliveries.is_empty() {
-                self.refresh_agent_notification_delivery_contexts(&mut deliveries);
-                self.emit_delayed_client_local_agent_notifications(&deliveries);
-                self.sync_toast_deadline(previous_toast);
-                changed = true;
-            }
-        }
-
-        if self
-            .state
-            .next_managed_agent_deadline()
-            .is_some_and(|deadline| now >= deadline)
-        {
-            let panes = self.state.reconcile_managed_agents_at(now);
-            if !panes.is_empty() {
-                for (ws_idx, pane_id) in panes {
-                    self.emit_pane_updated(ws_idx, pane_id);
-                }
-                self.schedule_session_save();
-                changed = true;
-            }
         }
 
         if self
@@ -303,13 +305,6 @@ impl App {
         self.start_git_status_refresh_if_due(now);
 
         if self
-            .next_agent_manifest_update_check
-            .is_some_and(|deadline| now >= deadline)
-        {
-            self.run_agent_manifest_update_check();
-        }
-
-        if self
             .session_save_deadline
             .is_some_and(|deadline| now >= deadline)
         {
@@ -319,12 +314,6 @@ impl App {
         changed |= self.expire_due_metadata(now);
         changed |= self.expire_due_annotations(now);
 
-        if geometry_dirty || resized {
-            self.pending_agent_resume_deadline = None;
-        } else {
-            self.sync_pending_agent_resume_deadline(now);
-            changed |= self.start_pending_agent_resumes(self.pending_agent_resume_due(now));
-        }
         self.sync_animation_timer(now);
         changed
     }
@@ -381,12 +370,7 @@ impl App {
         true
     }
 
-    pub(crate) fn expire_metadata_at(&mut self, deadline: Instant, now: Instant) {
-        let previous_toast = self.state.toast.clone();
-        for update in self.state.expire_agent_metadata_at(deadline, now) {
-            self.refresh_new_kitsune_toast_context_for_update(&update, &previous_toast);
-            self.emit_pane_state_update(&update);
-        }
+    pub(crate) fn expire_metadata_at(&mut self, _deadline: Instant, now: Instant) {
         let (panes, workspaces) = self.state.expire_metadata_tokens(now);
         for (ws_idx, pane_id) in panes {
             self.emit_pane_updated(ws_idx, pane_id);
@@ -401,12 +385,17 @@ impl App {
         self.sync_animation_timer_with_interval(now, ANIMATION_INTERVAL);
     }
 
-    pub(crate) fn sync_headless_animation_timer(&mut self, now: Instant) {
-        self.sync_animation_timer_with_interval(now, crate::app::HEADLESS_ANIMATION_INTERVAL);
+    pub(crate) fn sync_headless_animation_timer(&mut self, now: Instant, has_app_renderer: bool) {
+        if has_app_renderer {
+            self.sync_animation_timer_with_interval(now, crate::app::HEADLESS_ANIMATION_INTERVAL);
+        } else {
+            // Saved client geometry is not an animation audience while detached.
+            self.next_animation_tick = None;
+        }
     }
 
     fn sync_animation_timer_with_interval(&mut self, now: Instant, interval: Duration) {
-        if self.agent_panel_has_animation() {
+        if self.agent_panel_has_animation() || self.state.integration_has_animation(now) {
             self.next_animation_tick.get_or_insert(now + interval);
         } else {
             self.next_animation_tick = None;
@@ -505,18 +494,6 @@ impl App {
         }
     }
 
-    pub(crate) fn run_agent_manifest_update_check(&mut self) {
-        if !background_update_check_enabled(self.no_session, self.update_manifest_check_enabled) {
-            self.next_agent_manifest_update_check = None;
-            return;
-        }
-
-        self.next_agent_manifest_update_check = Some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL);
-
-        let manifest_update_tx = self.event_tx.clone();
-        std::thread::spawn(move || crate::detect::manifest_update::auto_update(manifest_update_tx));
-    }
-
     pub(crate) fn next_loop_deadline(&self, now: Instant, needs_render: bool) -> Option<Instant> {
         self.next_loop_deadline_with_resize_poll(now, needs_render, true, true)
     }
@@ -549,17 +526,13 @@ impl App {
             include_resize_poll.then_some(self.next_resize_poll),
             self.config_diagnostic_deadline,
             self.toast_deadline,
-            self.state.next_pending_agent_notification_deadline(),
-            self.state.next_managed_agent_deadline(),
             self.copy_feedback_deadline,
             self.next_animation_tick,
             include_git_refresh
                 .then(|| self.git_refresh_deadline())
                 .flatten(),
-            self.next_agent_manifest_update_check,
             self.agent_metadata_deadline,
             self.state.next_annotation_deadline,
-            self.pending_agent_resume_deadline,
             self.session_save_deadline,
             self.selection_autoscroll_deadline,
             self.selection_highlight_clear_deadline,
@@ -607,6 +580,100 @@ mod tests {
     use super::*;
     use crate::app::state;
     use crate::workspace::Workspace;
+
+    #[test]
+    fn integration_running_animates_quiet_local_and_headless_without_fact_refresh() {
+        use crate::api::schema::{
+            IntegrationViewItem, IntegrationViewPresentation, IntegrationViewStatus,
+            ViewOpenParams, ViewReplaceParams,
+        };
+        use ratatui::layout::Rect;
+        let now = Instant::now();
+        let mut state = crate::app::AppState::test_new();
+        state
+            .integration_views
+            .reconfigure(vec!["coven".into()])
+            .unwrap();
+        let owner = state
+            .integration_views
+            .open(
+                &ViewOpenParams {
+                    source: "coven".into(),
+                    version: 2,
+                },
+                now,
+            )
+            .unwrap();
+        let mut frame = ViewReplaceParams {
+            source: "coven".into(),
+            lease: owner.lease,
+            epoch: owner.epoch,
+            revision: 1,
+            items: vec![IntegrationViewItem {
+                information: None,
+                id: "i".into(),
+                label: "Working".into(),
+                detail: "private detail".into(),
+                presentation: Some(IntegrationViewPresentation {
+                    label: "Djinn".into(),
+                    status: Some(IntegrationViewStatus::Running),
+                }),
+            }],
+        };
+        state.integration_views.replace(&frame, now).unwrap();
+        crate::ui::compute_view(&mut state, Rect::new(0, 0, 100, 28));
+        state.commit_integration_views_render();
+        let capture = state.integration_views_displayed.clone();
+        let mut app = crate::app::test_support::app_from_state(state);
+        app.next_resize_poll = now + Duration::from_secs(10);
+        assert!(!app.agent_panel_has_animation());
+        app.sync_animation_timer(now);
+        assert_eq!(app.next_animation_tick, Some(now + ANIMATION_INTERVAL));
+        let glyph = crate::ui::spinner_frame(app.state.spinner_tick);
+        for n in 1..=8 {
+            app.handle_scheduled_tasks(now + ANIMATION_INTERVAL * n, false);
+        }
+        assert_ne!(glyph, crate::ui::spinner_frame(app.state.spinner_tick));
+        assert_eq!(
+            app.state
+                .integration_views
+                .project("coven", now)
+                .unwrap()
+                .revision,
+            1
+        );
+        assert_eq!(capture, app.state.integration_views_displayed);
+        app.next_animation_tick = None;
+        app.sync_headless_animation_timer(now, true);
+        assert_eq!(
+            app.next_animation_tick,
+            Some(now + crate::app::HEADLESS_ANIMATION_INTERVAL)
+        );
+        app.state.integration_animations = false;
+        app.sync_animation_timer(now);
+        assert!(app.next_animation_tick.is_none());
+        app.state.integration_animations = true;
+        app.state
+            .collapsed_sidebar_sections
+            .insert(crate::ui::SectionId::Integration("coven".into()));
+        app.sync_animation_timer(now);
+        assert!(app.next_animation_tick.is_none());
+        app.state.open_integration_inspector();
+        app.state
+            .compute_integration_inspector(Rect::new(0, 0, 80, 24), now);
+        app.sync_animation_timer(now);
+        assert!(app.next_animation_tick.is_some());
+        frame.revision = 2;
+        frame.items[0].presentation.as_mut().unwrap().status = None;
+        app.state.integration_views.replace(&frame, now).unwrap();
+        app.sync_animation_timer(now);
+        assert!(app.next_animation_tick.is_none());
+        frame.revision = 3;
+        frame.items[0].presentation.as_mut().unwrap().status = Some(IntegrationViewStatus::Running);
+        app.state.integration_views.replace(&frame, now).unwrap();
+        app.sync_animation_timer(now + Duration::from_secs(5));
+        assert!(app.next_animation_tick.is_none());
+    }
 
     #[test]
     fn interrupted_custom_command_wait_keeps_child_for_retry() {
@@ -659,12 +726,15 @@ mod tests {
                 )
                 .unwrap();
         }
-        state.integration_view_selected = Some("beta".into());
+        state.sidebar_section_focus = crate::ui::SectionId::Integration("beta".into());
         state.integration_view_scrolls.insert("beta".into(), 9);
         state.sync_annotation_deadline(now);
         let mut app = crate::app::test_support::app_from_state(state);
         assert!(app.expire_due_annotations(now + Duration::from_secs(5)));
-        assert_eq!(app.state.integration_view_selected.as_deref(), Some("beta"));
+        assert_eq!(
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Integration("beta".into())
+        );
         assert_eq!(app.state.integration_view_scrolls["beta"], 9);
         assert_eq!(
             app.state.next_annotation_deadline,
@@ -707,9 +777,11 @@ mod tests {
                     epoch: owner.epoch,
                     revision: 1,
                     items: vec![IntegrationViewItem {
+                        information: None,
                         id: "item".into(),
                         label: "external declaration".into(),
                         detail: String::new(),
+                        presentation: None,
                     }],
                 },
                 now,
@@ -1172,91 +1244,5 @@ mod tests {
         // At scrollback bottom, can't scroll further down — should stop
         assert!(app.state.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
-    }
-
-    #[tokio::test]
-    async fn raw_input_batch_does_not_start_pending_agent_resume_before_render() {
-        let (mut app, pane_id) = test_app_with_pane();
-        app.state.ensure_test_terminals();
-        let terminal_id = app.state.workspaces[0]
-            .terminal_id(pane_id)
-            .cloned()
-            .expect("test pane should have a terminal");
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .expect("test terminal should exist")
-            .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
-            agent: "codex".into(),
-            argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
-            dedupe_key: "kitsune:codex\0codex\0Id\0codex-session".into(),
-        });
-
-        assert!(
-            app.handle_raw_input_batch(crate::raw_input::RawInputEvent::HostDefaultColor {
-                kind: crate::terminal_theme::DefaultColorKind::Foreground,
-                color: crate::terminal_theme::RgbColor {
-                    r: 220,
-                    g: 220,
-                    b: 220,
-                },
-            })
-            .await
-        );
-        assert!(
-            app.terminal_runtimes.get(&terminal_id).is_none(),
-            "raw input can mutate active geometry; pending resumes must wait for render to refresh pane_infos"
-        );
-        assert!(app
-            .state
-            .terminals
-            .get(&terminal_id)
-            .expect("test terminal should still exist")
-            .pending_agent_resume_plan
-            .is_some());
-    }
-
-    #[tokio::test]
-    async fn scheduled_tasks_do_not_start_pending_agent_resume_when_geometry_dirty() {
-        let (mut app, pane_id) = test_app_with_pane();
-        app.state.ensure_test_terminals();
-        app.state.host_terminal_theme = crate::terminal_theme::TerminalTheme {
-            foreground: Some(crate::terminal_theme::RgbColor {
-                r: 220,
-                g: 220,
-                b: 220,
-            }),
-            background: Some(crate::terminal_theme::RgbColor {
-                r: 20,
-                g: 20,
-                b: 20,
-            }),
-            ..Default::default()
-        };
-        let terminal_id = app.state.workspaces[0]
-            .terminal_id(pane_id)
-            .cloned()
-            .expect("test pane should have a terminal");
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .expect("test terminal should exist")
-            .pending_agent_resume_plan = Some(crate::agent_resume::AgentResumePlan {
-            agent: "codex".into(),
-            argv: vec!["/bin/sh".into(), "-c".into(), "sleep 5".into()],
-            dedupe_key: "kitsune:codex\0codex\0Id\0codex-session".into(),
-        });
-        app.pending_agent_resume_deadline = Some(Instant::now() - Duration::from_millis(1));
-
-        assert!(!app.handle_scheduled_tasks(Instant::now(), true));
-        assert!(app.terminal_runtimes.get(&terminal_id).is_none());
-        assert!(app
-            .state
-            .terminals
-            .get(&terminal_id)
-            .expect("test terminal should still exist")
-            .pending_agent_resume_plan
-            .is_some());
-        assert!(app.pending_agent_resume_deadline.is_none());
     }
 }

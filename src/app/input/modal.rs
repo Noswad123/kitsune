@@ -2052,11 +2052,7 @@ mod tests {
             crate::app::state::NavigatorScope::Agents
         );
         let rows = state.navigator_rows_from(&terminal_runtimes);
-        assert_eq!(rows.len(), 1);
-        assert!(matches!(
-            rows[0].target,
-            crate::app::state::NavigatorTarget::Pane { .. }
-        ));
+        assert!(rows.is_empty());
 
         handle_navigator_key(
             &mut state,
@@ -2072,7 +2068,7 @@ mod tests {
     }
 
     #[test]
-    fn navigator_agent_scope_r_opens_pane_rename_for_selected_agent() {
+    fn historical_agent_scope_cannot_rename_a_pane() {
         let mut state = state_with_workspaces(&["alpha"]);
         let terminal_runtimes = crate::terminal::TerminalRuntimeRegistry::new();
         state.ensure_test_terminals();
@@ -2092,9 +2088,12 @@ mod tests {
             KeyEvent::new(KeyCode::Char('r'), KeyModifiers::empty()),
         );
 
-        assert_eq!(state.mode, Mode::RenamePane);
-        assert_eq!(state.rename_pane_target, Some(pane_id));
-        assert_eq!(state.name_input, "old pane");
+        assert_eq!(state.mode, Mode::Navigator);
+        assert_eq!(state.rename_pane_target, None);
+        assert_eq!(
+            state.terminals[&terminal_id].manual_label.as_deref(),
+            Some("old pane")
+        );
     }
 
     #[test]

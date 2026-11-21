@@ -35,7 +35,7 @@ fn integration_status(args: &[String]) -> std::io::Result<i32> {
     };
 
     if outdated_only {
-        crate::integration::print_outdated_update_notice();
+        // Compatibility syntax only: retired integrations have no update candidates.
         return Ok(0);
     }
 
@@ -142,12 +142,7 @@ fn parse_integration_target(
 
 fn print_integration_help() {
     eprintln!("{} integration commands:", crate::product::cli_name());
-    for target in ["pi", "claude", "codex", "copilot", "opencode", "djinn"] {
-        eprintln!(
-            "  {}",
-            crate::product::command(&format!("integration install {target}"))
-        );
-    }
+    eprintln!("  integration install is retired (feature_retired); legacy cleanup only");
     for target in ["pi", "claude", "codex", "copilot", "opencode", "djinn"] {
         eprintln!(
             "  {}",

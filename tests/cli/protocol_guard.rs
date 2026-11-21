@@ -1,10 +1,9 @@
 use super::harness::*;
 
 #[test]
-fn cli_rejects_protocol_mismatch_before_agent_wait_request() {
-    let base = unique_test_dir();
-    fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("kitsune.sock");
+fn cli_rejects_protocol_mismatch_before_generic_pane_read_request() {
+    let base = super::agent_transport::RetirementTestDirectory::new();
+    let socket_path = base.path().join("kitsune.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -18,7 +17,7 @@ fn cli_rejects_protocol_mismatch_before_agent_wait_request() {
         } else {
             first_stream
                 .write_all(
-                    br#"{"id":"cli:agent:wait","error":{"code":"not_implemented","message":"method not implemented yet"}}"#,
+                    br#"{"id":"cli:pane:read","error":{"code":"not_implemented","message":"method not implemented yet"}}"#,
                 )
                 .unwrap();
         }
@@ -49,23 +48,12 @@ fn cli_rejects_protocol_mismatch_before_agent_wait_request() {
         (first_line, second_line)
     });
 
-    let waited = run_cli(
-        &socket_path,
-        &[
-            "agent",
-            "wait",
-            "1-1",
-            "--until",
-            "idle",
-            "--timeout",
-            "5000",
-        ],
-    );
+    let waited = run_cli(&socket_path, &["pane", "read", "w1:p1"]);
 
     assert_eq!(waited.status.code(), Some(1));
     assert!(waited.stdout.is_empty());
     let error: serde_json::Value = serde_json::from_slice(&waited.stderr).unwrap();
-    assert_eq!(error["id"], "cli:agent:wait");
+    assert_eq!(error["id"], "cli:pane:read");
     assert_eq!(error["error"]["code"], "protocol_mismatch");
     let message = error["error"]["message"].as_str().unwrap();
     assert!(
@@ -82,6 +70,4 @@ fn cli_rejects_protocol_mismatch_before_agent_wait_request() {
         second_line.is_none(),
         "mismatched CLI sent an operational request: {second_line:?}"
     );
-
-    cleanup_test_base(&base);
 }

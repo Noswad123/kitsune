@@ -282,6 +282,50 @@ mod tests {
     use super::*;
     use crate::{api::schema::SuccessResponse, config::Config, workspace::Workspace};
 
+    #[test]
+    fn workspace_git_branch_projection_is_cached_generic_and_side_effect_free() {
+        let mut app = crate::app::test_support::app_from_state(crate::app::AppState::test_new());
+        app.state.workspaces = vec![Workspace::test_new("Human project")];
+        let ws = &mut app.state.workspaces[0];
+        ws.cached_git_branch = Some("feature/generic".into());
+        ws.cached_git_branch_identity =
+            Some((ws.cached_identity_cwd.clone(), ws.cached_git_space.clone()));
+        let before = (
+            app.state.active,
+            app.state.mode,
+            app.state.workspaces[0].cached_git_branch.clone(),
+        );
+        let info = app.workspace_info(0);
+        assert_eq!(info.git_branch.as_deref(), Some("feature/generic"));
+        assert_eq!(info.label, "Human project");
+        assert_eq!(
+            serde_json::to_value(&info).unwrap()["git_branch"],
+            "feature/generic"
+        );
+        let mut old_json = serde_json::to_value(&info).unwrap();
+        old_json.as_object_mut().unwrap().remove("git_branch");
+        assert!(
+            serde_json::from_value::<crate::api::schema::WorkspaceInfo>(old_json)
+                .unwrap()
+                .git_branch
+                .is_none()
+        );
+        assert_eq!(
+            before,
+            (
+                app.state.active,
+                app.state.mode,
+                app.state.workspaces[0].cached_git_branch.clone()
+            )
+        );
+        app.state.workspaces[0].identity_cwd = "/unverified/new/cwd".into();
+        assert!(app.workspace_info(0).git_branch.is_none());
+        assert!(serde_json::to_value(app.workspace_info(0))
+            .unwrap()
+            .get("git_branch")
+            .is_none());
+    }
+
     // `new_cwd = follow` must anchor on the focused pane for every creation
     // surface. Splits and tabs already do; a new workspace must follow the
     // focused pane too, not the source workspace's first-tab root pane.

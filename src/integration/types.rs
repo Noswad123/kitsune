@@ -1,33 +1,5 @@
 use std::path::PathBuf;
 
-#[cfg(any(test, not(target_os = "linux")))]
-#[derive(Debug)]
-pub(crate) struct ClaudeInstallPaths {
-    pub hook_path: PathBuf,
-    pub settings_path: PathBuf,
-}
-
-#[cfg(any(test, not(target_os = "linux")))]
-#[derive(Debug)]
-pub(crate) struct CodexInstallPaths {
-    pub hook_path: PathBuf,
-    pub hooks_path: PathBuf,
-    pub config_path: PathBuf,
-}
-
-#[cfg(any(test, not(target_os = "linux")))]
-#[derive(Debug)]
-pub(crate) struct CopilotInstallPaths {
-    pub hook_path: PathBuf,
-    pub settings_path: PathBuf,
-}
-
-#[cfg(any(test, not(target_os = "linux")))]
-#[derive(Debug)]
-pub(crate) struct OpenCodeInstallPaths {
-    pub plugin_path: PathBuf,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct IntegrationStatus {
     pub target: crate::api::schema::IntegrationTarget,
@@ -42,32 +14,6 @@ pub(crate) enum IntegrationStatusKind {
     NotInstalled,
     Current,
     Outdated,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct IntegrationRecommendation {
-    pub target: crate::api::schema::IntegrationTarget,
-    pub label: &'static str,
-    pub command: &'static str,
-    pub available: bool,
-    pub path: PathBuf,
-    pub state: IntegrationStatusKind,
-}
-
-impl IntegrationRecommendation {
-    pub fn needs_install(&self) -> bool {
-        self.state == IntegrationStatusKind::Outdated
-            || (self.available && self.state == IntegrationStatusKind::NotInstalled)
-    }
-
-    pub fn status_label(&self) -> &'static str {
-        match (self.available, self.state) {
-            (_, IntegrationStatusKind::Current) => "installed",
-            (_, IntegrationStatusKind::Outdated) => "update available",
-            (true, IntegrationStatusKind::NotInstalled) => "available",
-            (false, IntegrationStatusKind::NotInstalled) => "not found",
-        }
-    }
 }
 
 #[derive(Debug)]

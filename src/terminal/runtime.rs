@@ -12,11 +12,20 @@ use crate::layout::PaneId;
 /// The PTY implementation still delegates to the legacy pane runtime while the
 /// migration proceeds, but production code now depends on this terminal-layer
 /// type instead of the pane module's implementation detail.
-pub struct TerminalRuntime(crate::pane::PaneRuntime);
+pub struct TerminalRuntime(crate::pane::PaneRuntime, String);
 
 impl TerminalRuntime {
-    pub(crate) fn detector_epoch(&self) -> super::evidence::DetectorEpoch {
-        self.0.detector_epoch()
+    fn new(runtime: crate::pane::PaneRuntime) -> Self {
+        Self(runtime, uuid::Uuid::new_v4().to_string())
+    }
+
+    /// Ephemeral PTY runtime incarnation, never persisted or imported during handoff.
+    pub(crate) fn runtime_generation(&self) -> &str {
+        &self.1
+    }
+
+    pub(crate) fn process_exited(&self) -> bool {
+        self.0.process_exited()
     }
 
     pub fn shutdown(self) {
@@ -78,7 +87,7 @@ impl TerminalRuntime {
             render_notify,
             render_dirty,
         )
-        .map(Self)
+        .map(Self::new)
     }
 
     pub fn spawn(
@@ -107,7 +116,7 @@ impl TerminalRuntime {
             render_notify,
             render_dirty,
         )
-        .map(Self)
+        .map(Self::new)
     }
 
     // Wrapper mirrors pane runtime construction arguments.
@@ -140,7 +149,7 @@ impl TerminalRuntime {
             render_notify,
             render_dirty,
         )
-        .map(Self)
+        .map(Self::new)
     }
 
     // Wrapper mirrors pane runtime construction arguments.
@@ -152,7 +161,6 @@ impl TerminalRuntime {
         cwd: std::path::PathBuf,
         command: &str,
         launch_env: &crate::pane::PaneLaunchEnv,
-        agent_detection: crate::pane::AgentDetection,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         events: mpsc::Sender<AppEvent>,
@@ -166,17 +174,16 @@ impl TerminalRuntime {
             cwd,
             command,
             launch_env,
-            agent_detection,
             scrollback_limit_bytes,
             host_terminal_theme,
             events,
             render_notify,
             render_dirty,
         )
-        .map(Self)
+        .map(Self::new)
     }
 
-    // Wrapper mirrors pane runtime construction arguments, including detection policy.
+    // Wrapper mirrors pane runtime construction arguments.
     #[allow(clippy::too_many_arguments)]
     pub fn spawn_argv_command(
         pane_id: PaneId,
@@ -185,7 +192,6 @@ impl TerminalRuntime {
         cwd: std::path::PathBuf,
         argv: &[String],
         launch_env: &crate::pane::PaneLaunchEnv,
-        agent_detection: crate::pane::AgentDetection,
         scrollback_limit_bytes: usize,
         host_terminal_theme: crate::terminal_theme::TerminalTheme,
         events: mpsc::Sender<AppEvent>,
@@ -199,47 +205,17 @@ impl TerminalRuntime {
             cwd,
             argv,
             launch_env,
-            agent_detection,
             scrollback_limit_bytes,
             host_terminal_theme,
             events,
             render_notify,
             render_dirty,
         )
-        .map(Self)
+        .map(Self::new)
     }
 
     pub fn apply_host_terminal_theme(&self, theme: crate::terminal_theme::TerminalTheme) {
         self.0.apply_host_terminal_theme(theme);
-    }
-
-    pub fn begin_graceful_release(&self, agent: crate::detect::Agent) {
-        self.0.begin_graceful_release(agent);
-    }
-
-    pub fn reset_agent_detection(&self) {
-        self.0.reset_agent_detection();
-    }
-
-    #[cfg(test)]
-    pub(crate) fn agent_detection_reset_notify_for_test(
-        &self,
-    ) -> std::sync::Arc<tokio::sync::Notify> {
-        self.0.agent_detection_reset_notify_for_test()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn agent_detection_wake_notify_for_test(&self) -> Arc<Notify> {
-        self.0.agent_detection_wake_notify_for_test()
-    }
-
-    #[cfg(test)]
-    pub(crate) fn agent_detection_enabled_for_test(&self) -> bool {
-        self.0.agent_detection_enabled_for_test()
-    }
-
-    pub fn set_full_lifecycle_authority_active(&self, active: bool) {
-        self.0.set_full_lifecycle_authority_active(active);
     }
 
     pub fn resize(&self, rows: u16, cols: u16, cell_width_px: u32, cell_height_px: u32) {
@@ -329,14 +305,6 @@ impl TerminalRuntime {
 
     pub fn terminal_title(&self) -> Option<String> {
         self.0.terminal_title()
-    }
-
-    pub fn agent_osc_title(&self) -> String {
-        self.0.agent_osc_title()
-    }
-
-    pub fn agent_osc_progress(&self) -> String {
-        self.0.agent_osc_progress()
     }
 
     pub fn recent_text(&self, lines: usize) -> String {
@@ -477,6 +445,10 @@ impl TerminalRuntime {
         self.0.cwd()
     }
 
+    pub(crate) fn cached_cwd(&self) -> Option<std::path::PathBuf> {
+        self.0.cached_cwd()
+    }
+
     pub fn follow_cwd(&self) -> Option<std::path::PathBuf> {
         self.0.follow_cwd()
     }
@@ -498,7 +470,7 @@ impl TerminalRuntime {
 impl TerminalRuntime {
     pub(crate) fn test_with_channel(cols: u16, rows: u16) -> (Self, mpsc::Receiver<Bytes>) {
         let (runtime, rx) = crate::pane::PaneRuntime::test_with_channel(cols, rows);
-        (Self(runtime), rx)
+        (Self::new(runtime), rx)
     }
 
     pub(crate) fn test_with_channel_capacity(
@@ -508,11 +480,11 @@ impl TerminalRuntime {
     ) -> (Self, mpsc::Receiver<Bytes>) {
         let (runtime, rx) =
             crate::pane::PaneRuntime::test_with_channel_capacity(cols, rows, capacity);
-        (Self(runtime), rx)
+        (Self::new(runtime), rx)
     }
 
     pub(crate) fn test_with_screen_bytes(cols: u16, rows: u16, bytes: &[u8]) -> Self {
-        Self(crate::pane::PaneRuntime::test_with_screen_bytes(
+        Self::new(crate::pane::PaneRuntime::test_with_screen_bytes(
             cols, rows, bytes,
         ))
     }
@@ -527,7 +499,7 @@ impl TerminalRuntime {
         scrollback_limit_bytes: usize,
         bytes: &[u8],
     ) -> Self {
-        Self(crate::pane::PaneRuntime::test_with_scrollback_bytes(
+        Self::new(crate::pane::PaneRuntime::test_with_scrollback_bytes(
             cols,
             rows,
             scrollback_limit_bytes,
@@ -549,6 +521,29 @@ impl TerminalRuntime {
             bytes,
             channel_capacity,
         );
-        (Self(runtime), rx)
+        (Self::new(runtime), rx)
+    }
+
+    pub(crate) fn test_set_process_exited(&mut self, exited: bool) {
+        self.0.test_set_process_exited(exited);
+    }
+
+    pub(crate) fn test_set_child_pid(&mut self, pid: u32) {
+        self.0.test_set_child_pid(pid);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn runtime_generation_is_a_fresh_uuid_independent_of_process_id() {
+        let (first, _first_input) = TerminalRuntime::test_with_channel(80, 24);
+        let (second, _second_input) = TerminalRuntime::test_with_channel(80, 24);
+        assert_eq!(first.child_pid(), second.child_pid());
+        assert!(uuid::Uuid::parse_str(first.runtime_generation()).is_ok());
+        assert!(uuid::Uuid::parse_str(second.runtime_generation()).is_ok());
+        assert_ne!(first.runtime_generation(), second.runtime_generation());
     }
 }

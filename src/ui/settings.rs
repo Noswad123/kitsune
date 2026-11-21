@@ -25,7 +25,7 @@ pub(crate) fn settings_popup_height(app: &AppState) -> u16 {
     if app.settings.section != crate::app::state::SettingsSection::Integrations {
         return SETTINGS_POPUP_BASE_HEIGHT;
     }
-    let list_rows = app.integration_recommendations.len().max(1) as u16;
+    let list_rows = 1u16;
     let footer_rows = integrations_footer_height(app, SETTINGS_POPUP_WIDTH - 2);
     // borders 2 + header 3 + stack gaps 2 + modal footer 2
     // + section title 1 + description 2 + spacers 2
@@ -203,19 +203,13 @@ pub(crate) fn settings_primary_button_label(
     section: crate::app::state::SettingsSection,
 ) -> &'static str {
     match section {
-        crate::app::state::SettingsSection::Integrations => "install",
+        crate::app::state::SettingsSection::Integrations => "close",
         _ => "apply",
     }
 }
 
 pub(crate) fn settings_show_primary_action(app: &AppState) -> bool {
-    match app.settings.section {
-        crate::app::state::SettingsSection::Integrations => app
-            .integration_recommendations
-            .iter()
-            .any(crate::integration::IntegrationRecommendation::needs_install),
-        _ => true,
-    }
+    app.settings.section != crate::app::state::SettingsSection::Integrations
 }
 
 pub(crate) fn settings_button_rects(
@@ -255,36 +249,7 @@ pub(crate) fn settings_button_rects(
 }
 
 fn integrations_footer_paragraph(app: &AppState) -> Paragraph<'static> {
-    let p = &app.palette;
-    let mut footer_lines = Vec::new();
-    if !app.integration_install_messages.is_empty() {
-        for message in &app.integration_install_messages {
-            footer_lines.push(Line::from(Span::styled(
-                format!(" {message}"),
-                Style::default().fg(p.overlay1),
-            )));
-        }
-    } else {
-        let found_any = app.integration_recommendations.iter().any(|item| {
-            item.available || item.state != crate::integration::IntegrationStatusKind::NotInstalled
-        });
-        let hint = if app
-            .integration_recommendations
-            .iter()
-            .any(crate::integration::IntegrationRecommendation::needs_install)
-        {
-            " press install to add available or outdated integrations"
-        } else if found_any {
-            " all detected integrations are installed"
-        } else {
-            " no supported agent CLIs found on PATH"
-        };
-        footer_lines.push(Line::from(Span::styled(
-            hint.to_string(),
-            Style::default().fg(p.overlay1),
-        )));
-    }
-    Paragraph::new(footer_lines).wrap(ratatui::widgets::Wrap { trim: false })
+    Paragraph::new("Legacy hooks are cleanup-only. Run `kitsune integration status` to inspect saved hooks, or `kitsune integration uninstall <target>` for explicit removal.").style(Style::default().fg(app.palette.overlay1)).wrap(ratatui::widgets::Wrap { trim: false })
 }
 
 fn integrations_footer_height(app: &AppState, width: u16) -> u16 {
@@ -314,47 +279,16 @@ fn render_settings_integrations(app: &AppState, frame: &mut Frame, area: Rect) {
     );
     frame.render_widget(
         Paragraph::new(
-            "compatibility hook installers; separate from the generic Integrations menu",
+            "Native hook installation is retired; generic Integrations remain available",
         )
         .style(Style::default().fg(p.overlay1))
         .wrap(ratatui::widgets::Wrap { trim: false }),
         rows[1],
     );
 
-    let mut lines = Vec::new();
-    for item in &app.integration_recommendations {
-        let marker = match item.state {
-            crate::integration::IntegrationStatusKind::Current => "✓",
-            crate::integration::IntegrationStatusKind::Outdated => "↻",
-            crate::integration::IntegrationStatusKind::NotInstalled if item.available => "+",
-            crate::integration::IntegrationStatusKind::NotInstalled => "–",
-        };
-        let marker_style = match item.state {
-            crate::integration::IntegrationStatusKind::Current => Style::default().fg(p.green),
-            crate::integration::IntegrationStatusKind::Outdated => Style::default().fg(p.yellow),
-            crate::integration::IntegrationStatusKind::NotInstalled if item.available => {
-                Style::default().fg(p.accent)
-            }
-            crate::integration::IntegrationStatusKind::NotInstalled => {
-                Style::default().fg(p.overlay0)
-            }
-        };
-        lines.push(Line::from(vec![
-            Span::styled(format!(" {marker} "), marker_style),
-            Span::styled(
-                format!("{:<9}", item.label),
-                Style::default().fg(p.subtext0),
-            ),
-            Span::styled(item.status_label(), Style::default().fg(p.overlay1)),
-        ]));
-    }
-
-    if lines.is_empty() {
-        lines.push(Line::from(Span::styled(
-            " no integration targets available",
-            Style::default().fg(p.overlay1),
-        )));
-    }
+    let lines = vec![Line::from(
+        " No native provider discovery or installation is performed.",
+    )];
 
     frame.render_widget(Paragraph::new(lines), rows[3]);
     frame.render_widget(footer, rows[5]);

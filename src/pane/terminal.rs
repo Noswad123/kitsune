@@ -30,8 +30,8 @@ use super::{
         contains_scrollback_clear_sequence, current_transient_default_color_owner,
         maybe_filter_primary_screen_scrollback_clear, parse_reported_cwd,
         restore_host_terminal_theme_if_needed, write_host_terminal_theme_selective,
-        AgentOscStateTracker, DefaultColorEvent, DefaultColorEventTracker, DefaultColorOscTracker,
-        DefaultColorQuery, DefaultColorTrackedEvent, OscDebugTracker,
+        DefaultColorEvent, DefaultColorEventTracker, DefaultColorOscTracker, DefaultColorQuery,
+        DefaultColorTrackedEvent, OscDebugTracker, TerminalTitleTracker,
     },
     xtgettcap::{XtgettcapQueryTracker, XtgettcapResponse},
 };
@@ -168,7 +168,7 @@ pub(crate) struct GhosttyPaneCore {
     pub child_default_foreground_changed: bool,
     pub child_default_background_changed: bool,
     pub osc_debug_tracker: OscDebugTracker,
-    pub agent_osc_state: AgentOscStateTracker,
+    pub terminal_title_tracker: TerminalTitleTracker,
     pub xtgettcap_query_tracker: XtgettcapQueryTracker,
     decscusr_tracker: DecscusrTracker,
     cursor_settle_state: CursorPositionSettleState,
@@ -448,10 +448,6 @@ impl PaneTerminal {
         self.ghostty.apply_host_terminal_theme(theme);
     }
 
-    pub fn has_transient_default_color_override(&self) -> bool {
-        self.ghostty.has_transient_default_color_override()
-    }
-
     pub fn maybe_restore_host_terminal_theme(&self, pane_id: PaneId, shell_pid: u32) -> bool {
         self.ghostty
             .maybe_restore_host_terminal_theme(pane_id, shell_pid)
@@ -459,21 +455,6 @@ impl PaneTerminal {
 
     pub fn terminal_title(&self) -> Option<String> {
         self.ghostty.terminal_title()
-    }
-
-    #[allow(dead_code)] // exposed for Stage C (detection loop wiring)
-    pub fn agent_osc_title(&self) -> String {
-        self.ghostty.agent_osc_title()
-    }
-
-    #[allow(dead_code)] // exposed for Stage C (detection loop wiring)
-    pub fn agent_osc_progress(&self) -> String {
-        self.ghostty.agent_osc_progress()
-    }
-
-    /// Clears retained OSC title/progress evidence on foreground agent change.
-    pub fn clear_agent_osc_state(&self) {
-        self.ghostty.clear_agent_osc_state()
     }
 
     pub fn keyboard_protocol(
@@ -929,7 +910,7 @@ impl GhosttyPaneTerminal {
                 child_default_foreground_changed: false,
                 child_default_background_changed: false,
                 osc_debug_tracker: OscDebugTracker::default(),
-                agent_osc_state: AgentOscStateTracker::default(),
+                terminal_title_tracker: TerminalTitleTracker::default(),
                 xtgettcap_query_tracker: XtgettcapQueryTracker::default(),
                 decscusr_tracker: DecscusrTracker::default(),
                 cursor_settle_state: CursorPositionSettleState::default(),
@@ -978,6 +959,7 @@ impl GhosttyPaneTerminal {
         }
     }
 
+    #[cfg(test)]
     pub fn has_transient_default_color_override(&self) -> bool {
         self.core
             .lock()
@@ -986,6 +968,17 @@ impl GhosttyPaneTerminal {
     }
 
     pub fn maybe_restore_host_terminal_theme(&self, pane_id: PaneId, shell_pid: u32) -> bool {
+        self.maybe_restore_host_terminal_theme_with_probe(pane_id, shell_pid, || {
+            crate::platform::foreground_job(shell_pid)
+        })
+    }
+
+    pub(super) fn maybe_restore_host_terminal_theme_with_probe(
+        &self,
+        pane_id: PaneId,
+        shell_pid: u32,
+        probe: impl FnOnce() -> Option<crate::platform::ForegroundJob>,
+    ) -> bool {
         {
             let Ok(core) = self.core.lock() else {
                 return false;
@@ -995,7 +988,7 @@ impl GhosttyPaneTerminal {
             }
         }
 
-        let foreground_job = crate::detect::foreground_job(shell_pid);
+        let foreground_job = probe();
         let Ok(mut core) = self.core.lock() else {
             return false;
         };
@@ -1015,44 +1008,17 @@ impl GhosttyPaneTerminal {
     }
 
     pub fn terminal_title(&self) -> Option<String> {
-        self.core
-            .lock()
-            .ok()
-            .and_then(|core| core.agent_osc_state.terminal_title().map(str::to_string))
+        self.core.lock().ok().and_then(|core| {
+            core.terminal_title_tracker
+                .terminal_title()
+                .map(str::to_string)
+        })
     }
 
     #[cfg(unix)]
     pub fn seed_terminal_title(&self, title: Option<String>) {
         if let Ok(mut core) = self.core.lock() {
-            core.agent_osc_state.seed_terminal_title(title);
-        }
-    }
-
-    /// Returns the latest OSC 0/2 title retained for agent detection, or `""`
-    /// if no title has been seen or the last update was an empty clear.
-    #[allow(dead_code)] // exposed for Stage C (detection loop wiring)
-    pub fn agent_osc_title(&self) -> String {
-        self.core
-            .lock()
-            .map(|core| core.agent_osc_state.latest_title().to_owned())
-            .unwrap_or_default()
-    }
-
-    /// Returns the latest OSC 9 progress payload retained for agent detection,
-    /// or `""` if none has been seen.
-    #[allow(dead_code)] // exposed for Stage C (detection loop wiring)
-    pub fn agent_osc_progress(&self) -> String {
-        self.core
-            .lock()
-            .map(|core| core.agent_osc_state.latest_progress().to_owned())
-            .unwrap_or_default()
-    }
-
-    /// Clears retained OSC title/progress evidence when the pane's foreground
-    /// agent changes, so a new agent process starts from a blank OSC slate.
-    pub fn clear_agent_osc_state(&self) {
-        if let Ok(mut core) = self.core.lock() {
-            core.agent_osc_state.clear_retained();
+            core.terminal_title_tracker.seed_terminal_title(title);
         }
     }
 
@@ -1099,7 +1065,7 @@ impl GhosttyPaneTerminal {
                 "agent OSC evidence observed"
             );
         }
-        core.agent_osc_state.observe(bytes);
+        core.terminal_title_tracker.observe(bytes);
 
         let alternate_screen = core
             .terminal
@@ -1108,7 +1074,7 @@ impl GhosttyPaneTerminal {
             .unwrap_or(false);
         let filtered_bytes = if shell_pid > 0 {
             let foreground_job = (!alternate_screen && contains_scrollback_clear_sequence(bytes))
-                .then(|| crate::detect::foreground_job(shell_pid))
+                .then(|| crate::platform::foreground_job(shell_pid))
                 .flatten();
             maybe_filter_primary_screen_scrollback_clear(
                 bytes,

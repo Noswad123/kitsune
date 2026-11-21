@@ -8,7 +8,7 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use serde::Deserialize;
@@ -19,14 +19,9 @@ use support::{
 };
 
 fn unique_test_dir() -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    PathBuf::from(format!(
-        "/tmp/kitsune-cross-area-test-{}-{nanos}",
-        std::process::id()
-    ))
+    static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::env::temp_dir().join(format!("x{:x}-{n:x}", std::process::id()))
 }
 
 struct SpawnedKitsune {
@@ -294,52 +289,6 @@ fn pane_read_recent_contains(
     while Instant::now() < deadline {
         let text = pane_read_recent(socket_path, pane_id);
         if text.contains(needle) {
-            return true;
-        }
-        thread::sleep(Duration::from_millis(50));
-    }
-    false
-}
-
-fn pane_report_agent(socket_path: &Path, pane_id: &str, agent: &str, state: &str, source: &str) {
-    let response = send_json_request(
-        socket_path,
-        "pane_report_agent",
-        "pane.report_agent",
-        json!({
-            "pane_id": pane_id,
-            "agent": agent,
-            "state": state,
-            "source": source,
-        }),
-    );
-    assert!(
-        response.get("error").is_none(),
-        "pane.report_agent should succeed: {response}"
-    );
-}
-
-fn pane_agent_status(socket_path: &Path, pane_id: &str) -> Option<String> {
-    let response = send_json_request(
-        socket_path,
-        "pane_get",
-        "pane.get",
-        json!({ "pane_id": pane_id }),
-    );
-    response["result"]["pane"]["agent_status"]
-        .as_str()
-        .map(|status| status.to_string())
-}
-
-fn wait_for_agent_status(
-    socket_path: &Path,
-    pane_id: &str,
-    expected: &str,
-    timeout: Duration,
-) -> bool {
-    let deadline = Instant::now() + timeout;
-    while Instant::now() < deadline {
-        if pane_agent_status(socket_path, pane_id).as_deref() == Some(expected) {
             return true;
         }
         thread::sleep(Duration::from_millis(50));
@@ -747,7 +696,7 @@ fn cross_area_detach_and_reattach_preserves_state() {
 }
 
 #[test]
-fn cross_area_agent_process_survives_detach_and_reattach() {
+fn cross_area_generic_process_survives_detach_and_reattach_without_agent_inference() {
     let _lock = test_lock();
     let base = unique_test_dir();
     let config_home = base.join("config");
@@ -758,7 +707,15 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
     let bin_dir = base.join("bin");
     fs::create_dir_all(&bin_dir).unwrap();
     let fake_pi = bin_dir.join("pi");
-    fs::write(&fake_pi, "#!/bin/sh\nprintf 'Working...\\n'\nsleep 8\n").unwrap();
+    let pid_file = base.join("fixture.pid");
+    let continue_file = base.join("continue");
+    fs::write(
+        &fake_pi,
+        format!(
+            "#!/bin/sh\nprintf '%s\\n' \"$$\" > '{}'\nprintf 'Working...\\n'\nwhile [ ! -f '{}' ]; do sleep 0.05; done\nprintf 'BLOCKED_LITERAL\\n'\nexec sleep 30\n",
+            pid_file.display(), continue_file.display()
+        ),
+    ).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -789,81 +746,103 @@ fn cross_area_agent_process_survives_detach_and_reattach() {
         .expect("root pane id")
         .to_string();
 
-    // Ensure detected agent surface is populated by running fake `pi`.
+    // A legacy executable name and detector-like output remain generic observations.
+    let focused = send_json_request(
+        &api_socket,
+        "focus-fixture",
+        "pane.focus",
+        json!({"pane_id":pane_id}),
+    );
+    assert!(focused.get("error").is_none(), "{focused}");
     pane_send_text(&api_socket, &pane_id, "pi");
     pane_send_input(&api_socket, &pane_id, "");
-    let detected_before_hook = {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let mut detected = false;
-        while Instant::now() < deadline {
-            let response = send_json_request(
-                &api_socket,
-                "pane_get",
-                "pane.get",
-                json!({ "pane_id": &pane_id }),
-            );
-            if response["result"]["pane"]["agent"].as_str() == Some("pi") {
-                detected = true;
-                break;
-            }
-            thread::sleep(Duration::from_millis(60));
-        }
-        detected
+    assert!(pane_read_recent_contains(
+        &api_socket,
+        &pane_id,
+        "Working...",
+        Duration::from_secs(3)
+    ));
+    let fixture_pid: u32 = fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let assert_generic_process = || {
+        let pane = send_json_request(
+            &api_socket,
+            "pane-get",
+            "pane.get",
+            json!({"pane_id":pane_id}),
+        );
+        assert!(pane["result"]["pane"]["agent"].is_null(), "{pane}");
+        assert_eq!(pane["result"]["pane"]["agent_status"], "unknown");
+        assert_eq!(
+            pane["result"]["pane"]["terminal_id"],
+            created["result"]["root_pane"]["terminal_id"]
+        );
+        let process = send_json_request(
+            &api_socket,
+            "process",
+            "pane.process_info",
+            json!({"pane_id":pane_id}),
+        );
+        assert!(
+            process["result"]["process_info"]["foreground_processes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| row["pid"] == fixture_pid),
+            "{process}"
+        );
+        let snapshot = send_json_request(&api_socket, "snapshot", "session.snapshot", json!({}));
+        assert_eq!(snapshot["result"]["snapshot"]["agents"], json!([]));
     };
-    assert!(
-        detected_before_hook,
-        "expected fake pi process to be detected before hook status assertions"
+    assert_generic_process();
+    let working_report = send_json_request(
+        &api_socket,
+        "working-report",
+        "pane.report_agent",
+        json!({"pane_id":pane_id, "agent":"pi", "state":"working", "source":"cross-area-test"}),
     );
+    assert_eq!(working_report["id"], "working-report");
+    assert_eq!(working_report["error"]["code"], "feature_retired");
 
-    // Use agent status surfaces directly instead of a generic sleep command.
-    pane_report_agent(&api_socket, &pane_id, "pi", "working", "cross-area-test");
-    assert!(
-        wait_for_agent_status(&api_socket, &pane_id, "working", Duration::from_secs(3)),
-        "pane agent status should become working before detach"
-    );
-
-    // Detach and ensure status persists through API while detached.
     send_client_detach(&mut client_a);
     drop(client_a);
+    assert_generic_process();
+    assert!(pane_read_recent(&api_socket, &pane_id).contains("Working..."));
 
-    assert!(
-        wait_for_agent_status(&api_socket, &pane_id, "working", Duration::from_secs(3)),
-        "agent status should remain working while detached"
-    );
-
-    // Reattach and ensure client-side state reflects the persisted working status.
     let mut client_b = UnixStream::connect(&client_socket).expect("client B should connect");
     client_handshake(&mut client_b, CURRENT_PROTOCOL, 80, 24);
-    let saw_working_on_client =
-        wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
-            ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-                .iter()
-                .any(|symbol| frame_contains_text(frame, symbol))
-        })
-        .expect("frame decoding should succeed");
     assert!(
-        saw_working_on_client,
-        "reattached client frame should expose persisted agent working status"
+        wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
+            frame_contains_text(frame, "Working...")
+        })
+        .expect("frame decoding should succeed")
     );
 
-    // Transition to blocked and verify API + client surfaces both observe it.
-    // The fake process remains visibly working, so blocked is the deterministic
-    // higher-priority semantic transition for this cross-area projection test.
-    pane_report_agent(&api_socket, &pane_id, "pi", "blocked", "cross-area-test");
-    assert!(
-        wait_for_agent_status(&api_socket, &pane_id, "blocked", Duration::from_secs(3)),
-        "pane agent status should transition to blocked"
+    let blocked_report = send_json_request(
+        &api_socket,
+        "blocked-report",
+        "pane.report_agent",
+        json!({"pane_id":pane_id, "agent":"pi", "state":"blocked", "source":"cross-area-test"}),
     );
-
-    let saw_blocked_on_client =
+    assert_eq!(blocked_report["id"], "blocked-report");
+    assert_eq!(blocked_report["error"]["code"], "feature_retired");
+    fs::write(&continue_file, "continue\n").unwrap();
+    assert!(pane_read_recent_contains(
+        &api_socket,
+        &pane_id,
+        "BLOCKED_LITERAL",
+        Duration::from_secs(3)
+    ));
+    assert!(
         wait_for_frame_matching(&mut client_b, Duration::from_secs(5), |frame| {
-            frame_contains_text(frame, "◉")
+            frame_contains_text(frame, "BLOCKED_LITERAL")
         })
-        .expect("frame decoding should succeed");
-    assert!(
-        saw_blocked_on_client,
-        "reattached client frame should show blocked status after transition"
+        .expect("frame decoding should succeed")
     );
+    assert_generic_process();
 
     cleanup_spawned_kitsune(server, base);
 }
@@ -1015,6 +994,13 @@ fn cross_area_server_kill_then_restart_and_reconnect() {
     let mut server = spawn_server(&config_home, &runtime_dir, &api_socket);
     wait_for_socket(&api_socket, Duration::from_secs(10));
     wait_for_socket(&client_socket, Duration::from_secs(10));
+    let created = send_json_request(
+        &api_socket,
+        "crash-fixture",
+        "workspace.create",
+        json!({"label":"crash-check", "focus":true}),
+    );
+    assert!(created.get("error").is_none(), "{created}");
 
     // Attach a real thin client process and prove it reached attached state
     // by observing an incoming frame on its PTY stream.
@@ -1025,7 +1011,17 @@ fn cross_area_server_kill_then_restart_and_reconnect() {
         .expect("thin client master")
         .try_clone_reader()
         .expect("clone thin client reader");
+    let fd = thin_client._master.as_ref().unwrap().as_raw_fd().unwrap();
+    let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    assert!(flags >= 0);
+    assert_eq!(
+        unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) },
+        0
+    );
 
+    let mut attach_output = String::new();
+    let controls =
+        regex::Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)").unwrap();
     let attached_before_kill = {
         let deadline = Instant::now() + Duration::from_secs(8);
         let mut observed = false;
@@ -1034,10 +1030,10 @@ fn cross_area_server_kill_then_restart_and_reconnect() {
             match thin_reader.read(&mut buf) {
                 Ok(n) if n > 0 => {
                     let out = String::from_utf8_lossy(&buf[..n]);
-                    if out.contains("\u{2500}")
-                        || out.contains("workspace")
-                        || out.contains("pane")
-                        || out.contains("terminal")
+                    attach_output.push_str(&out);
+                    if controls
+                        .replace_all(&attach_output, "")
+                        .contains("crash-check")
                     {
                         observed = true;
                         break;
@@ -1051,7 +1047,12 @@ fn cross_area_server_kill_then_restart_and_reconnect() {
     };
     assert!(
         attached_before_kill,
-        "thin client should complete attach before server SIGKILL"
+        "thin client should render the fixture workspace before server SIGKILL; output: {:?}",
+        controls
+            .replace_all(&attach_output, "")
+            .chars()
+            .take(4096)
+            .collect::<String>()
     );
 
     // Kill server abruptly and verify thin client exits with lost-connection messaging.

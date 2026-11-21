@@ -443,49 +443,23 @@ impl OscStreamCollector {
     }
 }
 
-/// Maximum retained string length for agent OSC title and progress payloads.
-/// Title text is untrusted model output; cap it to bound memory and log size.
-const AGENT_OSC_MAX_CHARS: usize = 256;
-
-/// Always-on tracker that retains the latest OSC 0/2 title and OSC 9 progress
-/// payload emitted by the child process. Nothing here affects rendering; this
-/// is pure passive capture for the detection engine (Stage C / Stage D).
-///
-/// - `latest_title` — last OSC 0 or OSC 2 payload, sanitized. An empty
-///   payload (e.g. `\x1b]0;\x07`) clears the stored value.
-/// - `latest_progress` — last OSC 9 payload (the part after `9;`), stored
-///   as-is after sanitization. E.g. `"4;3;"` or `"4;0;"`.
+/// Bounded OSC 0/2 terminal title, including titles restored during handoff.
 #[derive(Debug, Default)]
-pub(super) struct AgentOscStateTracker {
+pub(super) struct TerminalTitleTracker {
     collector: OscStreamCollector,
-    latest_title: Option<String>,
     terminal_title: Option<String>,
-    latest_progress: Option<String>,
 }
 
-impl AgentOscStateTracker {
+impl TerminalTitleTracker {
     pub(super) fn observe(&mut self, bytes: &[u8]) {
-        let (collector, latest_title, terminal_title, latest_progress) = (
-            &mut self.collector,
-            &mut self.latest_title,
-            &mut self.terminal_title,
-            &mut self.latest_progress,
-        );
+        let (collector, terminal_title) = (&mut self.collector, &mut self.terminal_title);
         collector.observe(bytes, |body| {
-            let Some((command, payload)) = parse_agent_osc_body(body) else {
+            let Some((command, payload)) = parse_osc_body(body) else {
                 return;
             };
-            match command {
-                b"0" | b"2" => {
-                    let title = sanitize_agent_osc_string(payload, AGENT_OSC_MAX_CHARS);
-                    *terminal_title = (!title.is_empty()).then_some(title.clone());
-                    *latest_title = (!title.is_empty()).then_some(title);
-                }
-                b"9" => {
-                    *latest_progress =
-                        Some(sanitize_agent_osc_string(payload, AGENT_OSC_MAX_CHARS));
-                }
-                _ => {}
+            if matches!(command, b"0" | b"2") {
+                let title = sanitize_terminal_title(payload, 256);
+                *terminal_title = (!title.is_empty()).then_some(title);
             }
         });
     }
@@ -498,38 +472,16 @@ impl AgentOscStateTracker {
     pub(super) fn seed_terminal_title(&mut self, title: Option<String>) {
         self.terminal_title = title;
     }
-
-    /// Returns the latest retained OSC title, or `""` if none has been seen or
-    /// the last title was an empty clear.
-    #[allow(dead_code)] // used by terminal.rs; full call chain wired in Stage C
-    pub(super) fn latest_title(&self) -> &str {
-        self.latest_title.as_deref().unwrap_or("")
-    }
-
-    /// Returns the latest retained OSC 9 progress payload, or `""` if none.
-    #[allow(dead_code)] // used by terminal.rs; full call chain wired in Stage C
-    pub(super) fn latest_progress(&self) -> &str {
-        self.latest_progress.as_deref().unwrap_or("")
-    }
-
-    /// Drops the retained title and progress so a new foreground agent cannot
-    /// inherit OSC evidence emitted by a previous process. The in-flight parse
-    /// state is kept: a sequence spanning the agent change finalizes normally
-    /// and is attributed to the new agent.
-    pub(super) fn clear_retained(&mut self) {
-        self.latest_title = None;
-        self.latest_progress = None;
-    }
 }
 
 /// Splits an OSC body at the first `;`, returning `(command, payload)`.
 /// Returns `None` if there is no `;`.
-fn parse_agent_osc_body(body: &[u8]) -> Option<(&[u8], &[u8])> {
+fn parse_osc_body(body: &[u8]) -> Option<(&[u8], &[u8])> {
     let sep = body.iter().position(|&b| b == b';')?;
     Some((&body[..sep], &body[sep + 1..]))
 }
 
-fn sanitize_agent_osc_string(payload: &[u8], max_chars: usize) -> String {
+fn sanitize_terminal_title(payload: &[u8], max_chars: usize) -> String {
     let text = String::from_utf8_lossy(payload);
     let mut out = String::new();
     for ch in text.chars().filter(|ch| !ch.is_control()).take(max_chars) {
@@ -687,7 +639,7 @@ fn foreground_job_is_shell(job: &crate::platform::ForegroundJob, shell_pid: u32)
 }
 
 pub(super) fn current_transient_default_color_owner(shell_pid: u32) -> Option<u32> {
-    let job = crate::detect::foreground_job(shell_pid)?;
+    let job = crate::platform::foreground_job(shell_pid)?;
     (!foreground_job_is_shell(&job, shell_pid)).then_some(job.process_group_id)
 }
 
@@ -923,6 +875,115 @@ mod tests {
     }
 
     #[test]
+    fn terminal_title_tracks_split_sequences_and_empty_clear() {
+        let mut tracker = TerminalTitleTracker::default();
+        assert_eq!(tracker.terminal_title(), None);
+        tracker.observe(b"\x1b]0;first\x07\x1b]2;sec");
+        assert_eq!(tracker.terminal_title(), Some("first"));
+        tracker.observe(b"ond\x1b\\");
+        assert_eq!(tracker.terminal_title(), Some("second"));
+        tracker.observe(b"\x1b]9;4;3;\x07\x1b]7;file:///somewhere\x07");
+        assert_eq!(tracker.terminal_title(), Some("second"));
+        tracker.observe(b"\x1b]2;\x07");
+        assert_eq!(tracker.terminal_title(), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminal_title_handoff_seed_survives_unrelated_osc_until_title_update() {
+        let mut tracker = TerminalTitleTracker::default();
+        tracker.seed_terminal_title(Some("restored title".into()));
+        tracker.observe(b"\x1b]9;4;0;\x07\x1b]52;c;hello\x07");
+        assert_eq!(tracker.terminal_title(), Some("restored title"));
+        tracker.observe(b"\x1b]0;\x07");
+        assert_eq!(tracker.terminal_title(), None);
+    }
+
+    #[test]
+    fn terminal_title_is_sanitized_bounded_and_recovers_after_oversized_osc() {
+        let mut tracker = TerminalTitleTracker::default();
+        tracker.observe(b"\x1b]0;before\x01after\x07");
+        assert_eq!(tracker.terminal_title(), Some("beforeafter"));
+        tracker.observe(format!("\x1b]2;{}\x07", "x".repeat(4097)).as_bytes());
+        assert_eq!(tracker.terminal_title(), Some("beforeafter"));
+        tracker.observe(format!("\x1b]2;{}\x07", "x".repeat(300)).as_bytes());
+        assert_eq!(tracker.terminal_title().unwrap().len(), 256);
+    }
+
+    #[tokio::test]
+    async fn quiet_terminal_maintenance_restores_theme_without_pty_data() {
+        use std::sync::{
+            atomic::{AtomicBool, AtomicU32, Ordering},
+            Arc,
+        };
+        use tokio::sync::Notify;
+
+        let (tx, _rx) = mpsc::channel(4);
+        let terminal = crate::ghostty::Terminal::new(80, 24, 0).unwrap();
+        let pane = Arc::new(super::super::GhosttyPaneTerminal::new(terminal, tx).unwrap());
+        let host_theme = crate::terminal_theme::TerminalTheme {
+            foreground: Some(crate::terminal_theme::RgbColor {
+                r: 0xaa,
+                g: 0xbb,
+                b: 0xcc,
+            }),
+            background: Some(crate::terminal_theme::RgbColor { r: 1, g: 2, b: 3 }),
+            ..Default::default()
+        };
+        pane.apply_host_terminal_theme(host_theme);
+        let pane_id = PaneId::from_raw(1);
+        assert!(
+            !pane.maybe_restore_host_terminal_theme_with_probe(pane_id, 7, || {
+                panic!("no process probe without a transient override")
+            })
+        );
+        {
+            let mut core = pane.core.lock().unwrap();
+            core.transient_default_color_owner_pgid = Some(42);
+            core.terminal.write(b"\x1b]11;rgb:dd/ee/ff\x1b\\");
+        }
+        assert_eq!(
+            pane_default_theme(&pane).background,
+            Some(crate::terminal_theme::RgbColor {
+                r: 0xdd,
+                g: 0xee,
+                b: 0xff,
+            })
+        );
+        let probes = Arc::new(AtomicU32::new(0));
+        let dirty = Arc::new(AtomicBool::new(false));
+        let notify = Arc::new(Notify::new());
+        let task = super::super::spawn_terminal_maintenance_task(
+            {
+                let pane = pane.clone();
+                let probes = probes.clone();
+                move || {
+                    pane.maybe_restore_host_terminal_theme_with_probe(pane_id, 7, || {
+                        probes.fetch_add(1, Ordering::Relaxed);
+                        Some(shell_job(7))
+                    })
+                }
+            },
+            notify.clone(),
+            dirty.clone(),
+        );
+        let restored =
+            tokio::time::timeout(std::time::Duration::from_secs(2), notify.notified()).await;
+        task.abort();
+        restored.expect("quiet maintenance should notify the renderer");
+        assert!(dirty.load(Ordering::Acquire));
+        assert_eq!(probes.load(Ordering::Relaxed), 1);
+        let restored_theme = pane_default_theme(&pane);
+        assert_eq!(restored_theme.foreground, host_theme.foreground);
+        assert_eq!(restored_theme.background, host_theme.background);
+        assert!(
+            !pane.maybe_restore_host_terminal_theme_with_probe(pane_id, 7, || {
+                panic!("restored terminal must stop process probes")
+            })
+        );
+    }
+
+    #[test]
     fn osc_stream_collector_ignores_strings_and_preserves_escaped_bytes() {
         let mut collector = OscStreamCollector::default();
         let mut bodies = Vec::new();
@@ -973,160 +1034,6 @@ mod tests {
         assert_eq!(parse_reported_cwd(b""), None);
         assert_eq!(parse_reported_cwd(b"\xff"), None);
         assert_eq!(parse_reported_cwd(b"file://remote/tmp"), None);
-    }
-
-    // -----------------------------------------------------------------------
-    // AgentOscStateTracker tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn agent_osc_osc0_title_with_bel() {
-        let mut t = AgentOscStateTracker::default();
-        t.observe("hello\x1b]0;braille title\x07world".as_bytes());
-        assert_eq!(t.latest_title(), "braille title");
-        assert_eq!(t.terminal_title(), Some("braille title"));
-        assert_eq!(t.latest_progress(), "");
-    }
-
-    #[test]
-    fn agent_osc_osc2_title_with_st() {
-        let mut t = AgentOscStateTracker::default();
-        t.observe("hello\x1b]2;static title\x1b\\world".as_bytes());
-        assert_eq!(t.latest_title(), "static title");
-        assert_eq!(t.latest_progress(), "");
-    }
-
-    #[test]
-    fn agent_osc_empty_osc0_clears_title() {
-        let mut t = AgentOscStateTracker::default();
-        // First set a title.
-        t.observe(b"\x1b]0;some title\x07");
-        assert_eq!(t.latest_title(), "some title");
-        // Then clear it with an empty payload (Codex pattern).
-        t.observe(b"\x1b]0;\x07");
-        assert_eq!(t.latest_title(), "");
-        assert_eq!(t.terminal_title(), None);
-    }
-
-    #[test]
-    fn clearing_agent_evidence_preserves_the_terminal_title() {
-        let mut tracker = AgentOscStateTracker::default();
-        tracker.observe("\x1b]2;✳ 修复🙂标题\x1b\\".as_bytes());
-
-        tracker.clear_retained();
-
-        assert_eq!(tracker.latest_title(), "");
-        assert_eq!(tracker.terminal_title(), Some("✳ 修复🙂标题"));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn handoff_seed_does_not_restore_agent_detection_evidence() {
-        let mut tracker = AgentOscStateTracker::default();
-
-        tracker.seed_terminal_title(Some("✳ restored title".into()));
-
-        assert_eq!(tracker.terminal_title(), Some("✳ restored title"));
-        assert_eq!(tracker.latest_title(), "");
-    }
-
-    #[test]
-    fn agent_osc_osc9_sets_progress_with_bel() {
-        let mut t = AgentOscStateTracker::default();
-        t.observe(b"\x1b]9;4;3;\x07");
-        assert_eq!(t.latest_progress(), "4;3;");
-        assert_eq!(t.latest_title(), "");
-    }
-
-    #[test]
-    fn agent_osc_osc9_clear_progress_with_st() {
-        let mut t = AgentOscStateTracker::default();
-        t.observe(b"\x1b]9;4;3;\x07");
-        assert_eq!(t.latest_progress(), "4;3;");
-        t.observe(b"\x1b]9;4;0;\x1b\\");
-        assert_eq!(t.latest_progress(), "4;0;");
-    }
-
-    #[test]
-    fn agent_osc_split_sequence_across_chunks() {
-        let mut t = AgentOscStateTracker::default();
-        t.observe(b"\x1b]9;4;3");
-        assert_eq!(t.latest_progress(), "");
-        t.observe(b";\x07");
-        assert_eq!(t.latest_progress(), "4;3;");
-    }
-
-    #[test]
-    fn agent_osc_bel_and_st_terminators_both_work() {
-        let mut t = AgentOscStateTracker::default();
-        t.observe(b"\x1b]0;title-bel\x07");
-        assert_eq!(t.latest_title(), "title-bel");
-        t.observe(b"\x1b]0;title-st\x1b\\");
-        assert_eq!(t.latest_title(), "title-st");
-    }
-
-    #[test]
-    fn agent_osc_oversized_payload_is_discarded_and_recovers() {
-        let mut t = AgentOscStateTracker::default();
-        // Set a title first.
-        t.observe(b"\x1b]0;before\x07");
-        assert_eq!(t.latest_title(), "before");
-
-        // Feed an oversized OSC body (> 4096 bytes).
-        let mut oversized = Vec::from(b"\x1b]0;".as_slice());
-        oversized.extend(std::iter::repeat_n(b'x', 4097));
-        oversized.push(0x07);
-        t.observe(&oversized);
-        // The oversized body is dropped; the previously stored title is kept.
-        assert_eq!(t.latest_title(), "before");
-
-        // After recovery, subsequent valid sequences are captured normally.
-        t.observe(b"\x1b]0;after\x07");
-        assert_eq!(t.latest_title(), "after");
-    }
-
-    #[test]
-    fn agent_osc_cap_length_is_respected() {
-        let mut t = AgentOscStateTracker::default();
-        // Build a title of AGENT_OSC_MAX_CHARS + 50 ASCII chars.
-        let long_title: String = "a".repeat(AGENT_OSC_MAX_CHARS + 50);
-        let seq = format!("\x1b]0;{long_title}\x07");
-        t.observe(seq.as_bytes());
-        assert_eq!(t.latest_title().len(), AGENT_OSC_MAX_CHARS);
-    }
-
-    #[test]
-    fn agent_osc_control_chars_stripped() {
-        let mut t = AgentOscStateTracker::default();
-        t.observe(b"\x1b]0;before\x01after\x07");
-        assert_eq!(t.latest_title(), "beforeafter");
-    }
-
-    #[test]
-    fn agent_osc_unrelated_osc_does_not_overwrite_title() {
-        let mut t = AgentOscStateTracker::default();
-        t.observe(b"\x1b]0;my title\x07");
-        // OSC 4 (palette color), OSC 52 (clipboard) — should not touch title/progress.
-        t.observe(b"\x1b]4;1;rgb:aa/bb/cc\x07");
-        t.observe(b"\x1b]52;c;aGVsbG8=\x07");
-        assert_eq!(t.latest_title(), "my title");
-        assert_eq!(t.latest_progress(), "");
-    }
-
-    #[test]
-    fn agent_osc_interleaved_sequences() {
-        let mut t = AgentOscStateTracker::default();
-        // OSC 0 title, then OSC 9 progress, then OSC 2 title update.
-        t.observe(b"\x1b]0;first\x07\x1b]9;4;3;\x07\x1b]2;second\x07");
-        assert_eq!(t.latest_title(), "second");
-        assert_eq!(t.latest_progress(), "4;3;");
-    }
-
-    #[test]
-    fn agent_osc_default_state_is_empty() {
-        let t = AgentOscStateTracker::default();
-        assert_eq!(t.latest_title(), "");
-        assert_eq!(t.latest_progress(), "");
     }
 
     // -----------------------------------------------------------------------

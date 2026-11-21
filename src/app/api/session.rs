@@ -53,6 +53,7 @@ impl App {
                 valid_until_unix_ms: true,
             }),
             command_submission: Some(CommandSubmissionInfo { version: 1 }),
+            terminal_navigation: Some(crate::api::schema::TerminalNavigationInfo { version: 1 }),
             process_observation: crate::platform::process_observation_metadata().map(|metadata| {
                 ProcessObservationInfo {
                     version: metadata.version,
@@ -146,6 +147,7 @@ mod tests {
             snapshot.integration_views,
             Some(crate::api::schema::IntegrationViewsInfo {
                 version: 1,
+                supported_versions: Some(vec![1, 2, 3]),
                 sources: Vec::new(),
             })
         );

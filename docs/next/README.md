@@ -4,14 +4,15 @@ Kitsune started as a personal Herdr fork and is distributed as the `kitsune` com
 
 The [2026-10-22 app boundary decision](../../APP_BOUNDARIES.md) defines a target
 general multiplexer with optional Coven-owned agent features. This page describes
-current built-in behavior, not completed extraction. Djinn rollout notes below
-are compatibility work during that transition, not the target core boundary.
+current generic operations. Live agent detectors/consumers and all live agent APIs
+are globally retired with or without Coven. Compatibility source cleanup remains;
+see the [retirement record](../../AGENT_CONTROL_RETIREMENT.md).
 
 The hosted Herdr website, versioned website docs, hosted updater manifests, and plugin marketplace docs do not apply to this fork. Keep durable local documentation in repository docs and keep the bundled API schema in `docs/next/api/`.
 
 ## Runtime identity
 
-Kitsune has its own runtime identity while retaining Herdr's core terminal-agent runtime.
+Kitsune has its own runtime identity and generic terminal runtime.
 
 - `kitsune` is the canonical command.
 - Default config, session, socket, and log locations use Kitsune names rather than Herdr names.
@@ -34,7 +35,64 @@ Kitsune exposes session recall through the normal keybinding/action system.
 
 The session recall helper has first-class `kitsune`, `herdr`, and `tmux` backends. Each backend uses its own environment and runtime context; Kitsune does not cross-populate `HERDR_*` variables for recall.
 
-## Agent navigation
+## Generic API Examples
+
+These reference commands require an explicitly selected existing pane/socket;
+they were not executed by this documentation refresh.
+
+```sh
+kitsune pane read <pane-id> --source recent-unwrapped --lines 120
+kitsune pane read <pane-id> --source detection --format text
+kitsune pane wait-output <pane-id> --match "expected output" --timeout 120000
+kitsune api snapshot
+kitsune pane process-info <pane-id>
+```
+
+Equivalent JSON API request bodies (send only to the deliberately selected API endpoint):
+
+```json
+{"id":"snapshot","method":"session.snapshot","params":{}}
+```
+
+```json
+{"id":"processes","method":"pane.process_info","params":{"pane_id":"<pane-id>"}}
+```
+
+`detection` is generic bottom-buffer text, not viewport or agent classification;
+its ANSI format currently also returns plain text. Generic `pane.wait_for_output`
+and event streaming work. Output/scroll/workspace subscriptions remain; AgentStatus
+subscriptions and mixed agent/generic requests reject atomically before patterns/
+probes/streaming. Other previously unsupported `events.wait` matchers are not newly
+supported. Do not use retired agent get/list/read/explain or wait as read aliases.
+
+Snapshot inventory is `agents: []` in both modes. Old pane native references,
+names/argv and history remain data without readiness or autostart. Generic metadata
+reporting accepts tokens only, preserving sequence/TTL/events/revision; mixing
+retired presentation fields with tokens rejects the whole request. Explicit generic
+notifications remain, not idle-to-finished cues. All 12 live agent methods and CLI
+controls/read facades retire globally; four legacy pane hooks retain the old
+external error precedence only in external mode. Offline compatibility alone uses
+`kitsune agent explain --file <capture-path> --agent <kind> --json`.
+
+## Terminal Navigation
+
+The generic session navigator remains at `prefix+g` with manual pane labels and
+OSC titles, without historical agent-name fallback. Mobile agent counts and menu
+agent:shell clauses are removed. Generic process acquisition stays separate: Linux
+unclassified foreground cohort and provisional macOS v2 are not native identity;
+Windows legacy-agent-aware selection remains rejected by Coven.
+
+## Historical Baseline
+
+The sections below record earlier navigation/provider rollout, not active
+instructions. Agent-only status/navigation, live Djinn reports, start/resume and
+fallback detection described there are retired. All six fresh legacy installers
+on all platforms return `feature_retired` before discovery/version probes/writes;
+recommendation/update policy is removed. Status/uninstall and frozen assets remain
+for explicit cleanup, not automatic uninstall. Generic Integrations sources/leases/
+views are separate. No Coven macOS/Windows replacement qualification is implied.
+
+### Earlier Agent Navigation
 
 The session navigator is the shared surface for workspace, tab, pane, and agent selection.
 

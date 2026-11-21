@@ -21,26 +21,34 @@ pub const SOCKET_PATH_ENV_VAR: &str = crate::product::SOCKET_PATH_ENV_VAR;
 
 /// Global presentation/administrative requests do not need a terminal workspace.
 pub(crate) fn request_skips_default_workspace(request: &Request) -> bool {
-    matches!(
-        &request.method,
-        Method::ServerStop(_)
-            | Method::ServerLiveHandoff(_)
-            | Method::ViewOpen(_)
-            | Method::ViewReplace(_)
-            | Method::ViewPoll(_)
-            | Method::ViewClose(_)
-    )
+    schema::legacy_agent_retired_method(&request.method).is_some()
+        || matches!(
+            &request.method,
+            Method::ServerStop(_)
+                | Method::ServerAgentManifests(_)
+                | Method::ServerReloadAgentManifests(_)
+                | Method::TerminalInspect(_)
+                | Method::TerminalFocus(_)
+                | Method::ServerLiveHandoff(_)
+                | Method::ViewOpen(_)
+                | Method::ViewReplace(_)
+                | Method::ViewPoll(_)
+                | Method::ViewClose(_)
+        )
 }
 
 pub(crate) fn request_changes_ui(request: &Request) -> bool {
+    if schema::legacy_agent_retired_method(&request.method).is_some() {
+        return false;
+    }
     matches!(
         &request.method,
         Method::ServerReloadConfig(_)
+            | Method::TerminalFocus(_)
             | Method::ViewOpen(_)
             | Method::ViewReplace(_)
             | Method::ViewPoll(_)
             | Method::ViewClose(_)
-            | Method::ServerReloadAgentManifests(_)
             | Method::NotificationShow(_)
             | Method::WorkspaceCreate(_)
             | Method::WorkspaceFocus(_)
@@ -58,13 +66,6 @@ pub(crate) fn request_changes_ui(request: &Request) -> bool {
             | Method::TabClose(_)
             | Method::LayoutApply(_)
             | Method::LayoutSetSplitRatio(_)
-            | Method::AgentRename(_)
-            | Method::AgentViewSet(_)
-            | Method::AgentViewClear(_)
-            | Method::AgentFocus(_)
-            | Method::AgentStart(_)
-            | Method::AgentPrompt(_)
-            | Method::AgentSendKeys(_)
             | Method::PaneSplit(_)
             | Method::PaneSwap(_)
             | Method::PaneMove(_)
@@ -105,6 +106,42 @@ pub fn socket_path() -> PathBuf {
 #[cfg(test)]
 mod integration_views_tests {
     use super::*;
+
+    #[test]
+    fn generic_events_and_uninstall_are_not_global_retirement_tombstones() {
+        for value in [
+            serde_json::json!({"id":"generic", "method":"events.subscribe", "params":{"subscriptions":[{"type":"pane.scroll_changed", "pane_id":"w1:p1"}, {"type":"workspace.created"}]}}),
+            serde_json::json!({"id":"generic", "method":"events.subscribe", "params":{"subscriptions":[{"type":"pane.output_matched", "pane_id":"w1:p1", "source":"recent", "match":{"type":"substring", "value":"ready"}}]}}),
+            serde_json::json!({"id":"generic", "method":"events.wait", "params":{"match_event":{"event":"workspace_created"}}}),
+            serde_json::json!({"id":"generic", "method":"integration.uninstall", "params":{"target":"pi"}}),
+        ] {
+            let request: Request = serde_json::from_value(value).unwrap();
+            assert!(schema::legacy_agent_retired_method(&request.method).is_none());
+            assert!(schema::retired_request_response(&request).is_none());
+            assert!(!request_skips_default_workspace(&request));
+        }
+    }
+
+    #[test]
+    fn hook_ingress_and_generic_metadata_are_not_global_retirement_tombstones() {
+        for method in [
+            "pane.report_agent",
+            "pane.report_agent_session",
+            "pane.clear_agent_authority",
+            "pane.release_agent",
+            "pane.report_metadata",
+        ] {
+            let request: Request = serde_json::from_value(serde_json::json!({
+                "id":"hook", "method":method,
+                "params":{"pane_id":"w1:p1", "source":"custom:test", "agent":"pi", "state":"idle"},
+            }))
+            .unwrap();
+            assert!(schema::legacy_agent_retired_method(&request.method).is_none());
+            assert!(schema::retired_request_response(&request).is_none());
+            assert!(request_changes_ui(&request));
+            assert!(!request_skips_default_workspace(&request));
+        }
+    }
 
     #[test]
     fn integration_views_requests_repaint_and_skip_workspace_bootstrap() {

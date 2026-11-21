@@ -383,6 +383,37 @@ impl App {
         }
     }
 
+    fn take_inspector_terminal_keys(&mut self) -> Vec<crate::app::PressedTerminalKey> {
+        std::mem::take(&mut self.pressed_terminal_keys)
+            .into_iter()
+            .map(|(id, pressed)| {
+                // A held pre-modal key must not start repeating into a terminal on close.
+                self.suppressed_repeat_keys.insert(id);
+                pressed
+            })
+            .collect()
+    }
+
+    pub(crate) fn suspend_inspector_terminal_keys_headless(&mut self) {
+        for pressed in self.take_inspector_terminal_keys() {
+            let release = pressed
+                .key
+                .with_kind(crossterm::event::KeyEventKind::Release);
+            let _ = self.forward_terminal_key_to_target_headless(&pressed.target, release);
+        }
+    }
+
+    pub(crate) async fn suspend_inspector_terminal_keys(&mut self) {
+        for pressed in self.take_inspector_terminal_keys() {
+            let release = pressed
+                .key
+                .with_kind(crossterm::event::KeyEventKind::Release);
+            let _ = self
+                .forward_terminal_key_to_target(&pressed.target, release)
+                .await;
+        }
+    }
+
     pub(super) async fn handle_terminal_key(
         &mut self,
         key: TerminalKey,
@@ -475,6 +506,93 @@ mod tests {
     use super::super::{unique_temp_path, wait_for_file};
     use super::*;
     use crate::{config::Config, events::AppEvent, workspace::Workspace};
+
+    #[tokio::test]
+    async fn integration_inspector_prefix_and_custom_binding_keep_plain_a_and_modal_keys_private() {
+        for binding in ["a", "t"] {
+            let mut app = app_for_mouse_test();
+            let mut ws = Workspace::test_new("test");
+            let pane = ws.tabs[0].root_pane;
+            let (runtime, mut rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+            ws.tabs[0].runtimes.insert(pane, runtime);
+            app.state.workspaces = vec![ws];
+            app.state.active = Some(0);
+            app.state.keybinds.agent_selector = crate::config::ActionKeybinds::prefix(binding);
+            app.handle_key(TerminalKey::new(KeyCode::Char('a'), KeyModifiers::NONE))
+                .await;
+            assert_eq!(rx.try_recv().unwrap().as_ref(), b"a");
+            let pane_before = app.state.workspaces[0].focused_pane_id();
+            use crate::api::schema::{ViewOpenParams, ViewOwnerParams, ViewReplaceParams};
+            app.state
+                .integration_views
+                .reconfigure(vec!["generic".into()])
+                .unwrap();
+            let now = std::time::Instant::now();
+            let opened = app
+                .state
+                .integration_views
+                .open(
+                    &ViewOpenParams {
+                        source: "generic".into(),
+                        version: 3,
+                    },
+                    now,
+                )
+                .unwrap();
+            let owner = ViewOwnerParams {
+                source: "generic".into(),
+                lease: opened.lease,
+                epoch: opened.epoch,
+            };
+            let frame: ViewReplaceParams = serde_json::from_value(serde_json::json!({
+                "source":owner.source, "lease":owner.lease, "epoch":owner.epoch, "revision":1,
+                "items":[{"id":"i", "label":"Owner", "detail":"private diagnostics", "information":{}}]
+            })).unwrap();
+            app.state.integration_views.replace(&frame, now).unwrap();
+            app.state.mode = Mode::Prefix;
+            app.handle_key(TerminalKey::new(
+                KeyCode::Char(binding.chars().next().unwrap()),
+                KeyModifiers::NONE,
+            ))
+            .await;
+            assert_eq!(app.state.mode, Mode::IntegrationInspector);
+            for code in [
+                KeyCode::Tab,
+                KeyCode::Char('d'),
+                KeyCode::Enter,
+                KeyCode::Char('/'),
+                KeyCode::Char('d'),
+                KeyCode::Esc,
+            ] {
+                let mut terminal =
+                    ratatui::Terminal::new(ratatui::backend::TestBackend::new(80, 30)).unwrap();
+                crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 80, 30));
+                terminal.draw(|f| crate::ui::render(&app.state, f)).unwrap();
+                app.state.commit_integration_views_render();
+                app.handle_key(TerminalKey::new(code, KeyModifiers::NONE))
+                    .await;
+                assert!(rx.try_recv().is_err());
+            }
+            assert!(app
+                .state
+                .integration_views
+                .poll(&owner, now)
+                .unwrap()
+                .intents
+                .is_empty());
+            app.handle_key(TerminalKey::new(KeyCode::Char('x'), KeyModifiers::NONE))
+                .await;
+            app.handle_key(TerminalKey::new(KeyCode::Enter, KeyModifiers::NONE))
+                .await;
+            app.handle_paste("never provider input".into()).await;
+            assert!(rx.try_recv().is_err());
+            assert_eq!(app.state.workspaces[0].focused_pane_id(), pane_before);
+            assert_eq!(
+                app.state.navigator.scope,
+                crate::app::state::NavigatorScope::Tree
+            );
+        }
+    }
 
     fn foreground_process(name: &str, argv0: Option<&str>) -> crate::platform::ForegroundProcess {
         crate::platform::ForegroundProcess {
@@ -1395,10 +1513,7 @@ mod tests {
         .await;
 
         assert!(app.state.popup_pane.is_some());
-        assert!(!app
-            .popup_runtime()
-            .unwrap()
-            .agent_detection_enabled_for_test());
+        assert!(app.popup_runtime().is_some());
         assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
         assert!(!app.state.workspaces[0].tabs[0].zoomed);
         assert_eq!(app.state.mode, Mode::Terminal);
@@ -1409,7 +1524,7 @@ mod tests {
             app.state.active,
             app.state.selected,
             app.state.sidebar_width,
-            app.state.sidebar_section_split,
+            app.state.collapsed_sidebar_sections.clone(),
             app.state.collapsed_space_keys.clone(),
         );
         assert_eq!(snapshot.workspaces[0].tabs[0].panes.len(), 1);

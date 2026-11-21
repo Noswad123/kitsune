@@ -33,6 +33,7 @@ pub fn validate_sources(sources: &[String]) -> Result<(), &'static str> {
 
 #[derive(Debug)]
 struct Owner {
+    version: u64,
     lease: String,
     epoch: String,
     deadline: Instant,
@@ -97,6 +98,7 @@ impl IntegrationViewsState {
     pub(crate) fn descriptor(&self, now: Instant) -> IntegrationViewsInfo {
         IntegrationViewsInfo {
             version: 1,
+            supported_versions: Some(vec![1, 2, 3]),
             sources: self
                 .sources
                 .iter()
@@ -142,7 +144,7 @@ impl IntegrationViewsState {
     ) -> Result<ViewOpened, &'static str> {
         self.expire(now);
         self.check_source(&params.source)?;
-        if params.version != 1 {
+        if !matches!(params.version, 1..=3) {
             return Err("integration_view_unsupported_version");
         }
         if self.owners.contains_key(&params.source) {
@@ -153,6 +155,7 @@ impl IntegrationViewsState {
         self.owners.insert(
             params.source.clone(),
             Owner {
+                version: params.version,
                 lease: lease.clone(),
                 epoch: epoch.clone(),
                 deadline: now + TTL,
@@ -181,6 +184,12 @@ impl IntegrationViewsState {
         };
         if params.revision <= owner.revision {
             return Err("integration_view_stale_revision");
+        }
+        if params.items.iter().any(|item| {
+            (owner.version == 1 && item.presentation.is_some())
+                || (owner.version < 3 && item.information.is_some())
+        }) {
+            return Err("integration_view_invalid_frame");
         }
         validate_frame(&params.items)?;
         owner.items.clone_from(&params.items);
@@ -264,9 +273,35 @@ fn validate_frame(items: &[IntegrationViewItem]) -> Result<(), &'static str> {
         return Err("integration_view_invalid_frame");
     }
     for item in items {
+        let mut information_bytes = 0usize;
+        if let Some(info) = &item.information {
+            for section in [&info.attention, &info.activity, &info.context] {
+                if section.len() > 4 {
+                    return Err("integration_view_invalid_frame");
+                }
+                for value in section {
+                    if !valid_text(value, 256, true)
+                        || value.chars().any(|ch| matches!(ch,
+                            '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2066}'..='\u{2069}'))
+                    {
+                        return Err("integration_view_invalid_frame");
+                    }
+                    information_bytes = information_bytes
+                        .checked_add(value.len())
+                        .ok_or("integration_view_invalid_frame")?;
+                }
+            }
+            if information_bytes > 1536 {
+                return Err("integration_view_invalid_frame");
+            }
+        }
         if !valid_text(&item.id, 128, true)
             || !valid_text(&item.label, 160, true)
             || !valid_text(&item.detail, 512, false)
+            || item
+                .presentation
+                .as_ref()
+                .is_some_and(|p| !valid_text(&p.label, 48, false))
             || !ids.insert(item.id.as_str())
         {
             return Err("integration_view_invalid_frame");
@@ -275,6 +310,10 @@ fn validate_frame(items: &[IntegrationViewItem]) -> Result<(), &'static str> {
             .checked_add(item.id.len())
             .and_then(|bytes| bytes.checked_add(item.label.len()))
             .and_then(|bytes| bytes.checked_add(item.detail.len()))
+            .and_then(|bytes| bytes.checked_add(information_bytes))
+            .and_then(|bytes| {
+                bytes.checked_add(item.presentation.as_ref().map_or(0, |p| p.label.len()))
+            })
             .ok_or("integration_view_invalid_frame")?;
         if bytes > 96 * 1024 {
             return Err("integration_view_invalid_frame");
@@ -284,8 +323,96 @@ fn validate_frame(items: &[IntegrationViewItem]) -> Result<(), &'static str> {
 }
 
 #[cfg(test)]
+mod profile_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn v2_lease_profile_is_strict_atomic_and_bounded() {
+        use crate::api::schema::{IntegrationViewPresentation, IntegrationViewStatus};
+        let now = Instant::now();
+        let mut state = IntegrationViewsState::new(vec!["old".into(), "new".into()]);
+        let old = open(&mut state, "old", now);
+        let opened = state
+            .open(
+                &ViewOpenParams {
+                    source: "new".into(),
+                    version: 2,
+                },
+                now,
+            )
+            .unwrap();
+        let new = ViewOwnerParams {
+            source: "new".into(),
+            lease: opened.lease,
+            epoch: opened.epoch,
+        };
+        assert_eq!(state.descriptor(now).version, 1);
+        assert_eq!(
+            state.descriptor(now).supported_versions,
+            Some(vec![1, 2, 3])
+        );
+        for owner in [&old, &new] {
+            state.replace(&frame(owner, 1), now).unwrap();
+            assert!(state.activate(&owner.source, &owner.epoch, 1, "same", now));
+        }
+        let presentation = IntegrationViewPresentation {
+            label: "Djinn".into(),
+            status: Some(IntegrationViewStatus::Running),
+        };
+        let mut old_frame = frame(&old, 2);
+        old_frame.items[0].presentation = Some(presentation.clone());
+        assert_eq!(
+            state.replace(&old_frame, now + Duration::from_secs(4)),
+            Err("integration_view_invalid_frame")
+        );
+        assert_eq!(state.owners["old"].deadline, now + TTL);
+        assert_eq!(state.owners["old"].revision, 1);
+        assert_eq!(state.owners["old"].intents.len(), 1);
+        let mut new_frame = frame(&new, 2);
+        new_frame.items[0].presentation = Some(presentation);
+        state.replace(&new_frame, now).unwrap();
+        assert_eq!(state.project("new", now).unwrap().items, new_frame.items);
+        for label in ["x".repeat(49), "é".repeat(25), "bad\nlabel".into()] {
+            let mut bad = new_frame.clone();
+            bad.revision = 3;
+            bad.items[0].presentation.as_mut().unwrap().label = label;
+            assert!(state.replace(&bad, now + Duration::from_secs(4)).is_err());
+            assert_eq!(state.owners["new"].deadline, now + TTL);
+            assert_eq!(state.owners["new"].revision, 2);
+        }
+        new_frame.revision = 3;
+        new_frame.items = (0..128)
+            .map(|id| IntegrationViewItem {
+                information: None,
+                id: format!("{id:0128}"),
+                label: "l".repeat(160),
+                detail: "d".repeat(480),
+                presentation: Some(IntegrationViewPresentation {
+                    label: "p".repeat(48),
+                    status: None,
+                }),
+            })
+            .collect();
+        assert!(state.replace(&new_frame, now).is_err());
+        new_frame
+            .items
+            .iter_mut()
+            .for_each(|i| i.detail = "d".repeat(432));
+        state.replace(&new_frame, now).unwrap();
+        let mut neutral = frame(&new, 4);
+        neutral.items[0].presentation = Some(IntegrationViewPresentation {
+            label: String::new(),
+            status: None,
+        });
+        state.replace(&neutral, now).unwrap();
+        neutral.revision = 5;
+        neutral.items[0].presentation = None;
+        state.replace(&neutral, now).unwrap();
+        assert!(state.project("old", now + TTL).is_none());
+    }
 
     fn open(state: &mut IntegrationViewsState, source: &str, now: Instant) -> ViewOwnerParams {
         let opened = state
@@ -313,9 +440,11 @@ mod tests {
             epoch: owner.epoch.clone(),
             revision,
             items: vec![IntegrationViewItem {
+                information: None,
                 id: "same".into(),
                 label: owner.source.clone(),
                 detail: String::new(),
+                presentation: None,
             }],
         }
     }
@@ -458,7 +587,7 @@ mod tests {
             state.open(
                 &ViewOpenParams {
                     source: "a".into(),
-                    version: 2
+                    version: 4
                 },
                 later
             ),
@@ -556,6 +685,7 @@ mod tests {
             IntegrationViewsState::default().descriptor(now),
             IntegrationViewsInfo {
                 version: 1,
+                supported_versions: Some(vec![1, 2, 3]),
                 sources: Vec::new()
             }
         );
@@ -571,9 +701,11 @@ mod tests {
             let mut full = frame(&owner, 1);
             full.items = (0..128)
                 .map(|i| IntegrationViewItem {
+                    information: None,
                     id: format!("{i:0128}"),
                     label: "l".repeat(160),
                     detail: "d".repeat(480),
+                    presentation: None,
                 })
                 .collect();
             state.replace(&full, now).unwrap();

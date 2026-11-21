@@ -86,11 +86,9 @@ mod tests {
         assert_eq!(pane.terminal_title.as_deref(), Some("⠋ 修复🙂标题"));
         assert_eq!(pane.terminal_title_stripped.as_deref(), Some("修复🙂标题"));
         assert_eq!(pane.title, None);
-        assert_eq!(pane.agent_status, crate::api::schema::AgentStatus::Working);
+        assert_eq!(pane.agent_status, crate::api::schema::AgentStatus::Unknown);
         assert_eq!(pane.revision, 1);
-        let agent = app.collect_agent_infos().pop().unwrap();
-        assert_eq!(agent.terminal_title.as_deref(), Some("⠋ 修复🙂标题"));
-        assert_eq!(agent.terminal_title_stripped.as_deref(), Some("修复🙂标题"));
+        assert!(app.collect_agent_infos().is_empty());
 
         app.terminal_runtimes
             .get(&terminal_id)

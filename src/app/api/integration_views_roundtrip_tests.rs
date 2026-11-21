@@ -257,9 +257,11 @@ fn integration_views_real_coven_roundtrip() {
     let build_owner =
         json!({"source":"build","lease":build_open["lease"],"epoch":build_open["epoch"]});
     let build_item = schema::IntegrationViewItem {
+        information: None,
         id: participant_item_id.clone(),
         label: "Build running".into(),
         detail: "Independent build provider".into(),
+        presentation: None,
     };
     let build_replace = api(
         &mut app,
@@ -304,13 +306,16 @@ fn integration_views_real_coven_roundtrip() {
     let mut terminal = Terminal::new(TestBackend::new(120, 50)).unwrap();
     let initial = draw(&mut app.state, &mut terminal);
     assert_eq!(
-        app.state.integration_view_selected.as_deref(),
-        Some("build")
+        app.state.sidebar_section_focus,
+        crate::ui::SectionId::Spaces
     );
-    assert!(initial[0].contains("Integrations"), "{initial:?}");
-    assert!(initial[1].contains("> build: Available"), "{initial:?}");
+    assert!(initial[0].contains("Spaces"), "{initial:?}");
     assert!(
-        initial[2].contains("coven.test: Unavailable"),
+        initial.iter().any(|line| line.contains("▾ build")),
+        "{initial:?}"
+    );
+    assert!(
+        initial.iter().any(|line| line.contains("Unavailable")),
         "{initial:?}"
     );
     assert!(
@@ -394,8 +399,8 @@ fn integration_views_real_coven_roundtrip() {
                 json!([{"id":"build","epoch":build_owner["epoch"]},{"id":"coven.test","epoch":null}])
             );
             assert_eq!(
-                app.state.integration_view_selected.as_deref(),
-                Some("build")
+                app.state.sidebar_section_focus,
+                crate::ui::SectionId::Spaces
             );
         }
         if method != "session.snapshot" {
@@ -422,42 +427,35 @@ fn integration_views_real_coven_roundtrip() {
             assert_eq!(index, 1, "group header precedes participant");
             assert_eq!(items[index]["id"], participant_item_id);
             if frames == 1 {
-                // Opening the second provider must not steal the selected source.
+                // Opening a peer neither hides the build section nor changes native focus.
                 let lines = draw(&mut app.state, &mut terminal);
                 assert_eq!(
-                    app.state.integration_view_selected.as_deref(),
-                    Some("build")
+                    app.state.sidebar_section_focus,
+                    crate::ui::SectionId::Spaces
                 );
-                assert!(lines[0].contains("Integrations"), "{lines:?}");
-                assert!(lines[1].contains("> build: Available"), "{lines:?}");
-                assert!(lines[2].contains("coven.test: Available"), "{lines:?}");
+                assert!(lines[0].contains("Spaces"), "{lines:?}");
+                assert!(
+                    lines.iter().any(|line| line.contains("▾ build")),
+                    "{lines:?}"
+                );
+                assert!(
+                    lines.iter().any(|line| line.contains("▾ coven.test")),
+                    "{lines:?}"
+                );
                 assert!(
                     lines.iter().any(|line| line.contains("Build running")),
                     "{lines:?}"
                 );
-                let source_index = app
-                    .state
-                    .integration_views
-                    .configured_sources()
-                    .iter()
-                    .position(|source| source == "coven.test")
-                    .unwrap();
-                let area = app.state.integration_views_area();
-                assert!(app.state.activate_integration_view_at(
-                    area.x,
-                    area.y + 1 + source_index as u16,
-                    Instant::now()
-                ));
             }
             let lines = draw(&mut app.state, &mut terminal);
             assert_eq!(
-                app.state.integration_view_selected.as_deref(),
-                Some("coven.test")
+                app.state.sidebar_section_focus,
+                crate::ui::SectionId::Spaces
             );
             assert!(
-                lines[0].contains("Integrations")
-                    && lines[1].contains("build: Available")
-                    && lines[2].contains("> coven.test: Available"),
+                lines[0].contains("Spaces")
+                    && lines.iter().any(|line| line.contains("▾ build"))
+                    && lines.iter().any(|line| line.contains("▾ coven.test")),
                 "{lines:?}"
             );
             assert!(
@@ -471,14 +469,11 @@ fn integration_views_real_coven_roundtrip() {
             if frames == 1 {
                 assert!(!lines.iter().any(|line| line.contains("Selected")));
                 let area = app.state.integration_views_area();
-                let selector_height = app
+                let body = app
                     .state
-                    .integration_views
-                    .configured_sources()
-                    .len()
-                    .min(usize::from(area.height.saturating_sub(2)))
-                    .min(8);
-                let y = area.y + 2 + selector_height as u16 + 2 * index as u16;
+                    .sidebar_sections
+                    .body(&crate::ui::SectionId::Integration("coven.test".into()));
+                let y = body.y + index as u16;
                 assert!(lines[usize::from(y - area.y)].contains("reviewer"));
                 assert!(app
                     .state
@@ -491,8 +486,9 @@ fn integration_views_real_coven_roundtrip() {
                     .as_str()
                     .unwrap()
                     .starts_with("Selected (read-only): Reviewer"));
+                // Selection detail stays in the projection, not the one-line sidebar.
                 assert!(
-                    lines
+                    !lines
                         .iter()
                         .any(|line| line.contains("Selected (read-only): Reviewer")),
                     "{lines:?}"
@@ -527,10 +523,13 @@ fn integration_views_real_coven_roundtrip() {
         .is_none());
     assert_build_unchanged(&mut app, &build_owner, &build_item);
     let closed = draw(&mut app.state, &mut terminal);
-    assert!(closed[0].contains("Integrations"), "{closed:?}");
-    assert!(closed[1].contains("build: Available"), "{closed:?}");
+    assert!(closed[0].contains("Spaces"), "{closed:?}");
     assert!(
-        closed[2].contains("> coven.test: Unavailable"),
+        closed.iter().any(|line| line.contains("▾ build")),
+        "{closed:?}"
+    );
+    assert!(
+        closed.iter().any(|line| line.contains("Unavailable")),
         "{closed:?}"
     );
     assert_eq!(app.state.workspaces.len(), 1);
@@ -544,7 +543,7 @@ fn integration_views_real_coven_roundtrip() {
         .iter()
         .map(|(id, t)| {
             assert!(t.detected_agent().is_none() && t.hook_authority.is_none());
-            assert!(t.agent_metadata.is_empty() && t.persisted_agent_session.is_none());
+            assert!(t.persisted_agent_session.is_none());
             assert_eq!(t.state, crate::detect::AgentState::Unknown);
             (
                 id.to_string(),

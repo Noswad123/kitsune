@@ -7,10 +7,22 @@ This fork is branded around the `kitsune` command and local Kitsune runtime stat
 
 [APP_BOUNDARIES.md](APP_BOUNDARIES.md) records the 2026-10-22 target: a general
 multiplexer, with agent-aware behavior moving to optional Coven integration.
-Built-in management remains during transition, except new Claude/Codex/Copilot hook and Pi/OpenCode reference-extension installation
-on Linux is now retired here and owned by Coven. macOS/Windows installation and
-recommendation/update paths remain until matching Coven adapters. Complete
-all-platform extraction is not shipped.
+Live built-in detector/consumer and agent management paths are now retired globally,
+including standalone mode. Without Coven, Kitsune remains a general multiplexer,
+not a fallback agent manager. Fresh legacy installation for all six targets on all
+platforms returns `feature_retired`; status/uninstall and migration data remain for
+explicit cleanup. This does not certify Coven macOS/Windows replacement support.
+
+Remote detector-manifest management is now removed globally: no catalog fetching,
+remote cache/status loading or writing, background updater or update notifications.
+Old manifest CLI/API spellings return `feature_retired`, even without Coven.
+Old `[agent_detection]` / `[update]` settings are ignored with diagnostics; existing
+cache files are left untouched. Normal/handoff live detector loops and evidence
+consumers are deleted. All 12 live agent API methods, agent-status subscriptions
+and the agent wait matcher return `feature_retired` in both ownership modes;
+convenience and raw API CLI refusal is local without connecting. Static local/
+bundled rules remain only for offline compatibility explanation. See the
+[retirement boundary and validation](AGENT_CONTROL_RETIREMENT.md).
 
 Initial opt-in observation is implemented in Coven only, using one explicitly
 selected existing `session.snapshot` API socket (protocol 18). See the
@@ -38,8 +50,9 @@ all-22-literal-family hints, ignoring Linux's optional marker, rejecting old mac
 v1 even with the marker, and rejecting Windows `selected_process`/`legacy_agent_aware`.
 macOS is **source-enabled/provisional, not native runtime certification**.
 Generic `pane.process_info` uses isolated `macos_observation`/`macos_procargs`;
-legacy detector parsing and environment hints remain unchanged. No detector
-retirement or provider/receipt contract change follows.
+Windows acquisition still uses a legacy agent-aware process selector; that separate
+known contract is rejected by Coven and is not a live lifecycle producer. No
+provider/receipt contract change follows from retirement.
 
 Peer labels/PIDs grant no local OS/PID authority. Coven reports
 `acquisition_completeness: unknown`: mutable arguments and unreadable/failed
@@ -51,7 +64,7 @@ not SDK C/native link/runtime validation; missing SDK `TargetConditionals.h` sti
 blocks native validation. No builds, tests or live endpoint use occurred in this
 documentation update. Historical [evidence-seam validation](DETECTOR_EVIDENCE_SEPARATION.md)
 is separate, not a current acquisition total. Read housekeeping may create a
-default workspace/shell; the five Linux configuration retirements stay unchanged.
+default workspace/shell; global live retirement does not remove generic housekeeping.
 
 ## Integrations: generic presentation and messaging
 
@@ -73,7 +86,7 @@ presentation-only. `[integrations.coven] auto_start = false` preserves that olde
 behavior for manual Coven publishers, disabling the implicit runtime and inferred
 ownership. See [startup semantics](INTEGRATION_VIEWS.md).
 
-Then restart Kit, open new panes, select **Coven** in Integrations and invoke
+Then restart Kit, open new panes, expand the **Coven** section if collapsed and invoke
 `djinn`, `codex`, `copilot`, etc. normally. Djinn needs an updated native full-TUI
 build; other providers need separate explicit hook/extension setup in the guide.
 No Coven launcher/group/artifact join, manual workspace initialization or socket
@@ -83,35 +96,166 @@ explicit executable/root pinning and guarded undo. Debug Kit uses the same `kits
 directory, not `kitsune-dev`. Existing unmanaged runtimes require a manual handoff,
 not adoption/overwrite. No provider auto-install or native trust override occurs.
 
-The generic helper is server-only (`--no-session` refuses). External ownership
-suppresses all legacy agent-status/detector and automatic-resume paths even on
-helper failure or invalid/unreadable startup config, without legacy fallback.
+The generic helper is server-only (`--no-session` refuses). Live agent status,
+detectors and automatic provider resume are retired in both ownership modes,
+including helper failure or invalid/unreadable startup config, without fallback.
 Runtime changes, degraded-helper recovery and rollback require deliberate server
 restart; activation also needs new panes/provider reload. No automatic helper
 restart; generated bootstrap isolates concurrent Kit API addresses automatically.
 Crash/partial state refuses reuse and needs deliberate manual recovery, not
 self-healing. Guarded `coven integration disable --apply` restores only the exact
 managed preimage; later edits refuse, and ownership handoff still needs restart.
-Select **Coven** for attributed plain rows, not old status widgets, pane focus/
+The **Coven** section shows attributed plain rows, not old status widgets, pane focus/
 sidebar agents or mobile completions. Facts expire within 30 seconds independently
 of the five-second lease; sessions are unbound/unattested. Djinn needs an updated
-native full-TUI build; reference-only providers remain unknown. Default legacy
-compatibility remains; full migration/native macOS qualification is not claimed.
+native full-TUI build; reference-only providers remain unknown. Historical references
+remain data only; complete compatibility-source cleanup/native macOS qualification
+is not claimed.
 
-The desktop lower side menu is a generic [Integrations block](INTEGRATION_VIEWS.md),
-not an agent panel. With no providers it shows `No integrations configured` and
-never falls back to detected agents. Manually configure `[integrations]` with
-`sources = ["coven", "build"]` (up to eight ordered unique ASCII source IDs), then
-select an app locally from its vertical list to see its label/detail rows.
+The desktop sidebar has ordered [peer sections](INTEGRATION_VIEWS.md): **Spaces**
+first, then all configured integrations simultaneously, not an agent panel or
+provider selector. With no sources, only Spaces remains, without a lower placeholder
+or detected-agent fallback. Configure `[integrations]` with
+`sources = ["coven", "build"]` (up to eight ordered unique ASCII source IDs) for
+independently collapsible Spaces, Coven and literal `build` sections. Expanded
+bodies share height equally, with at most one row difference; collapsed sections
+use only a header. Header-wheel navigation reaches sections in short layouts;
+body-wheel input stays within its section, retaining workspace selection when
+Spaces content fits. The global menu and bottom sidebar toggle remain separate.
+Per-section collapse persists independently of global compact/hidden mode; compact
+headers retain distinct identities. Width dragging and workspace navigation remain,
+but the old vertical two-section divider is retired. See the contract for snapshot
+compatibility, compact numbering and successful-frame activation fences.
 Independent producers use `integration.view.open/replace/poll/close` with per-source
 five-second leases, frames and selection queues. Missing/expired apps show
-`Unavailable`; other producers and terminals keep working.
+`Unavailable` only in expanded bodies; healthy bodies show rows without an
+`Available` preamble. Other producers and terminals keep working.
+
+Integration items are one-line summaries. `prefix+a` (the existing customizable
+`agent_selector` keybinding) opens **Integration details**, a generic local inspector
+with source/item lists, search and wrapped scrollable details. Tab/Shift+Tab changes
+focus; arrows or `j`/`k` and PageUp/PageDown navigate or scroll; `/` edits search.
+Esc first blurs search, then closes. Source/item clicks only inspect locally and
+queue no intent. Enter in Items explicitly sends the existing publisher selection
+intent; Enter in Details activates nothing. No native focus, acknowledgement,
+input, start, resume or cancel is provided; the old agent navigator is not revived.
+
+With structured JSON v3 information, `prefix+a` shows the selected name only in
+Items, then concise **Attention**, **Current activity** and **Working context**
+instead of a metadata dump. **Diagnostics** is collapsed by default: focus Details
+with Tab and press `d` outside search, or click its visible header. The footer
+shows the toggle hint. Search covers hidden diagnostics too, reporting a hidden-only
+match without expanding it. Ordinary revisions preserve expansion; changing
+source/epoch/item, disappearance or close/reopen resets it. Empty sections are
+honest unavailable placeholders, not idle/all-clear. Plain v3 and old v1/v2 items
+keep useful visible flat Details; Kitsune parses no Coven-specific prose.
+
+The additive JSON v2 profile optionally supplies a short presentation label and
+generic status glyph. Coven's `item.label` is human-name-only: provider default
+(e.g. Djinn), preferring a valid associated explicit manual pane name, already set
+or renamed now. V2 sends blank `presentation.label` for sidebar icon/animation-only
+status, no words/hashes. Stable opaque row IDs remain internal selection identity,
+not native session IDs or displayed labels. Duplicate names have no ID/suffix
+disambiguation. V1 stays name-only, exactly `{id,label,detail}` with no metadata;
+nonempty generic third-party captions still render. Fresh Working maps to `running`,
+Blocked to `attention`; Idle/Ended intentionally share a neutral icon, distinguished
+by detailed state text. Flat fallback Details shows `Status: running`/`Status: neutral`
+even with blank captions; structured v3 uses source-owned concise information.
+Expired/historical/unordered facts are Unknown. Idle never
+means success. Generic `success`/`error` require explicit source assertions, not
+normal Coven job-outcome proof. `[ui] integration_animations` defaults to `true`;
+`false` disables local working spinners, which never refresh facts. Server source
+facts are separate from client inspector focus/search/scroll. See the contract for
+strict v1/v2/v3 negotiation and successful-frame fences; binary protocol 18 is unchanged.
+
+Descriptor version 1 advertises `[1,2,3]`; Coven validates the whole list and
+opens the highest advertised profile, with absent list meaning v1 only and no
+uncertain-mutation downgrade. V1 is exactly `{id,label,detail}`; v2 adds only optional
+presentation. V3 optionally adds non-null `information` with `attention`, `activity`
+and `context` string arrays (default empty, at most four strings each, nonblank,
+256 UTF-8 bytes/string, no controls/bidi). Its 1,536-byte/item text counts toward
+the existing 96 KiB/source quota; 128 maximum-size rows need not fit. Required
+512-byte `detail` is Diagnostics only when information is present. V1/v2 reject
+information atomically without lease renewal or partial frame/queue changes.
+
+Coven's meaningful attention is based on fresh reported counts, not exhaustive
+native inventory; "No pending request in recent reports" is not global all-clear.
+Current activity reports Working/Idle/Blocked or honest missing/reference-only
+evidence, never guessed tool commands or task summaries. Evidence age belongs to
+the selected fact, sampled by its owner once/second, not last receipt or a continuous
+TUI clock; it can freeze on publisher stall until lease expiry. Context labels
+`Kit project`/`Kit branch` are multiplexer metadata, not native Djinn CWD proof.
+No task history, tool commands, cost or native prompt scope is added.
+
+Name lookup requires a fresh association, exact endpoint binding and live terminal
+runtime generation. OSC title/CWD/old `agent_name` are not manual identity fallbacks.
+Publisher-only private hints stay out of public raw targets; the 300 ms bounded
+read never blocks on the receiver mutex or creates association/focus/input/ack.
+Confirmed association/runtime/endpoint loss uses the provider default; name refresh
+changes no activity/authority. Temporary contention or unavailable lookup evidence
+instead defers publication, preserving coherent name-filtered selection.
+The same lookup now qualifies the whole name/project/branch bundle after I/O and
+at pre-send, including unique pane/workspace/tab, association epoch, admission and
+original deadline. Coherently established loss clears all borrowed metadata, not
+an otherwise current row. Project is associated worktree `repo_name`, else workspace
+human label;
+optional JSON `NewWorkspaceInfo.git_branch` carries cached current provenance in
+snapshot/event contexts, with no projection-time Git/filesystem/process I/O or
+label/path/native branch inference. Missing context stays unavailable. These
+qualification fields stay private and refresh no native clock.
+All candidate frames, even empty/partial, bracket receiver projection, lookup and
+actual pre-send. Temporary lock contention or changed/odd admission defers rather
+than publishing fake absence/fallback. Last-shown data remains bounded by original
+membership/context deadlines and the five-second view TTL; deferral cannot renew
+it indefinitely. Real membership expiry still drops rows. Read-only observers do
+not invalidate admission or renew evidence/association clocks; mutations stay fenced.
+Only safely Unsent refresh-needed candidates rebuild within that ceiling on the
+same owner/revision, never attempted/uncertain writes.
+Djinn separately queries actual local native session/status services after pure
+root qualification, at most once/second within 1,900 ms. Successful fresh native
+queries renew only activity through the existing event contract, never pending
+occurrences/acks/outcomes; attachment heartbeat alone does not. Native canonical
+idle is not process liveness or sparse SDK absence inference. Failed queries leave
+clocks unchanged and Unknown after 30 seconds; quiet mounted normal full-TUI roots
+can recover, not all live Unknown causes. Unmounted/event-only/remote/unavailable
+profiles still have no automatic status heartbeat.
+Native status commit/publication is ordered by a per-instance/per-session semaphore;
+`get`/`list` remain unlocked for callback reads. Samples preserve query-start time
+through the total 1,900 ms query/queue/IPC budget, not completion-time freshness
+or replay. Other provider profiles are unchanged.
+
+Current structured-information validation is recorded in the
+[gate record](../coven/tools/normal-workflow-check/README.md#current-structured-information-increment),
+separate from the preserved current-Djinn/history filter and earlier qualifications.
+Final observed qualification passed with independent review READY and no P1/P2;
+the central record separates the earlier full Kit suite from the latest Coven-only
+continuity-fix rerun. Cached branch acquisition is unit-qualified, not physical
+provider/branch acquisition. Activation requires explicit approval to rebuild/install
+Kit and Coven, then restart Kit to pin the Coven generation; no new Djinn rebuild
+is required by this increment. No activation is performed here.
+The historical name/icon/quiet-root baseline is **QUALIFIED**. Final Kit validation passed
+2,578 binary tests (five ignored), 193 integration tests across 11 targets and one
+explicit real-Coven roundtrip, including duplicate/icon/name changes. Separately,
+the latest unified run passed 19 sidebar, 32 normal, four adoption and 16 hosting/
+status-sampling gates, six Coven presentation integration tests, 127 filtered
+agent-management units, 26 Djinn tests in three files and one actual-source interop
+fixture. After the subsequent type-binding-only fix, full-package installed tsgo
+passed with zero errors and the broader Djinn run passed 84 tests in nine files.
+Independent review found no P1/P2 after the semaphore race fix. These are separate
+results, not a unified rerun after the binding fix; see the
+[gate record](../coven/tools/normal-workflow-check/README.md#sidebar-qualification).
+Owned children stopped/reaped; cached runs were empty and no artifacts retained.
+No full CI/full Coven suite, new provider/mobile/remote or actual model qualification.
+The two existing user Djinn instances were not live-inspected: the source addresses
+known quiet/resumed selected-root initial/expiry gaps, not a proven current-row fix.
+That historical baseline required new Djinn/Coven/Kit builds and explicit user approval;
+this docs-only update performs no builds, installs, configuration edits or activation.
 
 Coven's `group present` supplies its own group/participant model without Kitsune
 interpreting agents or roles. Use `[integrations.coven] auto_start = false` and no
 explicit runtime for that manual publisher rather than starting two Coven owners.
-This presentation-only path changes default desktop lower-menu
-presentation, not all legacy detection, APIs, mobile UI, hooks or restore behavior.
+This presentation-only path changes desktop sidebar
+presentation; it is independent of global live detector/API/hook/restore retirement.
 The obsolete `[external_view]` config is diagnosed/ignored, not automatically
 rewritten. See the contract for discovery, bounds and at-most-once, non-authorizing
 selection messaging.
@@ -219,16 +363,32 @@ Kitsune includes a `session_recall` action bound by default to `prefix+shift+s`.
 
 The helper receives `KITSUNE_ENV`, `KITSUNE_BIN_PATH`, `KITSUNE_SOCKET_PATH`, `KITSUNE_CLIENT_SOCKET_PATH`, and active workspace/tab/pane context. Herdr, tmux, and Kitsune are selected as normal helper backends; Kitsune does not mirror one backend's environment variables into another backend.
 
-## Agent navigation
+## Terminal Navigation
 
-Kitsune includes a session navigator and an agents-only selector:
+Kitsune retains generic session navigation and manual pane labels:
 
 - `prefix+g` opens the full session navigator.
-- `prefix+a` opens the navigator directly in agents-only scope.
-- `Tab` toggles the navigator between full tree and agents-only scope.
-- In agents-only scope, `r` renames the selected agent pane's pane label.
+- Historical agent names are not navigator aliases or fallback titles.
+- Mobile agent counts/completion cues and agent:shell menu clauses are removed.
+- OSC titles, generic terminal focus and manual pane labels remain.
 
-## Legacy agent hooks
+Generic pane reads/input, process observations, output waits and event streaming
+remain. Metadata reporting is token-only; retired presentation fields reject the
+whole request even when tokens are included. Snapshots expose `agents: []` while
+preserving old pane references/history without readiness or provider autostart.
+Explicit notifications work; idle-inferred completion notifications do not.
+See [current API examples](docs/next/README.md#generic-api-examples).
+
+## Historical Provider Transfer Notes
+
+The following provider-cut record is historical, not current installation or
+runtime guidance. Its Linux-only retirement, non-Linux install/update availability,
+live hook ingress and built-in Djinn claims are superseded by
+[global retirement](AGENT_CONTROL_RETIREMENT.md). All six fresh legacy installers
+now retire on every platform. Frozen assets/fingerprints/licenses and status/
+uninstall remain only for explicit cleanup; nothing is automatically uninstalled.
+No Coven replacement platform qualification follows. For current optional setup,
+use [Coven's normal workflow](../coven/docs/NORMAL_AGENT_WORKFLOW.md).
 
 New **OpenCode** plugin install/recommend/update/bulk paths retire **on Linux only**,
 before discovery and without running Coven. See [migration guide](OPENCODE_EXTENSION_MIGRATION.md)
@@ -359,7 +519,7 @@ Native Windows builds use the system ConPTY included with Windows 10 October 201
 
 ## Notes
 
-- Agent integrations remain available unless removed separately.
+- Generic Integrations sources/leases/views remain independent of retired legacy targets.
 - Durable decisions live in root docs; current feature details also live under `docs/next/`.
 
 Kitsune inherits Herdr's Apache-2.0 license.

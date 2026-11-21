@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture repeated Kitsune pane reads for agent screen detection fixtures."""
+"""Capture repeated generic Kitsune pane reads for offline screen fixtures."""
 
 from __future__ import annotations
 
@@ -17,6 +17,7 @@ from typing import Any
 
 DEFAULT_OUT_DIR = Path(".local/agent-screen-captures")
 DEFAULT_PANE = "harness-test"
+AGENT_RETIREMENT_MESSAGE = "feature_retired: Legacy agent capture targeting is retired; use --pane with a pane id or label. Kitsune no longer provides built-in agent lifecycle, readiness, or status."
 STATE_CHOICES = {
     "i": "idle",
     "idle": "idle",
@@ -44,16 +45,15 @@ class CommandResult:
 class PaneMatch:
     pane_id: str
     label: str | None
-    name: str | None
-    agent: str | None
     title: str | None
-    display_agent: str | None
     raw: dict[str, Any] | None
-    agent_raw: dict[str, Any] | None = None
 
 
 def main() -> int:
     args = parse_args()
+    if args.agent is not None:
+        print(AGENT_RETIREMENT_MESSAGE, file=sys.stderr)
+        return 1
     run_dir = args.out / datetime.now().strftime("%Y%m%d-%H%M%S")
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -62,16 +62,17 @@ def main() -> int:
 
     capture_index = 1
     while True:
-        pane = resolve_target(args.kitsune, args.pane, args.agent)
+        try:
+            pane = resolve_pane(args.kitsune, args.pane)
+        except RuntimeError as error:
+            print(error, file=sys.stderr)
+            return 1
         if pane is None:
-            if args.agent:
-                print(f"agent '{args.agent}' was not found by `kitsune agent get`")
-            else:
-                print(f"pane '{args.pane}' was not found by `kitsune pane list`")
-                print("pass a pane id with --pane, or rename the target pane to harness-test")
+            print(f"pane '{args.pane}' was not found by `kitsune pane list`")
+            print("pass a pane id with --pane, or rename the target pane to harness-test")
             return 1
 
-        print(f"\npane found: {pane.pane_id}, agent: {agent_display(pane)}{format_pane_context(pane)}")
+        print(f"\npane found: {pane.pane_id}{format_pane_context(pane)}")
         state = prompt_state()
         if state is None:
             break
@@ -112,7 +113,7 @@ def main() -> int:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Interactively capture Kitsune pane screen reads for agent detection fixture work."
+        description="Interactively capture generic Kitsune pane screen reads for offline fixture work."
     )
     parser.add_argument(
         "--pane",
@@ -121,7 +122,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--agent",
-        help="agent target to capture; resolved with `kitsune agent get`",
+        help="retired agent target spelling; fails locally with feature_retired (use --pane)",
     )
     parser.add_argument(
         "--out",
@@ -177,19 +178,18 @@ def non_negative_float(value: str) -> float:
 def resolve_pane(kitsune: str, pane_ref: str) -> PaneMatch | None:
     result = run_command([kitsune, "pane", "list"])
     if result.code != 0:
-        pane = fallback_pane_id(pane_ref)
-        return enrich_pane_with_agent(kitsune, pane) if pane else None
+        raise RuntimeError(f"kitsune pane list failed with exit {result.code}")
 
     try:
         response = json.loads(result.stdout.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        pane = fallback_pane_id(pane_ref)
-        return enrich_pane_with_agent(kitsune, pane) if pane else None
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError("kitsune pane list returned invalid JSON") from error
 
-    panes = response.get("result", {}).get("panes", [])
+    if not isinstance(response, dict) or not isinstance(response.get("result"), dict):
+        raise RuntimeError("kitsune pane list returned no pane result")
+    panes = response["result"].get("panes")
     if not isinstance(panes, list):
-        pane = fallback_pane_id(pane_ref)
-        return enrich_pane_with_agent(kitsune, pane) if pane else None
+        raise RuntimeError("kitsune pane list returned no pane list")
 
     exact_matches = []
     loose_matches = []
@@ -207,85 +207,14 @@ def resolve_pane(kitsune: str, pane_ref: str) -> PaneMatch | None:
 
     matches = exact_matches or loose_matches
     if len(matches) == 1:
-        return enrich_pane_with_agent(kitsune, pane_from_dict(matches[0]))
+        return pane_from_dict(matches[0])
     if len(matches) > 1:
         print(f"pane ref '{pane_ref}' matched multiple panes:")
         for pane in matches:
             print(f"  {pane.get('pane_id')}{format_pane_context(pane_from_dict(pane))}")
         return None
 
-    pane = fallback_pane_id(pane_ref)
-    return enrich_pane_with_agent(kitsune, pane) if pane else None
-
-
-def resolve_target(kitsune: str, pane_ref: str, agent_ref: str | None) -> PaneMatch | None:
-    if agent_ref:
-        agent = get_agent(kitsune, agent_ref)
-        if agent is None:
-            return None
-        pane = pane_from_agent_dict(agent)
-        return enrich_pane_with_pane_list(kitsune, pane)
-    return resolve_pane(kitsune, pane_ref)
-
-
-def get_agent(kitsune: str, agent_ref: str) -> dict[str, Any] | None:
-    result = run_command([kitsune, "agent", "get", agent_ref])
-    if result.code != 0:
-        return None
-    try:
-        response = json.loads(result.stdout.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return None
-    agent = response.get("result", {}).get("agent")
-    return agent if isinstance(agent, dict) else None
-
-
-def enrich_pane_with_agent(kitsune: str, pane: PaneMatch) -> PaneMatch:
-    result = run_command([kitsune, "agent", "list"])
-    if result.code != 0:
-        return pane
-    try:
-        response = json.loads(result.stdout.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return pane
-    agents = response.get("result", {}).get("agents", [])
-    if not isinstance(agents, list):
-        return pane
-    for agent in agents:
-        if isinstance(agent, dict) and agent.get("pane_id") == pane.pane_id:
-            return merge_agent_into_pane(pane, agent)
-    return pane
-
-
-def enrich_pane_with_pane_list(kitsune: str, pane: PaneMatch) -> PaneMatch:
-    result = run_command([kitsune, "pane", "list"])
-    if result.code != 0:
-        return pane
-    try:
-        response = json.loads(result.stdout.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return pane
-    panes = response.get("result", {}).get("panes", [])
-    if not isinstance(panes, list):
-        return pane
-    for candidate in panes:
-        if isinstance(candidate, dict) and candidate.get("pane_id") == pane.pane_id:
-            pane_info = pane_from_dict(candidate)
-            pane_info.name = pane.name or pane_info.name
-            pane_info.agent = pane.agent or pane_info.agent
-            pane_info.display_agent = pane.display_agent or pane_info.display_agent
-            pane_info.agent_raw = pane.agent_raw
-            return pane_info
-    return pane
-
-
-def merge_agent_into_pane(pane: PaneMatch, agent: dict[str, Any]) -> PaneMatch:
-    pane.name = string_value(agent.get("name")) or pane.name
-    pane.agent = string_value(agent.get("agent")) or pane.agent
-    pane.display_agent = string_value(agent.get("display_agent")) or pane.display_agent
-    pane.title = string_value(agent.get("title")) or pane.title
-    pane.agent_raw = agent
-    return pane
+    return fallback_pane_id(pane_ref)
 
 
 def fallback_pane_id(pane_ref: str) -> PaneMatch | None:
@@ -295,10 +224,7 @@ def fallback_pane_id(pane_ref: str) -> PaneMatch | None:
         return PaneMatch(
             pane_id=normalize_pane_id(pane_ref),
             label=None,
-            name=None,
-            agent=None,
             title=None,
-            display_agent=None,
             raw=None,
         )
     return None
@@ -314,8 +240,6 @@ def pane_match_fields(pane: dict[str, Any]) -> list[str]:
         string_value(pane.get("terminal_id")),
         string_value(pane.get("label")),
         string_value(pane.get("title")),
-        string_value(pane.get("agent")),
-        string_value(pane.get("display_agent")),
     ]
     return [field for field in fields if field]
 
@@ -324,29 +248,12 @@ def pane_from_dict(pane: dict[str, Any]) -> PaneMatch:
     return PaneMatch(
         pane_id=string_value(pane.get("pane_id")) or "",
         label=string_value(pane.get("label")),
-        name=None,
-        agent=string_value(pane.get("agent")),
         title=string_value(pane.get("title")),
-        display_agent=string_value(pane.get("display_agent")),
-        raw=pane,
+        raw={key: value for key, value in pane.items() if key not in {
+            "agent", "agent_status", "agent_session", "display_agent", "name",
+            "launch_pending", "interactive_ready",
+        }},
     )
-
-
-def pane_from_agent_dict(agent: dict[str, Any]) -> PaneMatch:
-    return PaneMatch(
-        pane_id=string_value(agent.get("pane_id")) or "",
-        label=None,
-        name=string_value(agent.get("name")),
-        agent=string_value(agent.get("agent")),
-        title=string_value(agent.get("title")),
-        display_agent=string_value(agent.get("display_agent")),
-        raw=None,
-        agent_raw=agent,
-    )
-
-
-def agent_display(pane: PaneMatch) -> str:
-    return pane.agent or pane.display_agent or "unknown"
 
 
 def string_value(value: Any) -> str | None:
@@ -355,8 +262,6 @@ def string_value(value: Any) -> str | None:
 
 def format_pane_context(pane: PaneMatch) -> str:
     details = []
-    if pane.name:
-        details.append(f"name={pane.name}")
     if pane.label:
         details.append(f"label={pane.label}")
     if pane.title:
@@ -386,7 +291,7 @@ def prompt_state() -> str | None:
 
 def prompt_name(pane: PaneMatch, state: str) -> str | None:
     default_parts = [
-        pane.agent or pane.display_agent or pane.name or pane.label or "agent",
+        pane.label or "pane",
         state,
         datetime.now().strftime("%H%M%S"),
     ]
@@ -409,6 +314,8 @@ def capture_case(
         prefix = f"sample-{index:03d}"
         print(f"  sample {index}/{args.samples}")
 
+        # Detection reads the generic bottom of the live buffer, independent of the
+        # viewport; it does not infer a native agent or its status.
         commands = [
             (
                 f"{prefix}.detection.txt",
@@ -447,10 +354,6 @@ def capture_case(
                     "--format",
                     "ansi",
                 ],
-            ),
-            (
-                f"{prefix}.explain.json",
-                [args.kitsune, "agent", "explain", pane.pane_id, "--json"],
             ),
         ]
 
@@ -516,9 +419,9 @@ def write_metadata(
         f"recent_lines = {args.lines}",
         f"kitsune = {toml_string(args.kitsune)}",
         f"pane_label = {toml_optional_string(pane.label)}",
-        f"agent_name = {toml_optional_string(pane.name)}",
-        f"pane_agent = {toml_optional_string(pane.agent)}",
-        f"display_agent = {toml_optional_string(pane.display_agent)}",
+        'agent_name = ""',
+        'pane_agent = ""',
+        'display_agent = ""',
         f"pane_title = {toml_optional_string(pane.title)}",
         "",
         "[commands]",
@@ -526,7 +429,6 @@ def write_metadata(
         'detection_ansi = "kitsune pane read <pane> --source detection --format ansi"',
         'recent_text = "kitsune pane read <pane> --source recent --lines <n> --format text"',
         'recent_ansi = "kitsune pane read <pane> --source recent --lines <n> --format ansi"',
-        'explain = "kitsune agent explain <pane> --json"',
     ]
     if failures:
         lines.append("")
@@ -539,11 +441,6 @@ def write_metadata(
     if pane.raw is not None:
         (capture_dir / "pane.json").write_text(
             json.dumps(pane.raw, indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-    if pane.agent_raw is not None:
-        (capture_dir / "agent.json").write_text(
-            json.dumps(pane.agent_raw, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
 

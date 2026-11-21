@@ -20,8 +20,8 @@ use crate::app::Mode;
 use crate::layout::{find_in_direction, NavDirection, PaneId};
 
 use super::super::api_helpers::{
-    detect_state_from_api, encode_api_keys, normalize_metadata_source, normalize_metadata_tokens,
-    normalize_metadata_ttl, normalize_reported_agent_label, MAX_METADATA_TOKEN_KEYS_PER_RESOURCE,
+    encode_api_keys, normalize_metadata_source, normalize_metadata_tokens, normalize_metadata_ttl,
+    MAX_METADATA_TOKEN_KEYS_PER_RESOURCE,
 };
 #[cfg(test)]
 use super::super::api_helpers::{METADATA_SOURCE_MAX_CHARS, METADATA_TTL_MAX_MS};
@@ -1183,7 +1183,7 @@ impl App {
     pub(super) fn handle_pane_report_agent(
         &mut self,
         id: String,
-        params: PaneReportAgentParams,
+        _: PaneReportAgentParams,
     ) -> String {
         if self.state.external_agent_management {
             return encode_error(
@@ -1192,34 +1192,16 @@ impl App {
                 "legacy agent reports are disabled",
             );
         }
-        let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
-            return pane_not_found(id, &params.pane_id);
-        };
-        let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
-            return invalid_agent(id);
-        };
-        self.handle_internal_event(crate::events::AppEvent::HookStateReported {
-            pane_id,
-            session_ref: crate::agent_resume::session_ref_from_report(
-                &params.source,
-                &agent_label,
-                params.agent_session_id,
-                params.agent_session_path,
-            ),
-            source: params.source,
-            agent_label,
-            state: detect_state_from_api(params.state),
-            message: params.message,
-            seq: params.seq,
-        });
-
-        encode_success(id, ResponseResult::Ok {})
+        super::responses::encode_error_body(
+            id,
+            crate::api::schema::legacy_agent_retirement_error("pane.report_agent"),
+        )
     }
 
     pub(super) fn handle_pane_report_agent_session(
         &mut self,
         id: String,
-        params: PaneReportAgentSessionParams,
+        _: PaneReportAgentSessionParams,
     ) -> String {
         if self.state.external_agent_management {
             return encode_error(
@@ -1228,29 +1210,10 @@ impl App {
                 "legacy agent reports are disabled",
             );
         }
-        let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
-            return pane_not_found(id, &params.pane_id);
-        };
-        let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
-            return invalid_agent(id);
-        };
-        self.handle_internal_event(crate::events::AppEvent::AgentSessionReported {
-            pane_id,
-            session_ref: crate::agent_resume::session_ref_from_report(
-                &params.source,
-                &agent_label,
-                params.agent_session_id,
-                params.agent_session_path,
-            ),
-            source: params.source,
-            agent_label,
-            seq: params.seq,
-            session_start_source: crate::agent_resume::normalize_session_start_source(
-                params.session_start_source,
-            ),
-        });
-
-        encode_success(id, ResponseResult::Ok {})
+        super::responses::encode_error_body(
+            id,
+            crate::api::schema::legacy_agent_retirement_error("pane.report_agent_session"),
+        )
     }
 
     pub(super) fn handle_pane_report_metadata(
@@ -1258,84 +1221,44 @@ impl App {
         id: String,
         params: PaneReportMetadataParams,
     ) -> String {
+        // These fields require the retired agent lifecycle. Reject the entire
+        // request before even validating or patching generic metadata tokens.
+        if params.agent.is_some()
+            || params.applies_to_source.is_some()
+            || params.title.is_some()
+            || params.display_agent.is_some()
+            || !params.state_labels.is_empty()
+            || params.clear_title
+            || params.clear_display_agent
+            || params.clear_state_labels
+        {
+            return super::responses::encode_error_body(
+                id,
+                crate::api::schema::legacy_agent_retirement_error("pane.report_metadata"),
+            );
+        }
         let Some((ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
             return pane_not_found(id, &params.pane_id);
-        };
-        let agent_label = match params.agent.as_deref() {
-            Some(agent) => match normalize_reported_agent_label(agent) {
-                Some(agent_label) => Some(agent_label),
-                None => return invalid_agent(id),
-            },
-            None => None,
         };
         let source = match normalize_metadata_source(params.source) {
             Ok(source) => source,
             Err(message) => return encode_error(id, "invalid_metadata_source", message),
         };
-        let raw_title_set = params.title.is_some();
-        let raw_display_agent_set = params.display_agent.is_some();
-        let raw_state_labels_set = !params.state_labels.is_empty();
-        let tokens = if params.tokens.is_empty() {
-            None
-        } else {
-            match normalize_metadata_tokens(params.tokens) {
-                Ok(tokens) => Some(tokens),
-                Err(message) => return encode_error(id, "invalid_metadata_token", message),
-            }
+        let tokens = match normalize_metadata_tokens(params.tokens) {
+            Ok(tokens) => tokens,
+            Err(message) => return encode_error(id, "invalid_metadata_token", message),
         };
         let ttl = match normalize_metadata_ttl(params.ttl_ms) {
             Ok(ttl) => ttl,
             Err(message) => return encode_error(id, "invalid_metadata_ttl", message),
         };
-        let title = normalize_presentation_text(params.title);
-        let display_agent = normalize_presentation_text(params.display_agent);
-        let applies_to_source = match params.applies_to_source {
-            Some(applies_to_source) => match normalize_metadata_source(applies_to_source) {
-                Ok(applies_to_source) => Some(applies_to_source),
-                Err(message) => return encode_error(id, "invalid_metadata_source", message),
-            },
-            None => None,
-        };
-        let state_labels = match normalize_state_labels(params.state_labels) {
-            Ok(labels) => labels,
-            Err(status) => {
-                return encode_error(
-                    id,
-                    "invalid_state_label",
-                    format!("unknown state label: {status}"),
-                );
-            }
-        };
-        if raw_title_set && params.clear_title
-            || raw_display_agent_set && params.clear_display_agent
-            || raw_state_labels_set && params.clear_state_labels
-        {
-            return encode_error(
-                id,
-                "invalid_metadata_request",
-                "cannot set and clear the same metadata field",
-            );
-        }
-        if title.is_none()
-            && display_agent.is_none()
-            && state_labels.is_empty()
-            && tokens.is_none()
-            && !params.clear_title
-            && !params.clear_display_agent
-            && !params.clear_state_labels
-        {
+        if tokens.is_empty() {
             return encode_error(
                 id,
                 "invalid_metadata_request",
                 "missing metadata field to set or clear",
             );
         }
-        let presentation_requested = title.is_some()
-            || display_agent.is_some()
-            || !state_labels.is_empty()
-            || params.clear_title
-            || params.clear_display_agent
-            || params.clear_state_labels;
         let Some(terminal_id) = self
             .state
             .workspaces
@@ -1348,36 +1271,21 @@ impl App {
         let Some(terminal) = self.state.terminals.get_mut(&terminal_id) else {
             return pane_not_found(id, &params.pane_id);
         };
-        if terminal.metadata_report_blocked_by_process_exit(
-            &source,
-            agent_label.as_deref(),
-            applies_to_source.as_deref(),
-        ) {
-            return encode_success(id, ResponseResult::Ok {});
-        }
         if !terminal.metadata_report_sequence_is_fresh(&source, params.seq) {
             return encode_success(id, ResponseResult::Ok {});
         }
-        let metadata_agent = crate::terminal::TerminalState::metadata_report_agent(
-            &source,
-            agent_label.as_deref(),
-            applies_to_source.as_deref(),
-        );
-        if let Some(tokens) = tokens.as_ref() {
-            if terminal.metadata_tokens.key_count_after_patch(tokens)
-                > MAX_METADATA_TOKEN_KEYS_PER_RESOURCE
-            {
-                return encode_error(
-                    id,
-                    "metadata_token_limit",
-                    format!(
-                        "pane metadata may contain at most {MAX_METADATA_TOKEN_KEYS_PER_RESOURCE} tokens"
-                    ),
-                );
-            }
-        }
-        match terminal.accept_metadata_report(&source, params.seq, tokens.is_some(), metadata_agent)
+        if terminal.metadata_tokens.key_count_after_patch(&tokens)
+            > MAX_METADATA_TOKEN_KEYS_PER_RESOURCE
         {
+            return encode_error(
+                id,
+                "metadata_token_limit",
+                format!(
+                    "pane metadata may contain at most {MAX_METADATA_TOKEN_KEYS_PER_RESOURCE} tokens"
+                ),
+            );
+        }
+        match terminal.accept_metadata_report(&source, params.seq) {
             Ok(true) => {}
             Ok(false) => return encode_success(id, ResponseResult::Ok {}),
             Err(()) => {
@@ -1391,32 +1299,13 @@ impl App {
                 );
             }
         }
-        let token_changed = tokens.is_some_and(|tokens| {
-            let changed = terminal
-                .metadata_tokens
-                .patch(tokens, ttl, std::time::Instant::now());
-            if changed {
-                terminal.revision = terminal.revision.saturating_add(1);
-            }
-            changed
-        });
-
-        if presentation_requested {
-            self.handle_internal_event(crate::events::AppEvent::HookMetadataReported {
-                pane_id,
-                source,
-                agent_label,
-                applies_to_source,
-                title,
-                display_agent,
-                state_labels,
-                clear_title: params.clear_title,
-                clear_display_agent: params.clear_display_agent,
-                clear_state_labels: params.clear_state_labels,
-                seq: None,
-                ttl,
-            });
+        let token_changed = terminal
+            .metadata_tokens
+            .patch(tokens, ttl, std::time::Instant::now());
+        if token_changed {
+            terminal.revision = terminal.revision.saturating_add(1);
         }
+
         if token_changed {
             self.sync_agent_metadata_deadline();
             self.emit_pane_updated(ws_idx, pane_id);
@@ -1428,7 +1317,7 @@ impl App {
     pub(super) fn handle_pane_clear_agent_authority(
         &mut self,
         id: String,
-        params: PaneClearAgentAuthorityParams,
+        _: PaneClearAgentAuthorityParams,
     ) -> String {
         if self.state.external_agent_management {
             return encode_error(
@@ -1437,22 +1326,16 @@ impl App {
                 "legacy agent reports are disabled",
             );
         }
-        let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
-            return pane_not_found(id, &params.pane_id);
-        };
-        self.handle_internal_event(crate::events::AppEvent::HookAuthorityCleared {
-            pane_id,
-            source: params.source,
-            seq: params.seq,
-        });
-
-        encode_success(id, ResponseResult::Ok {})
+        super::responses::encode_error_body(
+            id,
+            crate::api::schema::legacy_agent_retirement_error("pane.clear_agent_authority"),
+        )
     }
 
     pub(super) fn handle_pane_release_agent(
         &mut self,
         id: String,
-        params: PaneReleaseAgentParams,
+        _: PaneReleaseAgentParams,
     ) -> String {
         if self.state.external_agent_management {
             return encode_error(
@@ -1461,28 +1344,10 @@ impl App {
                 "legacy agent reports are disabled",
             );
         }
-        let Some((_ws_idx, pane_id)) = self.parse_pane_id(&params.pane_id) else {
-            return pane_not_found(id, &params.pane_id);
-        };
-        let Some(agent_label) = normalize_reported_agent_label(&params.agent) else {
-            return invalid_agent(id);
-        };
-        let session_ref = crate::agent_resume::session_ref_from_report(
-            &params.source,
-            &agent_label,
-            params.agent_session_id,
-            params.agent_session_path,
-        );
-        self.handle_internal_event(crate::events::AppEvent::HookAgentReleased {
-            pane_id,
-            source: params.source,
-            known_agent: crate::detect::parse_agent_label(&agent_label),
-            agent_label,
-            seq: params.seq,
-            session_ref,
-        });
-
-        encode_success(id, ResponseResult::Ok {})
+        super::responses::encode_error_body(
+            id,
+            crate::api::schema::legacy_agent_retirement_error("pane.release_agent"),
+        )
     }
 
     pub(super) fn handle_pane_send_text(
@@ -1624,35 +1489,6 @@ impl App {
 
         encode_success(id, ResponseResult::Ok {})
     }
-}
-
-fn normalize_presentation_text(value: Option<String>) -> Option<String> {
-    let trimmed = value?.trim().to_string();
-    let normalized: String = trimmed
-        .chars()
-        .filter(|ch| !ch.is_control())
-        .take(80)
-        .collect();
-    (!normalized.trim().is_empty()).then(|| normalized.trim().to_string())
-}
-
-fn normalize_state_labels(
-    labels: std::collections::HashMap<String, String>,
-) -> Result<std::collections::HashMap<String, String>, String> {
-    labels
-        .into_iter()
-        .map(|(status, label)| {
-            let status = status.trim().to_ascii_lowercase();
-            if !matches!(
-                status.as_str(),
-                "idle" | "working" | "blocked" | "done" | "unknown"
-            ) {
-                return Err(status);
-            }
-            Ok(normalize_presentation_text(Some(label)).map(|label| (status, label)))
-        })
-        .filter_map(Result::transpose)
-        .collect()
 }
 
 fn pane_not_found(id: String, pane_id: &str) -> String {
@@ -1909,10 +1745,6 @@ fn process_info_projection(
     }
 }
 
-fn invalid_agent(id: String) -> String {
-    encode_error(id, "invalid_agent", "agent label must not be empty")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2065,10 +1897,10 @@ mod tests {
             source: "user:metadata.test-1".into(),
             agent: None,
             applies_to_source: None,
-            title: Some("activity".into()),
+            title: None,
             display_agent: None,
             state_labels: std::collections::HashMap::new(),
-            tokens: std::collections::HashMap::new(),
+            tokens: std::collections::HashMap::from([("summary".into(), Some("activity".into()))]),
             clear_title: false,
             clear_display_agent: false,
             clear_state_labels: false,
@@ -2873,10 +2705,12 @@ mod tests {
         );
         assert_eq!(app.parse_pane_id(&previous_pane_id), Some((0, source)));
         assert!(matches!(
-            app.resolve_agent_target(&previous_pane_id),
+            app.resolve_terminal_target(&previous_pane_id),
             Err(crate::app::terminal_targets::TerminalTargetError::NotFound { .. })
         ));
-        assert!(app.resolve_agent_target(&move_result.pane.pane_id).is_ok());
+        assert!(app
+            .resolve_terminal_target(&move_result.pane.pane_id)
+            .is_ok());
     }
 
     #[test]
@@ -3832,7 +3666,7 @@ mod tests {
         let ResponseResult::PaneInfo { pane } = success.result else {
             panic!("expected pane info response");
         };
-        assert_eq!(pane.agent_status, crate::api::schema::AgentStatus::Idle);
+        assert_eq!(pane.agent_status, crate::api::schema::AgentStatus::Unknown);
     }
 
     #[test]
@@ -3927,11 +3761,13 @@ mod tests {
             .unwrap()
             .attached_terminal_id
             .clone();
-        assert!(app.state.terminals[&terminal_id].agent_metadata.is_empty());
+        assert!(app.state.terminals[&terminal_id]
+            .effective_agent_label()
+            .is_none());
     }
 
     #[test]
-    fn pane_tokens_are_independent_from_presentation_guards() {
+    fn mixed_retired_metadata_rejects_tokens_atomically() {
         let (mut app, pane_id) = app_with_test_workspace();
         let (_, internal_pane_id) = app.parse_pane_id(&pane_id).unwrap();
         let terminal_id = app.state.workspaces[0]
@@ -3952,15 +3788,16 @@ mod tests {
 
         let response = app.handle_pane_report_metadata("guarded".into(), params);
 
-        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
-        assert_eq!(
-            app.state.terminals[&terminal_id].metadata_tokens.values(),
-            std::collections::HashMap::from([("summary".into(), "global".into())])
-        );
+        let error: ErrorResponse = serde_json::from_str(&response).unwrap();
+        assert_eq!(error.error.code, "feature_retired");
+        assert!(app.state.terminals[&terminal_id]
+            .metadata_tokens
+            .values()
+            .is_empty());
     }
 
     #[test]
-    fn pane_metadata_uses_one_sequence_for_presentation_and_tokens() {
+    fn pane_metadata_tokens_keep_source_sequence_fences() {
         let (mut app, pane_id) = app_with_test_workspace();
         let mut presentation = metadata_params(pane_id.clone());
         presentation.seq = Some(10);
@@ -3981,136 +3818,13 @@ mod tests {
             .unwrap()
             .attached_terminal_id
             .clone();
-        assert!(app.state.terminals[&terminal_id]
-            .metadata_tokens
-            .values()
-            .is_empty());
-    }
-
-    #[test]
-    fn pane_metadata_ignored_after_process_exit_does_not_poison_sequence() {
-        let (mut app, pane_id) = app_with_test_workspace();
-        let (_, internal_pane_id) = app.parse_pane_id(&pane_id).unwrap();
-        let terminal_id = app.state.workspaces[0]
-            .pane_state(internal_pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_detected_state(Some(Agent::Pi), AgentState::Idle);
-
-        let mut initial = metadata_params(pane_id.clone());
-        initial.source = "custom:pi-metadata".into();
-        initial.agent = Some("pi".into());
-        initial.seq = Some(100);
-        let response = app.handle_pane_report_metadata("initial".into(), initial);
-        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
-
-        let mut initial_tokens = metadata_params(pane_id.clone());
-        initial_tokens.source = "custom:pi-tokens".into();
-        initial_tokens.agent = Some("pi".into());
-        initial_tokens.title = None;
-        initial_tokens.tokens =
-            std::collections::HashMap::from([("generation".into(), Some("old".into()))]);
-        initial_tokens.seq = Some(100);
-        let response = app.handle_pane_report_metadata("initial-tokens".into(), initial_tokens);
-        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
-
-        let exit_at = std::time::Instant::now() + std::time::Duration::from_millis(1);
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_detected_state_with_screen_signals_at(
-                Some(Agent::Pi),
-                AgentState::Idle,
-                false,
-                false,
-                false,
-                true,
-                exit_at,
-            );
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_detected_state_with_screen_signals_at(
-                None,
-                AgentState::Unknown,
-                false,
-                false,
-                false,
-                false,
-                exit_at + std::time::Duration::from_millis(1),
-            );
-
-        let mut stale = metadata_params(pane_id.clone());
-        stale.source = "custom:pi-metadata".into();
-        stale.agent = Some("pi".into());
-        stale.title = Some("stale".into());
-        stale.seq = Some(200);
-        let response = app.handle_pane_report_metadata("stale".into(), stale);
-        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
-
-        let mut official = metadata_params(pane_id.clone());
-        official.source = "kitsune:pi".into();
-        official.seq = Some(200);
-        let response = app.handle_pane_report_metadata("official".into(), official);
-        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
-
-        let terminal = &app.state.terminals[&terminal_id];
-        assert!(terminal.metadata_report_sequence_is_fresh("custom:pi-metadata", Some(1)));
-        assert!(terminal.metadata_report_sequence_is_fresh("custom:pi-tokens", Some(1)));
-        assert!(terminal.metadata_report_sequence_is_fresh("kitsune:pi", Some(1)));
-
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_detected_state_with_screen_signals_at(
-                Some(Agent::Pi),
-                AgentState::Idle,
-                false,
-                false,
-                false,
-                false,
-                exit_at + std::time::Duration::from_millis(2),
-            );
-        let mut fresh = metadata_params(pane_id.clone());
-        fresh.source = "custom:pi-metadata".into();
-        fresh.agent = Some("pi".into());
-        fresh.title = Some("fresh".into());
-        fresh.seq = Some(1);
-        let response = app.handle_pane_report_metadata("fresh".into(), fresh);
-        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
-
-        let mut fresh_tokens = metadata_params(pane_id);
-        fresh_tokens.source = "custom:pi-tokens".into();
-        fresh_tokens.agent = Some("pi".into());
-        fresh_tokens.title = None;
-        fresh_tokens.tokens =
-            std::collections::HashMap::from([("generation".into(), Some("new".into()))]);
-        fresh_tokens.seq = Some(1);
-        let response = app.handle_pane_report_metadata("fresh-tokens".into(), fresh_tokens);
-        let _: SuccessResponse = serde_json::from_str(&response).unwrap();
-
-        let terminal = &app.state.terminals[&terminal_id];
         assert_eq!(
-            terminal.agent_metadata["custom:pi-metadata"]
-                .title
-                .as_deref(),
-            Some("fresh")
-        );
-        assert_eq!(
-            terminal
+            app.state.terminals[&terminal_id]
                 .metadata_tokens
                 .values()
-                .get("generation")
+                .get("summary")
                 .map(String::as_str),
-            Some("new")
+            Some("activity")
         );
     }
 
@@ -4158,7 +3872,7 @@ mod tests {
 
         let response = app.handle_pane_report_metadata("req".into(), params);
 
-        assert_eq!(metadata_error_code(&response), "invalid_metadata_source");
+        assert_eq!(metadata_error_code(&response), "feature_retired");
     }
 
     #[test]

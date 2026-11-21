@@ -1046,6 +1046,12 @@
             "focused": {
               "type": "boolean"
             },
+            "git_branch": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "label": {
               "type": "string"
             },
@@ -2092,6 +2098,30 @@
           ],
           "type": "object"
         },
+        "IntegrationViewInformation": {
+          "additionalProperties": false,
+          "properties": {
+            "activity": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "attention": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "context": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
         "IntegrationViewItem": {
           "additionalProperties": false,
           "properties": {
@@ -2101,8 +2131,14 @@
             "id": {
               "type": "string"
             },
+            "information": {
+              "$ref": "#/schemas/request/$defs/IntegrationViewInformation"
+            },
             "label": {
               "type": "string"
+            },
+            "presentation": {
+              "$ref": "#/schemas/request/$defs/IntegrationViewPresentation"
             }
           },
           "required": [
@@ -2111,6 +2147,32 @@
             "detail"
           ],
           "type": "object"
+        },
+        "IntegrationViewPresentation": {
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/schemas/request/$defs/IntegrationViewStatus"
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "type": "object"
+        },
+        "IntegrationViewStatus": {
+          "enum": [
+            "pending",
+            "running",
+            "attention",
+            "error",
+            "success",
+            "unknown"
+          ],
+          "type": "string"
         },
         "LayoutApplyParams": {
           "properties": {
@@ -3736,6 +3798,34 @@
           ],
           "type": "object"
         },
+        "TerminalFocusParams": {
+          "additionalProperties": false,
+          "properties": {
+            "expected_runtime_generation": {
+              "type": "string"
+            },
+            "terminal_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "terminal_id",
+            "expected_runtime_generation"
+          ],
+          "type": "object"
+        },
+        "TerminalInspectParams": {
+          "additionalProperties": false,
+          "properties": {
+            "terminal_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "terminal_id"
+          ],
+          "type": "object"
+        },
         "ToastKitsunePosition": {
           "enum": [
             "top-left",
@@ -4214,6 +4304,38 @@
         {
           "properties": {
             "method": {
+              "const": "terminal.inspect",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TerminalInspectParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
+              "const": "terminal.focus",
+              "type": "string"
+            },
+            "params": {
+              "$ref": "#/schemas/request/$defs/TerminalFocusParams"
+            }
+          },
+          "required": [
+            "method",
+            "params"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "method": {
               "const": "integration.view.open",
               "type": "string"
             },
@@ -4580,6 +4702,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only agent operations always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.list",
@@ -4596,6 +4719,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.get",
@@ -4612,6 +4736,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.read",
@@ -4628,6 +4753,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired. Offline CLI file diagnostics remain available.",
           "properties": {
             "method": {
               "const": "agent.explain",
@@ -4644,6 +4770,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.send_keys",
@@ -4660,6 +4787,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.rename",
@@ -4676,6 +4804,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.view.set",
@@ -4692,6 +4821,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.view.clear",
@@ -4708,6 +4838,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired.",
           "properties": {
             "method": {
               "const": "agent.focus",
@@ -4724,6 +4855,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired without launching or checking readiness.",
           "properties": {
             "method": {
               "const": "agent.start",
@@ -4740,6 +4872,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired, including prompts with wait options.",
           "properties": {
             "method": {
               "const": "agent.prompt",
@@ -4756,6 +4889,7 @@
           "type": "object"
         },
         {
+          "description": "Compatibility-only; live requests always return feature_retired without polling, including without a timeout.",
           "properties": {
             "method": {
               "const": "agent.wait",
@@ -6645,6 +6779,17 @@
               },
               "type": "array"
             },
+            "supported_versions": {
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
             "version": {
               "format": "uint64",
               "minimum": 0,
@@ -7552,6 +7697,82 @@
         },
         "ResponseResult": {
           "oneOf": [
+            {
+              "properties": {
+                "availability": {
+                  "$ref": "#/schemas/success_response/$defs/TerminalAvailability"
+                },
+                "pane_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "runtime_generation": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tab_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "terminal_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "terminal_inspected",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "type",
+                "terminal_id",
+                "availability"
+              ],
+              "type": "object"
+            },
+            {
+              "properties": {
+                "pane_id": {
+                  "type": "string"
+                },
+                "runtime_generation": {
+                  "type": "string"
+                },
+                "tab_id": {
+                  "type": "string"
+                },
+                "terminal_id": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "terminal_focused",
+                  "type": "string"
+                },
+                "workspace_id": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "terminal_id",
+                "runtime_generation",
+                "workspace_id",
+                "tab_id",
+                "pane_id"
+              ],
+              "type": "object"
+            },
             {
               "properties": {
                 "capabilities": {
@@ -8683,6 +8904,16 @@
               },
               "type": "array"
             },
+            "terminal_navigation": {
+              "anyOf": [
+                {
+                  "$ref": "#/schemas/success_response/$defs/TerminalNavigationInfo"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
             "version": {
               "type": "string"
             },
@@ -8750,6 +8981,28 @@
           ],
           "type": "object"
         },
+        "TerminalAvailability": {
+          "enum": [
+            "live",
+            "exited",
+            "unavailable",
+            "detached"
+          ],
+          "type": "string"
+        },
+        "TerminalNavigationInfo": {
+          "properties": {
+            "version": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "version"
+          ],
+          "type": "object"
+        },
         "WorkspaceInfo": {
           "properties": {
             "active_tab_id": {
@@ -8760,6 +9013,12 @@
             },
             "focused": {
               "type": "boolean"
+            },
+            "git_branch": {
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "label": {
               "type": "string"

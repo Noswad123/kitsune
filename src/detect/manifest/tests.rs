@@ -1,6 +1,6 @@
 use super::*;
 
-fn remote_manifest(version: &str, state: &str, contains: &str) -> String {
+fn versioned_manifest(version: &str, state: &str, contains: &str) -> String {
     format!(
         r#"
 id = "codex"
@@ -41,14 +41,13 @@ id = "codex"
 
 struct ManifestDirsGuard {
     _reload_guard: std::sync::MutexGuard<'static, ()>,
-    manifest_dirs: Option<crate::detect::manifest_update::TestManifestDirsGuard>,
+    manifest_dirs: Option<test_support::ConfigDirGuard>,
     base: std::path::PathBuf,
 }
 
 impl ManifestDirsGuard {
     fn new(name: &str) -> Self {
         let reload_guard = MANIFEST_RELOAD_LOCK
-            .get_or_init(|| std::sync::Mutex::new(()))
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         let base = std::env::temp_dir().join(format!(
@@ -56,10 +55,8 @@ impl ManifestDirsGuard {
             std::process::id()
         ));
         let config_dir = base.join("config");
-        let state_dir = base.join("state");
         let _ = std::fs::remove_dir_all(&base);
-        let manifest_dirs =
-            crate::detect::manifest_update::set_test_manifest_dirs(config_dir, state_dir);
+        let manifest_dirs = test_support::set_config_dir(config_dir);
         reload_manifests_unlocked();
 
         Self {
@@ -81,19 +78,6 @@ impl Drop for ManifestDirsGuard {
 fn with_manifest_dirs<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let _guard = ManifestDirsGuard::new(name);
     f()
-}
-
-fn write_remote_codex(content: &str) {
-    let path = crate::detect::manifest_update::remote_manifest_path(Agent::Codex);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, content).unwrap();
-    reload_manifests_unlocked();
-}
-
-fn write_remote_codex_without_reload(content: &str) {
-    let path = crate::detect::manifest_update::remote_manifest_path(Agent::Codex);
-    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    std::fs::write(path, content).unwrap();
 }
 
 fn write_local_codex(content: &str) {
@@ -170,29 +154,13 @@ line_regex = ["^exact line$"]
 }
 
 #[test]
-fn remote_manifest_loads_between_local_override_and_bundled() {
-    with_manifest_dirs("remote-source", || {
-        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "remote-ready"));
-
-        let explain = explain(Agent::Codex, "remote-ready");
-
-        assert_eq!(explain.state, AgentState::Blocked);
-        assert!(matches!(
-            explain.source,
-            Some(ManifestSource::Remote { .. })
-        ));
-        assert_eq!(explain.manifest_version.as_deref(), Some("9999.01.01.1"));
-        assert_eq!(
-            explain.cached_remote_version.as_deref(),
-            Some("9999.01.01.1")
-        );
-    });
-}
-
-#[test]
 fn fallback_explain_preserves_active_manifest_version() {
     with_manifest_dirs("fallback-version", || {
-        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "remote-ready"));
+        write_local_codex(&versioned_manifest(
+            "9999.01.01.1",
+            "blocked",
+            "local-ready",
+        ));
 
         let explain = explain(Agent::Codex, "ordinary prompt text");
 
@@ -202,107 +170,57 @@ fn fallback_explain_preserves_active_manifest_version() {
             Some(DEFAULT_KNOWN_AGENT_IDLE_FALLBACK)
         );
         assert_eq!(explain.manifest_version.as_deref(), Some("9999.01.01.1"));
-        assert!(matches!(
-            explain.source,
-            Some(ManifestSource::Remote { .. })
-        ));
-    });
-}
-
-#[test]
-fn older_cached_remote_manifest_does_not_shadow_newer_bundled_manifest() {
-    with_manifest_dirs("older-remote-bundled-fallback", || {
-        write_remote_codex(&remote_manifest("2026.06.10.0", "blocked", "remote-ready"));
-
-        let explain = explain(Agent::Codex, "remote-ready");
-
-        assert_eq!(explain.state, AgentState::Idle);
-        assert!(matches!(explain.source, Some(ManifestSource::Bundled)));
-        assert_eq!(
-            explain.cached_remote_version.as_deref(),
-            Some("2026.06.10.0")
-        );
-        assert!(explain
-            .warning
-            .as_deref()
-            .is_some_and(|warning| warning.contains("older than bundled")));
-    });
-}
-
-#[test]
-fn local_override_shadows_cached_remote_manifest() {
-    with_manifest_dirs("local-shadows-remote", || {
-        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "remote-ready"));
-        write_local_codex(&local_manifest("idle", "local-ready"));
-
-        let explain = explain(Agent::Codex, "local-ready");
-
-        assert_eq!(explain.state, AgentState::Idle);
         assert!(matches!(explain.source, Some(ManifestSource::Override(_))));
-        assert!(explain.local_override_shadowing_remote);
-        assert_eq!(
-            explain.cached_remote_version.as_deref(),
-            Some("9999.01.01.1")
-        );
     });
 }
 
 #[test]
-fn invalid_local_override_falls_back_to_cached_remote_manifest() {
-    with_manifest_dirs("invalid-local-remote-fallback", || {
-        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "remote-ready"));
-        write_local_codex("id = ");
-
-        let explain = explain(Agent::Codex, "remote-ready");
-
-        assert_eq!(explain.state, AgentState::Blocked);
-        assert!(matches!(
-            explain.source,
-            Some(ManifestSource::Remote { .. })
-        ));
-        assert!(explain.warning.is_some());
-    });
-}
-
-#[test]
-fn detection_uses_cached_manifest_until_explicit_reload() {
-    with_manifest_dirs("cache-boundary", || {
-        write_remote_codex(&remote_manifest("9999.01.01.1", "blocked", "cached-ready"));
-
-        let cached = explain(Agent::Codex, "cached-ready");
-        assert_eq!(cached.state, AgentState::Blocked);
-        assert!(matches!(cached.source, Some(ManifestSource::Remote { .. })));
-        assert_eq!(
-            cached.matched_rule.as_ref().map(|rule| rule.id.as_str()),
-            Some("test")
-        );
-
-        write_remote_codex_without_reload(&remote_manifest("9999.01.01.2", "working", "new-ready"));
-
-        let unchanged = explain(Agent::Codex, "new-ready");
-        assert_eq!(unchanged.state, AgentState::Idle);
-        assert_eq!(
-            unchanged.fallback_reason.as_deref(),
-            Some(DEFAULT_KNOWN_AGENT_IDLE_FALLBACK)
-        );
-        assert_eq!(
-            unchanged.cached_remote_version.as_deref(),
-            Some("9999.01.01.1")
-        );
-
-        reload_manifests_unlocked();
-
-        let reloaded = explain(Agent::Codex, "new-ready");
-        assert_eq!(reloaded.state, AgentState::Working);
-        assert_eq!(
-            reloaded.cached_remote_version.as_deref(),
-            Some("9999.01.01.2")
-        );
-        assert_eq!(
-            reloaded.matched_rule.as_ref().map(|rule| rule.id.as_str()),
-            Some("test")
-        );
-    });
+fn retired_remote_cache_and_status_are_ignored_and_unchanged() {
+    let _env_lock = crate::config::test_config_env_lock().lock().unwrap();
+    struct StateHome(Option<std::ffi::OsString>);
+    impl Drop for StateHome {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => std::env::set_var("XDG_STATE_HOME", value),
+                None => std::env::remove_var("XDG_STATE_HOME"),
+            }
+        }
+    }
+    let _state_home = StateHome(std::env::var_os("XDG_STATE_HOME"));
+    let guard = ManifestDirsGuard::new("retired-cache");
+    std::env::set_var("XDG_STATE_HOME", guard.base.join("state"));
+    let root = crate::config::state_dir().join("agent-detection");
+    std::fs::create_dir_all(root.join("remote")).unwrap();
+    let remote = root.join("remote/codex.toml");
+    let status = root.join("status.toml");
+    let content = versioned_manifest("9999.01.01.1", "blocked", "malicious-ready");
+    let status_content = "last_check_unix = 123\nlast_result = \"malicious-status\"\n[agents.codex]\ncached_version = \"9999.01.01.1\"\nlast_result = \"updated\"\n";
+    std::fs::write(&remote, &content).unwrap();
+    std::fs::write(&status, status_content).unwrap();
+    reload_manifests_unlocked();
+    let bundled = explain(Agent::Codex, "malicious-ready");
+    assert_eq!(bundled.state, AgentState::Idle);
+    assert!(matches!(bundled.source, Some(ManifestSource::Bundled)));
+    assert!(bundled.warning.is_none());
+    write_local_codex(&local_manifest("working", "malicious-ready"));
+    let local = explain(Agent::Codex, "malicious-ready");
+    assert_eq!(local.state, AgentState::Working);
+    assert!(matches!(local.source, Some(ManifestSource::Override(_))));
+    let json = explain_to_json_value(&local);
+    for key in [
+        "cached_remote_version",
+        "remote_update_status",
+        "remote_update_error",
+    ] {
+        assert!(json[key].is_null());
+    }
+    assert_eq!(json["local_override_shadowing_remote"], false);
+    write_local_codex("id = ");
+    let invalid = explain(Agent::Codex, "malicious-ready");
+    assert!(matches!(invalid.source, Some(ManifestSource::Bundled)));
+    assert!(invalid.warning.is_some());
+    assert_eq!(std::fs::read_to_string(remote).unwrap(), content);
+    assert_eq!(std::fs::read_to_string(status).unwrap(), status_content);
 }
 
 #[test]

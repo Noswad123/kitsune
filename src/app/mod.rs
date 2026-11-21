@@ -5,8 +5,8 @@
 //! - `input.rs` — key/mouse → action translation
 
 pub(crate) mod actions;
-mod agent_resume;
-pub(crate) mod agent_view;
+#[cfg(test)]
+mod agent_resume_guards_tests;
 mod agents;
 mod api;
 mod api_helpers;
@@ -42,8 +42,6 @@ pub(crate) const SELECTION_AUTOSCROLL_INTERVAL: Duration = Duration::from_millis
 const RESIZE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const GIT_REMOTE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(1500);
 const GIT_REPO_DISCOVERY_REFRESH_INTERVAL: Duration = Duration::from_secs(5 * 60);
-const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
-const PENDING_AGENT_RESUME_THEME_WAIT: Duration = Duration::from_millis(750);
 const SESSION_SAVE_DEBOUNCE: Duration = Duration::from_secs(5);
 const SIDEBAR_DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(350);
 const PANE_DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(350);
@@ -121,11 +119,8 @@ pub struct App {
     pub(crate) pending_url_click_sources: HashSet<InputSourceId>,
     pub(crate) next_resize_poll: Instant,
     pub(crate) next_animation_tick: Option<Instant>,
-    pub(crate) next_agent_manifest_update_check: Option<Instant>,
-    pub(crate) update_manifest_check_enabled: bool,
     pub(crate) loaded_host_cursor: crate::config::HostCursorModeConfig,
     pub(crate) agent_metadata_deadline: Option<Instant>,
-    pub(crate) pending_agent_resume_deadline: Option<Instant>,
     pub(crate) selection_autoscroll_deadline: Option<Instant>,
     pub(crate) selection_highlight_clear_deadline: Option<Instant>,
     pub(crate) session_save_deadline: Option<Instant>,
@@ -217,14 +212,6 @@ fn pressed_key_identity(
     (source_id, key.code)
 }
 
-fn remote_manifest_updates_enabled(no_session: bool) -> bool {
-    !no_session && !cfg!(debug_assertions)
-}
-
-fn background_update_check_enabled(no_session: bool, check_enabled: bool) -> bool {
-    remote_manifest_updates_enabled(no_session) && check_enabled
-}
-
 fn agent_panel_sort_from_config(
     sort: crate::config::AgentPanelSortConfig,
 ) -> state::AgentPanelSort {
@@ -240,21 +227,6 @@ fn configured_worktree_directory(directory: &str) -> std::path::PathBuf {
     } else {
         crate::worktree::expand_tilde_absolute_path(directory)
     }
-}
-
-/// Parse the configured agent name list into a deduplicated set of `Agent`
-/// values. Unknown agent names are silently dropped so a typo cannot disable
-/// other valid entries.
-fn parse_cjk_ime_agents(names: &[String]) -> Vec<crate::detect::Agent> {
-    let mut out = Vec::with_capacity(names.len());
-    for name in names {
-        if let Some(agent) = crate::detect::parse_agent_label(name) {
-            if !out.contains(&agent) {
-                out.push(agent);
-            }
-        }
-    }
-    out
 }
 
 fn normalize_theme_name(name: &str) -> String {
@@ -399,7 +371,7 @@ impl App {
             selected,
             sidebar_width,
             sidebar_width_source,
-            sidebar_section_split,
+            collapsed_sidebar_sections,
             collapsed_space_keys,
         ) = if no_session {
             (
@@ -408,7 +380,7 @@ impl App {
                 0,
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
-                0.5_f32,
+                Default::default(),
                 std::collections::HashSet::new(),
             )
         } else if let Some(snap) = crate::persist::load() {
@@ -425,7 +397,6 @@ impl App {
                 config.advanced.scrollback_limit_bytes,
                 &config.terminal.default_shell,
                 config.terminal.shell_mode,
-                config.session.resume_agents_on_restore,
                 event_tx.clone(),
                 render_notify.clone(),
                 render_dirty.clone(),
@@ -444,7 +415,7 @@ impl App {
                     } else {
                         state::SidebarWidthSource::ConfigDefault
                     },
-                    snap.sidebar_section_split.unwrap_or(0.5),
+                    snap.collapsed_sidebar_sections,
                     snap.collapsed_space_keys,
                 )
             } else {
@@ -461,7 +432,7 @@ impl App {
                     } else {
                         state::SidebarWidthSource::ConfigDefault
                     },
-                    snap.sidebar_section_split.unwrap_or(0.5),
+                    snap.collapsed_sidebar_sections,
                     snap.collapsed_space_keys,
                 )
             }
@@ -472,7 +443,7 @@ impl App {
                 0,
                 config.ui.sidebar_width,
                 state::SidebarWidthSource::ConfigDefault,
-                0.5_f32,
+                Default::default(),
                 std::collections::HashSet::new(),
             )
         };
@@ -516,12 +487,6 @@ impl App {
             state::Mode::Navigate
         };
 
-        #[cfg(not(test))]
-        let agent_manifest_summaries = crate::detect::manifest::reload_manifests();
-        // Nextest runs each unit test in a fresh process. Manifest-sensitive tests reload
-        // explicitly; unrelated App tests should not recompile every bundled regex.
-        #[cfg(test)]
-        let agent_manifest_summaries = Vec::new();
         let theme_runtime = theme_runtime_config(config, true);
         let (theme_palette, theme_name) = resolve_effective_theme(&theme_runtime, None);
 
@@ -589,9 +554,14 @@ impl App {
             integration_views: crate::integration_views::IntegrationViewsState::new(
                 config.integrations.sources.clone(),
             ),
-            integration_view_selected: config.integrations.sources.first().cloned(),
             integration_view_scrolls: Default::default(),
+            collapsed_sidebar_sections,
+            sidebar_section_offset: 0,
+            sidebar_section_focus: crate::ui::SectionId::Spaces,
+            sidebar_sections: Default::default(),
             integration_views_computed: None,
+            integration_animations: config.ui.integration_animations,
+            integration_inspector: Default::default(),
             integration_views_displayed: None,
             tab_scroll: 0,
             tab_scroll_follow_active: true,
@@ -621,7 +591,6 @@ impl App {
             latest_release_notes_available,
             config_diagnostic,
             toast: None,
-            pending_agent_notifications: std::collections::HashMap::new(),
             copy_feedback: None,
             outer_terminal_focus: None,
             prefix_code,
@@ -635,12 +604,11 @@ impl App {
             sidebar_width_auto: false,
             sidebar_collapsed: config.ui.sidebar_start_collapsed,
             sidebar_collapsed_mode: config.ui.sidebar_collapsed_mode,
-            sidebar_section_split,
             agent_panel_sort,
+            #[cfg(test)]
             agent_view_override: None,
             sidebar_agents: config.ui.sidebar.agents.clone(),
             sidebar_spaces: config.ui.sidebar.spaces.clone(),
-            next_agent_state_change_seq: 0,
             mouse_capture: config.ui.mouse_capture,
             copy_on_select: config.ui.copy_on_select,
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
@@ -656,8 +624,6 @@ impl App {
             hide_tab_bar_when_single_tab: config.ui.hide_tab_bar_when_single_tab,
             pane_history_persistence: config.experimental.pane_history,
             reveal_hidden_cursor_for_cjk_ime: config.experimental.reveal_hidden_cursor_for_cjk_ime,
-            cjk_ime_agent_filter_configured: !config.experimental.cjk_ime_agents.is_empty(),
-            cjk_ime_agents: parse_cjk_ime_agents(&config.experimental.cjk_ime_agents),
             cjk_ime_cursor_shape: config.experimental.cjk_ime_cursor_shape.to_decscusr(),
             switch_ascii_input_source_in_prefix: config
                 .experimental
@@ -683,10 +649,6 @@ impl App {
                 original_palette: None,
                 original_theme: None,
             },
-            integration_recommendations: crate::integration::integration_recommendations(),
-            agent_manifest_summaries,
-            agent_manifest_update_status: crate::detect::manifest_update::load_status(),
-            integration_install_messages: Vec::new(),
             pane_graphics_layers: std::collections::HashMap::new(),
             pane_graphics_streams: std::collections::HashMap::new(),
             pane_graphics_revision: 0,
@@ -705,18 +667,8 @@ impl App {
                 .resolved_identity_cwd_from(&state.terminals, &restored_terminal_runtimes);
             state.workspaces[ws_idx].cached_git_branch =
                 cwd.as_deref().and_then(crate::workspace::git_branch);
-        }
-
-        // Background auto-update is disabled in monolithic no-session mode
-        // and in debug/test builds so local development never mutates the
-        // running binary out from under spawned test processes.
-        let manifest_check_enabled =
-            background_update_check_enabled(no_session, config.agent_detection.manifest_check);
-        if manifest_check_enabled {
-            let manifest_update_tx = event_tx.clone();
-            std::thread::spawn(move || {
-                crate::detect::manifest_update::auto_update(manifest_update_tx)
-            });
+            // Restored runtime CWD can differ from the identity metadata cache.
+            state.workspaces[ws_idx].cached_git_branch_identity = None;
         }
 
         let last_focus = state.active.and_then(|idx| {
@@ -750,12 +702,8 @@ impl App {
             pending_url_click_sources: HashSet::new(),
             next_resize_poll: Instant::now() + RESIZE_POLL_INTERVAL,
             next_animation_tick: None,
-            next_agent_manifest_update_check: manifest_check_enabled
-                .then_some(Instant::now() + AUTO_UPDATE_CHECK_INTERVAL),
-            update_manifest_check_enabled: config.agent_detection.manifest_check,
             loaded_host_cursor: config.ui.host_cursor,
             agent_metadata_deadline: None,
-            pending_agent_resume_deadline: None,
             session_save_deadline: None,
             session_save_thread: None,
             detached_custom_command_children: Vec::new(),
@@ -808,10 +756,6 @@ impl App {
         let pane_id_aliases = crate::persist::handoff_pane_aliases(snapshot, &workspaces);
 
         app.no_session = false;
-        let now = Instant::now();
-        if background_update_check_enabled(app.no_session, app.update_manifest_check_enabled) {
-            app.next_agent_manifest_update_check = Some(now + AUTO_UPDATE_CHECK_INTERVAL);
-        }
         app.state.detach_exits = false;
         app.state.pane_id_aliases = pane_id_aliases;
         app.state.workspaces = workspaces;
@@ -827,9 +771,7 @@ impl App {
             app.state.sidebar_width = width;
             app.state.sidebar_width_source = state::SidebarWidthSource::Persisted;
         }
-        if let Some(split) = snapshot.sidebar_section_split {
-            app.state.sidebar_section_split = split;
-        }
+        app.state.collapsed_sidebar_sections = snapshot.collapsed_sidebar_sections.clone();
         app.state.collapsed_space_keys = snapshot.collapsed_space_keys.clone();
         app.state.mode = if app.state.active.is_some() {
             state::Mode::Terminal
@@ -1074,11 +1016,6 @@ impl App {
                     &self.terminal_runtimes,
                     cell_size,
                 )?;
-                self.sync_pending_agent_resume_deadline(now);
-                if self.start_pending_agent_resumes(self.pending_agent_resume_due(now)) {
-                    self.render_dirty.store(true, Ordering::Release);
-                    self.render_notify.notify_one();
-                }
                 self.last_render_at = Some(now);
                 needs_render = false;
                 continue;
@@ -1271,56 +1208,7 @@ impl App {
 
     pub(crate) fn open_settings_from_onboarding(&mut self) {
         self.mark_onboarding_complete();
-        self.refresh_integration_recommendations();
         crate::app::input::open_settings_at(&mut self.state, state::SettingsSection::Integrations);
-    }
-
-    pub(crate) fn refresh_integration_recommendations(&mut self) {
-        self.state.integration_recommendations = crate::integration::integration_recommendations();
-    }
-
-    pub(crate) fn install_recommended_integrations(&mut self) {
-        if self.state.external_agent_management {
-            return;
-        }
-        let targets = self
-            .state
-            .integration_recommendations
-            .iter()
-            .filter(|recommendation| recommendation.needs_install())
-            .map(|recommendation| recommendation.target)
-            .collect::<Vec<_>>();
-
-        self.state.integration_install_messages.clear();
-        if targets.is_empty() {
-            self.state
-                .integration_install_messages
-                .push("all detected integrations are current".to_string());
-            return;
-        }
-
-        for target in targets {
-            let label = crate::integration::integration_target_label(target);
-            match crate::integration::install_target(target) {
-                Ok(messages) => {
-                    self.state
-                        .integration_install_messages
-                        .push(format!("installed {label}"));
-                    self.state
-                        .integration_install_messages
-                        .extend(messages.into_iter().filter(|message| {
-                            message.starts_with(crate::integration::INSTALL_WARNING_PREFIX)
-                        }));
-                }
-                Err(err) => self
-                    .state
-                    .integration_install_messages
-                    .push(format!("{label}: {err}")),
-            }
-        }
-
-        self.state.integration_recommendations = crate::integration::integration_recommendations();
-        self.state.mark_session_dirty();
     }
 
     pub(crate) fn reload_config(&mut self) -> crate::config::ConfigReloadReport {
@@ -1428,6 +1316,7 @@ impl App {
                 diagnostics.push(format!("{diagnostic}; keeping previous [ui] settings"));
             } else {
                 diagnostics.extend(config.ui.sound.diagnostics());
+                self.state.integration_animations = config.ui.integration_animations;
 
                 self.state.default_sidebar_width = config.ui.sidebar_width;
                 if self.state.sidebar_width_source == state::SidebarWidthSource::ConfigDefault {
@@ -1481,9 +1370,6 @@ impl App {
         if !invalid_section("experimental") {
             self.state.reveal_hidden_cursor_for_cjk_ime =
                 config.experimental.reveal_hidden_cursor_for_cjk_ime;
-            self.state.cjk_ime_agent_filter_configured =
-                !config.experimental.cjk_ime_agents.is_empty();
-            self.state.cjk_ime_agents = parse_cjk_ime_agents(&config.experimental.cjk_ime_agents);
             self.state.cjk_ime_cursor_shape =
                 config.experimental.cjk_ime_cursor_shape.to_decscusr();
             self.state.switch_ascii_input_source_in_prefix =
@@ -1497,23 +1383,6 @@ impl App {
 
         if !invalid_section("advanced") {
             self.state.pane_scrollback_limit_bytes = config.advanced.scrollback_limit_bytes;
-        }
-
-        if !invalid_section("agent_detection") && !invalid_section("update") {
-            let now = Instant::now();
-            let previous_manifest_check_enabled = self.update_manifest_check_enabled;
-            self.update_manifest_check_enabled = config.agent_detection.manifest_check;
-
-            if !self.update_manifest_check_enabled {
-                self.next_agent_manifest_update_check = None;
-            } else if !previous_manifest_check_enabled
-                && background_update_check_enabled(
-                    self.no_session,
-                    self.update_manifest_check_enabled,
-                )
-            {
-                self.next_agent_manifest_update_check = Some(now);
-            }
         }
 
         if !invalid_section("terminal") {
@@ -1605,6 +1474,29 @@ impl App {
     ) {
         for event in events {
             let previous_mode = self.state.mode;
+            if previous_mode == Mode::IntegrationInspector {
+                self.suspend_inspector_terminal_keys_headless();
+                match &event {
+                    crate::raw_input::RawInputEvent::Key(key) => {
+                        let id = pressed_key_identity(source_id, key);
+                        self.pressed_terminal_keys.remove(&id);
+                        if key.kind != crossterm::event::KeyEventKind::Release {
+                            self.suppressed_repeat_keys.insert(id);
+                            self.state.integration_inspector_key(key.as_key_event());
+                        } else {
+                            self.suppressed_repeat_keys.remove(&id);
+                        }
+                        self.sync_prefix_input_source(previous_mode);
+                        continue;
+                    }
+                    crate::raw_input::RawInputEvent::Mouse(mouse) => {
+                        self.state.integration_inspector_mouse(*mouse);
+                        continue;
+                    }
+                    crate::raw_input::RawInputEvent::Paste(_) => continue,
+                    _ => {}
+                }
+            }
             match event {
                 crate::raw_input::RawInputEvent::Key(key) => {
                     let pressed_key_id = pressed_key_identity(source_id, &key);
@@ -1710,6 +1602,9 @@ impl App {
                 }
                 crate::raw_input::RawInputEvent::Unsupported => {}
             }
+            if self.state.mode == Mode::IntegrationInspector {
+                self.suspend_inspector_terminal_keys_headless();
+            }
             self.sync_prefix_input_source(previous_mode);
         }
     }
@@ -1785,6 +1680,7 @@ impl App {
             Mode::Navigator => {
                 input::handle_navigator_key(&mut self.state, &self.terminal_runtimes, key_event);
             }
+            Mode::IntegrationInspector => self.state.integration_inspector_key(key_event),
             Mode::Terminal => {
                 // Should not be called in terminal mode.
             }
@@ -1809,7 +1705,7 @@ impl App {
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::detect::{Agent, AgentState};
+    use crate::detect::AgentState;
     use crate::terminal::TerminalRuntime;
     use crate::workspace::Workspace;
     use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -2473,8 +2369,8 @@ mod tests {
         let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut app = App::new(&config, true, None, api_rx, crate::api::EventHub::default());
         assert_eq!(
-            app.state.integration_view_selected.as_deref(),
-            Some("alpha")
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Spaces
         );
         let now = Instant::now();
         let owner = app
@@ -2488,12 +2384,22 @@ mod tests {
                 now,
             )
             .unwrap();
-        app.state.integration_view_selected = Some("beta".into());
+        app.state.sidebar_section_focus = crate::ui::SectionId::Integration("beta".into());
+        app.state
+            .collapsed_sidebar_sections
+            .insert(crate::ui::SectionId::Integration("beta".into()));
         app.state.integration_view_scrolls =
             std::collections::HashMap::from([("alpha".into(), 4), ("beta".into(), 7)]);
         config.integrations.sources.reverse();
         app.apply_live_config(&config, &[], &[], false);
-        assert_eq!(app.state.integration_view_selected.as_deref(), Some("beta"));
+        assert_eq!(
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Integration("beta".into())
+        );
+        assert!(app
+            .state
+            .collapsed_sidebar_sections
+            .contains(&crate::ui::SectionId::Integration("beta".into())));
         assert_eq!(app.state.integration_view_scrolls["alpha"], 4);
         assert_eq!(app.state.integration_view_scrolls["beta"], 7);
         assert_eq!(
@@ -2505,8 +2411,8 @@ mod tests {
         config.integrations.sources = vec!["alpha".into()];
         app.apply_live_config(&config, &[], &[], false);
         assert_eq!(
-            app.state.integration_view_selected.as_deref(),
-            Some("alpha")
+            app.state.sidebar_section_focus,
+            crate::ui::SectionId::Spaces
         );
         assert_eq!(app.state.integration_view_scrolls.len(), 1);
         assert_eq!(app.state.integration_view_scrolls["alpha"], 4);
@@ -2517,7 +2423,7 @@ mod tests {
             &["alpha".to_owned()]
         );
         app.apply_live_config(&config, &[], &[], false);
-        assert!(app.state.integration_view_selected.is_none());
+        assert!(app.state.collapsed_sidebar_sections.is_empty());
         assert!(app.state.integration_view_scrolls.is_empty());
     }
 
@@ -2878,7 +2784,7 @@ pane_border_inactive = "#802020"
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             &path,
-            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+m\"\nprefix = \"ctrl+a\"\n[agent_detection]\nmanifest_check = false\n[ui]\nagent_panel_sort = \"priority\"\nredraw_on_focus_gained = false\ncopy_on_select = false\nright_click_passthrough_modifier = \"ctrl\"\nprompt_new_workspace_name = true\n[ui.toast]\ndelivery = \"kitsune\"\n[experimental]\nswitch_ascii_input_source_in_prefix = true\n",
+            "[terminal]\ndefault_shell = \"nu\"\nshell_mode = \"non_login\"\nnew_cwd = \"home\"\n[keys]\nnew_workspace = \"prefix+m\"\nprefix = \"ctrl+a\"\n[ui]\nagent_panel_sort = \"priority\"\nredraw_on_focus_gained = false\ncopy_on_select = false\nright_click_passthrough_modifier = \"ctrl\"\nprompt_new_workspace_name = true\n[ui.toast]\ndelivery = \"kitsune\"\n[experimental]\nswitch_ascii_input_source_in_prefix = true\n",
         )
         .unwrap();
         std::env::set_var(crate::config::CONFIG_PATH_ENV_VAR, &path);
@@ -2907,7 +2813,6 @@ pane_border_inactive = "#802020"
             col: 0,
             at: selection_deadline,
         });
-        app.next_agent_manifest_update_check = Some(Instant::now());
         let report = app.reload_config();
 
         assert_eq!(report.status, crate::config::ConfigReloadStatus::Applied);
@@ -2960,8 +2865,6 @@ pane_border_inactive = "#802020"
             app.state.new_terminal_cwd,
             crate::config::NewTerminalCwdConfig::Home
         );
-        assert!(!app.update_manifest_check_enabled);
-        assert!(app.next_agent_manifest_update_check.is_none());
         assert!(app.state.switch_ascii_input_source_in_prefix);
         assert!(app.state.config_diagnostic.is_none());
         let toast = app.state.toast.as_ref().unwrap();
@@ -3604,6 +3507,74 @@ pane_border_inactive = "#802020"
     }
 
     #[tokio::test]
+    async fn integration_inspector_raw_routes_release_prior_ownership_and_suppress_held_repeats() {
+        for headless in [false, true] {
+            let mut app = test_app();
+            let mut workspace = Workspace::test_new("test");
+            let focused = workspace.focused_pane_id().unwrap();
+            let (runtime, mut rx) = TerminalRuntime::test_with_channel_and_scrollback_bytes(
+                80,
+                24,
+                0,
+                b"\x1b[>15u",
+                16,
+            );
+            workspace.tabs[0].runtimes.insert(focused, runtime);
+            app.state.workspaces = vec![workspace];
+            app.state.active = Some(0);
+            app.state.selected = 0;
+            app.state.mode = Mode::Terminal;
+            for (code, modifiers) in [
+                (KeyCode::Char('x'), KeyModifiers::NONE),
+                (KeyCode::Char('b'), KeyModifiers::CONTROL),
+                (KeyCode::Char('a'), KeyModifiers::NONE),
+            ] {
+                let event = raw_key(code, modifiers, KeyEventKind::Press);
+                if headless {
+                    app.route_client_events_from(41, vec![event], false);
+                } else {
+                    app.handle_raw_input_event(event).await;
+                }
+            }
+            assert_eq!(app.state.mode, Mode::IntegrationInspector);
+            assert_eq!(rx.try_recv().unwrap().as_ref(), b"\x1b[120;1:1u");
+            // Closing the prior protocol press is allowed; modal repeats are not.
+            assert_eq!(rx.try_recv().unwrap().as_ref(), b"\x1b[120;1:3u");
+            assert!(app.pressed_terminal_keys.is_empty());
+            for (code, kind) in [
+                (KeyCode::Char('x'), KeyEventKind::Repeat),
+                (KeyCode::Char('y'), KeyEventKind::Press),
+                (KeyCode::Esc, KeyEventKind::Press),
+                (KeyCode::Char('x'), KeyEventKind::Repeat),
+                (KeyCode::Char('y'), KeyEventKind::Repeat),
+                (KeyCode::Char('x'), KeyEventKind::Release),
+                (KeyCode::Char('y'), KeyEventKind::Release),
+            ] {
+                let event = raw_key(code, KeyModifiers::NONE, kind);
+                if headless {
+                    app.route_client_events_from(41, vec![event], false);
+                } else {
+                    app.handle_raw_input_event(event).await;
+                }
+            }
+            assert_eq!(app.state.mode, Mode::Terminal);
+            assert!(rx.try_recv().is_err());
+            assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(focused));
+            for kind in [KeyEventKind::Press, KeyEventKind::Release] {
+                let event = raw_key(KeyCode::Char('x'), KeyModifiers::NONE, kind);
+                if headless {
+                    app.route_client_events_from(41, vec![event], false);
+                } else {
+                    app.handle_raw_input_event(event).await;
+                }
+            }
+            assert_eq!(rx.try_recv().unwrap().as_ref(), b"\x1b[120;1:1u");
+            assert_eq!(rx.try_recv().unwrap().as_ref(), b"\x1b[120;1:3u");
+            assert!(rx.try_recv().is_err());
+        }
+    }
+
+    #[tokio::test]
     async fn outer_focus_gained_marks_visible_done_panes_seen() {
         let mut app = test_app();
         let mut workspace = Workspace::test_new("test");
@@ -3931,7 +3902,7 @@ pane_border_inactive = "#802020"
         assert!(crate::api::request_changes_ui(&pane_swap));
         assert!(crate::api::request_changes_ui(&pane_focus_direction));
         assert!(crate::api::request_changes_ui(&pane_resize));
-        assert!(crate::api::request_changes_ui(&agent_view));
+        assert!(!crate::api::request_changes_ui(&agent_view));
     }
 
     #[test]
@@ -4173,33 +4144,6 @@ pane_border_inactive = "#802020"
         let resolved = app.resolve_terminal_target(&terminal_id).unwrap();
         assert_eq!(resolved.pane_id, pane);
         assert_eq!(resolved.terminal_id, terminal_id);
-
-        assert!(matches!(
-            app.resolve_agent_target(&resolved.terminal_id),
-            Err(crate::app::terminal_targets::TerminalTargetError::NotFound { .. })
-        ));
-    }
-
-    #[test]
-    fn agent_target_rejects_a_pane_that_only_has_a_launch_command() {
-        let mut app = test_app();
-        let workspace = Workspace::test_new("terminal-target-command");
-        let pane = workspace.tabs[0].root_pane;
-        let terminal_id = workspace.terminal_id(pane).unwrap().clone();
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .launch_argv = Some(vec!["just".into(), "dev".into()]);
-        let pane_id = app.public_pane_id(0, pane).unwrap();
-
-        assert!(app.resolve_terminal_target(&pane_id).is_ok());
-        assert!(matches!(
-            app.resolve_agent_target(&pane_id),
-            Err(crate::app::terminal_targets::TerminalTargetError::NotFound { .. })
-        ));
     }
 
     #[test]
@@ -4230,54 +4174,6 @@ pane_border_inactive = "#802020"
     }
 
     #[test]
-    fn terminal_target_resolves_unique_agent_name() {
-        let mut app = test_app();
-        let workspace = Workspace::test_new("terminal-target-name");
-        let pane = workspace.tabs[0].root_pane;
-        let terminal_id = workspace.terminal_id(pane).unwrap().to_string();
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        let attached_terminal_id = app.state.workspaces[0]
-            .pane_state(pane)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&attached_terminal_id)
-            .unwrap()
-            .set_agent_name("reviewer".into());
-        app.state.active = Some(0);
-        app.state.selected = 0;
-
-        let resolved = app.resolve_terminal_target("reviewer").unwrap();
-
-        assert_eq!(resolved.pane_id, pane);
-        assert_eq!(resolved.terminal_id, terminal_id);
-    }
-
-    #[test]
-    fn agent_target_treats_legacy_pane_syntax_as_a_name() {
-        let mut app = test_app();
-        let workspace = Workspace::test_new("agent-target-name");
-        let pane = workspace.tabs[0].root_pane;
-        let terminal_id = workspace.terminal_id(pane).unwrap().clone();
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_detected_state(
-            Some(crate::detect::Agent::Pi),
-            crate::detect::AgentState::Idle,
-        );
-        terminal.set_agent_name("p_1".into());
-
-        let resolved = app.resolve_agent_target("p_1").unwrap();
-
-        assert_eq!(resolved.pane_id, pane);
-        assert_eq!(resolved.terminal_id, terminal_id.to_string());
-    }
-
-    #[test]
     fn terminal_target_reports_missing_target() {
         let mut app = test_app();
         app.state.workspaces = vec![Workspace::test_new("terminal-target-missing")];
@@ -4292,54 +4188,6 @@ pane_border_inactive = "#802020"
                 target: "missing-agent".into()
             }
         );
-    }
-
-    #[test]
-    fn terminal_target_reports_ambiguous_duplicate_agent_name() {
-        let mut app = test_app();
-        let mut workspace = Workspace::test_new("terminal-target-ambiguous");
-        let first = workspace.tabs[0].root_pane;
-        let second = workspace.test_split(ratatui::layout::Direction::Horizontal);
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        let first_terminal_id = app.state.workspaces[0]
-            .pane_state(first)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&first_terminal_id)
-            .unwrap()
-            .set_agent_name("worker".into());
-        let second_terminal_id = app.state.workspaces[0]
-            .pane_state(second)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&second_terminal_id)
-            .unwrap()
-            .set_agent_name("worker".into());
-        app.state.active = Some(0);
-        app.state.selected = 0;
-
-        let err = app.resolve_terminal_target("worker").unwrap_err();
-
-        let crate::app::terminal_targets::TerminalTargetError::Ambiguous { target, candidates } =
-            err
-        else {
-            panic!("expected ambiguous terminal target");
-        };
-        assert_eq!(target, "worker");
-        assert_eq!(candidates.len(), 2);
-        assert!(candidates.iter().all(|candidate| {
-            candidate.terminal_id.starts_with("term_")
-                && candidate.pane_id.starts_with(&app.state.workspaces[0].id)
-                && candidate.workspace_id == app.state.workspaces[0].id
-                && candidate.cwd.is_some()
-        }));
     }
 
     #[tokio::test]
@@ -4580,106 +4428,6 @@ pane_border_inactive = "#802020"
             Some(value) => std::env::set_var("SHELL", value),
             None => std::env::remove_var("SHELL"),
         }
-    }
-
-    #[tokio::test]
-    async fn unavailable_agent_start_does_not_mutate_topology() {
-        let mut app = test_app();
-        let workspace = Workspace::test_new("agent-start-target");
-        let root = workspace.tabs[0].root_pane;
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        let pane_id = app.pane_info(0, root).unwrap().pane_id;
-
-        let response = app.handle_api_request(crate::api::schema::Request {
-            id: "req_agent_start_target".into(),
-            method: crate::api::schema::Method::AgentStart(crate::api::schema::AgentStartParams {
-                name: "worker".into(),
-                kind: "pi".into(),
-                pane_id,
-                args: Vec::new(),
-                timeout_ms: Some(1_000),
-            }),
-        });
-        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
-
-        assert_eq!(response["error"]["code"], "agent_pane_unavailable");
-        assert_eq!(app.state.workspaces[0].tabs[0].layout.pane_count(), 1);
-        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(root));
-    }
-
-    #[tokio::test]
-    async fn failed_agent_start_input_rolls_back_and_can_retry() {
-        let mut app = test_app();
-        let workspace = Workspace::test_new("agent-start-input-failure");
-        let root = workspace.tabs[0].root_pane;
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        let pane_id = app.pane_info(0, root).unwrap().pane_id;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&root]
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_manual_label("shell".into());
-        let (runtime, mut receiver) =
-            crate::terminal::TerminalRuntime::test_with_channel_capacity(80, 24, 1);
-        runtime
-            .try_send_bytes(bytes::Bytes::from_static(b"occupied"))
-            .unwrap();
-        app.terminal_runtimes.insert(terminal_id.clone(), runtime);
-
-        let request = || crate::api::schema::Request {
-            id: "req_agent_start_input".into(),
-            method: crate::api::schema::Method::AgentStart(crate::api::schema::AgentStartParams {
-                name: "worker".into(),
-                kind: "pi".into(),
-                pane_id: pane_id.clone(),
-                args: Vec::new(),
-                timeout_ms: Some(4_000),
-            }),
-        };
-        let response = app.handle_api_request(request());
-        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
-        assert_eq!(response["error"]["code"], "agent_start_input_failed");
-        assert_eq!(app.state.terminals[&terminal_id].agent_name, None);
-        assert_eq!(
-            app.state.terminals[&terminal_id].manual_label.as_deref(),
-            Some("shell")
-        );
-
-        assert_eq!(
-            receiver.try_recv().unwrap(),
-            bytes::Bytes::from_static(b"occupied")
-        );
-        let retry = app.handle_api_request(request());
-        let retry: serde_json::Value = serde_json::from_str(&retry).unwrap();
-        assert_eq!(retry["result"]["type"], "agent_started");
-        assert_eq!(
-            app.state.terminals[&terminal_id].agent_name.as_deref(),
-            Some("worker")
-        );
-        let rename = app.handle_api_request(crate::api::schema::Request {
-            id: "req_agent_rename_pending".into(),
-            method: crate::api::schema::Method::AgentRename(
-                crate::api::schema::AgentRenameParams {
-                    target: pane_id,
-                    name: Some("replacement".into()),
-                },
-            ),
-        });
-        let rename: serde_json::Value = serde_json::from_str(&rename).unwrap();
-        assert_eq!(rename["error"]["code"], "agent_launch_pending");
-        assert_eq!(
-            app.state.terminals[&terminal_id].agent_name.as_deref(),
-            Some("worker")
-        );
     }
 
     #[test]
@@ -4949,86 +4697,6 @@ pane_border_inactive = "#802020"
         app.tick_selection_autoscroll(now);
         assert!(app.state.selection_autoscroll.is_none());
         assert!(app.selection_autoscroll_deadline.is_none());
-    }
-
-    #[tokio::test]
-    async fn full_internal_event_queue_eventually_applies_working_to_idle_transition() {
-        let mut app = test_app();
-        let ws = Workspace::test_new("test");
-        let pane_id = ws.tabs[0].root_pane;
-
-        app.state.workspaces = vec![ws];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-
-        let terminal_id = app.state.workspaces[0]
-            .pane_state(pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        app.handle_internal_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Working,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        assert_eq!(
-            app.state.terminals.get(&terminal_id).unwrap().state,
-            AgentState::Working
-        );
-
-        for i in 0..APP_EVENT_CHANNEL_CAPACITY {
-            app.event_tx
-                .try_send(AppEvent::ClipboardWrite {
-                    content: vec![i as u8],
-                })
-                .unwrap();
-        }
-
-        let tx = app.event_tx.clone();
-        let send = tx.send(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        tokio::pin!(send);
-
-        let blocked =
-            tokio::time::timeout(Duration::from_millis(20), async { (&mut send).await }).await;
-        assert!(
-            blocked.is_err(),
-            "state change sender should wait for queue space instead of failing"
-        );
-
-        app.drain_internal_events();
-
-        tokio::time::timeout(Duration::from_millis(50), async { (&mut send).await })
-            .await
-            .expect("state change should enqueue once queue space is available")
-            .expect("app event receiver should still be alive");
-
-        let max_drains = (APP_EVENT_CHANNEL_CAPACITY / APP_EVENT_DRAIN_LIMIT) + 2;
-        for _ in 0..max_drains {
-            if app.state.terminals.get(&terminal_id).unwrap().state == AgentState::Idle {
-                break;
-            }
-            app.drain_internal_events();
-        }
-
-        assert_eq!(
-            app.state.terminals.get(&terminal_id).unwrap().state,
-            AgentState::Idle,
-            "Working→Idle should still apply after temporary queue pressure"
-        );
     }
 
     #[test]

@@ -319,26 +319,6 @@ pub fn foreground_job(child_pid: u32) -> Option<ForegroundJob> {
     })
 }
 
-pub fn foreground_group_leader_job(process_group_id: u32) -> Option<ForegroundJob> {
-    let info = process_bsdinfo(process_group_id)?;
-    if info.pbi_pgid != process_group_id {
-        return None;
-    }
-
-    let name = comm_from_bsdinfo(&info)?;
-    let argv = process_argv(process_group_id);
-    Some(ForegroundJob {
-        process_group_id,
-        processes: vec![ForegroundProcess {
-            pid: process_group_id,
-            name,
-            argv0: process_argv0_name(process_group_id),
-            cmdline: argv.as_ref().map(|parts| parts.join(" ")),
-            argv,
-        }],
-    })
-}
-
 fn process_group_pids(process_group_id: u32) -> Vec<u32> {
     let mut capacity = 16usize;
 
@@ -806,15 +786,6 @@ fn process_argv(pid: u32) -> Option<Vec<String>> {
     procargs2_argv(&buf)
 }
 
-/// Read a Kitsune agent identity hint from a process environment.
-pub fn process_agent_hint(pid: u32) -> Option<crate::detect::Agent> {
-    if pid == 0 {
-        return None;
-    }
-    let buf = kern_procargs2(pid)?;
-    super::parse_agent_env_hint(procargs2_env(&buf)?)
-}
-
 fn procargs2_argv_start(rest: &[u8]) -> Option<usize> {
     let exec_end = rest.iter().position(|&byte| byte == 0)?;
     let mut pos = exec_end;
@@ -822,15 +793,6 @@ fn procargs2_argv_start(rest: &[u8]) -> Option<usize> {
         pos += 1;
     }
     (pos < rest.len()).then_some(pos)
-}
-
-fn skip_nul_strings(bytes: &[u8], start: usize, count: usize) -> Option<usize> {
-    let mut current = start;
-    for _ in 0..count {
-        let end = bytes.get(current..)?.iter().position(|&byte| byte == 0)?;
-        current = current.checked_add(end)?.checked_add(1)?;
-    }
-    Some(current)
 }
 
 fn procargs2_argv(buf: &[u8]) -> Option<Vec<String>> {
@@ -864,22 +826,6 @@ fn procargs2_argv(buf: &[u8]) -> Option<Vec<String>> {
     }
 
     Some(argv)
-}
-
-fn procargs2_env(buf: &[u8]) -> Option<&[u8]> {
-    if buf.len() < 4 {
-        return None;
-    }
-
-    let argc = i32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]);
-    if argc < 1 {
-        return None;
-    }
-
-    let rest = &buf[4..];
-    let argv_start = procargs2_argv_start(rest)?;
-    let env_start = skip_nul_strings(rest, argv_start, argc as usize)?;
-    rest.get(env_start..)
 }
 
 /// Get the current working directory of a process.
@@ -1063,37 +1009,6 @@ mod tests {
         assert_eq!(argv, vec!["node", "/Users/can/.local/bin/pi"]);
         assert_eq!(argv.join(" "), "node /Users/can/.local/bin/pi");
         assert!(!argv.join(" ").contains("codex.system"));
-    }
-
-    #[test]
-    fn procargs2_env_reads_agent_hint_after_argv() {
-        let buf = build_procargs2(
-            "/opt/homebrew/bin/nono",
-            &["nono", "run", "KITSUNE_AGENT=codex", "--", "claude"],
-            &[
-                "PATH=/usr/bin",
-                "KITSUNE_AGENT=claude",
-                "TERM=xterm-256color",
-            ],
-        );
-
-        let env = procargs2_env(&buf).expect("expected env block");
-        assert_eq!(
-            crate::platform::parse_agent_env_hint(env),
-            Some(crate::detect::Agent::Claude)
-        );
-    }
-
-    #[test]
-    fn procargs2_env_does_not_treat_argv_as_environment() {
-        let buf = build_procargs2(
-            "/opt/homebrew/bin/nono",
-            &["nono", "run", "KITSUNE_AGENT=claude"],
-            &["PATH=/usr/bin"],
-        );
-
-        let env = procargs2_env(&buf).expect("expected env block");
-        assert_eq!(crate::platform::parse_agent_env_hint(env), None);
     }
 
     #[test]

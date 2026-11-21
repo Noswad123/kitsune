@@ -31,8 +31,8 @@ These instructions are layered.
 - **Render is pure.** `compute_view()` handles geometry and mutations. `render()` takes `&AppState` and only draws. Never mutate state during render.
 - **No god objects.** If a module is doing too many things, split it. `app/` is already split into state, actions, and input. Keep it that way.
 - **Platform code is isolated.** OS-specific behavior lives in the matching `src/platform/<os>.rs` file, with only shared traits, types, wrappers, and testable contracts in `src/platform/mod.rs`. Core modules don't have `#[cfg(target_os)]`.
-- **Detection is decoupled.** The detector reads a screen snapshot, never touches the parser or viewport state.
-- **Screen detection is evidence-based.** When changing `src/detect/manifests/`, first capture the relevant bottom-buffer state with `kitsune agent read <pane> --source detection --format text` and, when styling or alternate screen behavior matters, `--format ansi`. Decide which visible controls are invariant, which are alternatives, and encode them as explicit AND/OR gates. Do not match whole-pane incidental text, and do not use the user-visible viewport for agent status because users can scroll it.
+- **Live agent detection is retired globally.** Do not reintroduce screen/PTY/OSC heuristics, foreground-hint policy, lifecycle consumers or automatic provider resume. Generic terminal/process observation is not native agent status.
+- **Static rule maintenance is offline compatibility work only.** When changing `src/detect/manifests/`, capture relevant bottom-buffer text with `kitsune pane read <pane> --source detection --format text` or use an existing fixture. `detection` is a generic bottom-buffer source, not the viewport or a live classifier. Its text and ANSI formats currently both return plain text; do not claim styling evidence from it. Keep explicit AND/OR rule semantics and avoid incidental whole-pane matches.
 - **UI patterns should be reused.** Kitsune is a mouse-first TUI. New dialogs, onboarding, settings, and post-update flows should follow the existing UI/UX language and interaction patterns instead of inventing one-off screens. Prefer reusing existing modal/screen structure, affordances, and close actions so the app feels consistent.
 
 ### Runtime/client boundary guardrail
@@ -139,11 +139,11 @@ After validation, leave `C:\work\repo` clean. Remove temporary files and delete
 Rustup caches. Unless Can explicitly asks to keep the patched tree for more
 manual testing, reset `C:\work\repo` back to a clean checkout before finishing.
 
-## Agent Detection Updates
+## Static Agent Rule Compatibility Maintenance
 
-Agent detection changes should use the manifest hot-reload loop. Use the project-local `kitsune-throwaway-repro` skill to create a disposable named session and drive the real agent UI through Kitsune's CLI/API into the target state. Read the pane with `kitsune agent read <pane> --source detection --format text` and inspect matching with `kitsune agent explain <pane> --json`. Update the bundled manifest in `src/detect/manifests/<agent>.toml`, copy that manifest to the local override path at `~/.config/kitsune/agent-detection/<agent>.toml`, then run `kitsune server reload-agent-manifests` against the session under test. Before writing the override, check whether one already exists; never overwrite or remove a pre-existing override without alignment. Once the rule is correct, remove the temporary override or restore the previous one exactly so the committed bundled manifest remains the source of truth.
+Live agent reads/explanations, manifest reload/update commands and the normal/handoff detector loops are retired. For explicitly requested static evaluator maintenance, inspect captured text locally with `kitsune agent explain --file <capture-path> --agent <kind> --json`. This offline compatibility command uses local/bundled rules, never remote rules or live detector authority. Use generic `kitsune pane read <pane> --source detection --format text` for new captures; do not resurrect a runtime DetectorSource or hot-reload workflow. Do not edit user overrides/configuration unless explicitly authorized; preserve any pre-existing override exactly.
 
-Do not add large agent-specific full-screen fixture suites for routine manifest tuning. Keep Rust tests focused on manifest parsing, rule semantics, skip-state semantics, source precedence, cache reload behavior, and update flow. Use live pane reads for agent-specific screen evidence.
+Do not add large agent-specific full-screen fixture suites for routine manifest tuning. Keep tests focused on retained static parsing, rule/skip-state semantics and local/bundled precedence. Remote update flows and live status classification are not maintenance targets. See `AGENT_CONTROL_RETIREMENT.md` for retained compatibility and generic terminal boundaries.
 
 ## Vendored libghostty-vt
 

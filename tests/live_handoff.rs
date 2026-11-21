@@ -1,5 +1,180 @@
 mod support;
 
+#[test]
+fn cold_historical_reference_and_generic_history_survive_actual_handoff_without_respawn() {
+    let _lock = test_lock();
+    for external in [false, true] {
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                cleanup_test_base(&self.0);
+            }
+        }
+        let base = unique_test_dir();
+        let _cleanup = Cleanup(base.clone());
+        let config_home = base.join("c");
+        let data = config_home.join("kitsune-dev");
+        let runtime = base.join("runtime");
+        let socket = runtime.join("kitsune.sock");
+        fs::create_dir_all(&data).unwrap();
+        let config = base.join("fixture.toml");
+        let ownership = if external {
+            "[integrations]\nsources=['custom']\n[integrations.runtime]\nsource='custom'\ncommand=['/not-installed']\nreport_command=['/not-installed-report']\nexternal_agent_management=true\n"
+        } else {
+            "[integrations]\nsources=[]\n"
+        };
+        fs::write(
+            &config,
+            format!("onboarding=false\n[experimental]\npane_history=true\n{ownership}"),
+        )
+        .unwrap();
+        let reference = serde_json::json!({"source":"kitsune:codex","agent":"codex","kind":"id","value":"historical-session"});
+        fs::write(data.join("session.json"), serde_json::json!({
+            "version":3,"active":0,"selected":0,"workspaces":[{
+                "id":"w1","identity_cwd":base,"active_tab":0,"public_pane_numbers":{"7":1},
+                "tabs":[{"layout":{"Pane":7},"zoomed":false,"focused":7,"root_pane":7,"panes":{"7":{
+                    "cwd":base,"label":"generic-shell","agent_name":"old-codex","managed_agent_kind":"codex",
+                    "agent_session":reference,"launch_argv":["/never-execute-historical-provider","--resume","historical-session"],
+                    "respawn_shell_on_exit":true
+                }}}]
+            }]
+        }).to_string()).unwrap();
+        fs::write(data.join("session-history.json"), serde_json::json!({
+            "version":3,"workspaces":[{"tabs":[{"panes":{"7":{"ansi":"cold-history-sentinel\r\n","lines":1}}}]}]
+        }).to_string()).unwrap();
+        let spawned = spawn_server_with_env(
+            &config_home,
+            &runtime,
+            &socket,
+            &[("KITSUNE_CONFIG_PATH", config.to_str().unwrap())],
+        );
+        register_runtime_dir(&runtime);
+        wait_for_socket(&socket, Duration::from_secs(10));
+        let pane = "w1:p1";
+        wait_for_output(&socket, pane, "cold-history-sentinel");
+        assert_ok(request(
+            &socket,
+            serde_json::json!({"id":"generic-output", "method":"pane.send_input",
+            "params":{"pane_id":pane,"text":"printf 'generic-%s\\n' new-output","keys":["Enter"]}}),
+        ));
+        wait_for_output(&socket, pane, "generic-new-output");
+        assert_ok(request(
+            &socket,
+            serde_json::json!({"id":"handoff", "method":"server.live_handoff","params":{}}),
+        ));
+        drop(spawned);
+        wait_for_api(&socket, Duration::from_secs(10));
+        wait_for_output(&socket, pane, "cold-history-sentinel");
+        wait_for_output(&socket, pane, "generic-new-output");
+        let got = request(
+            &socket,
+            serde_json::json!({"id":"history-ref","method":"pane.get","params":{"pane_id":pane}}),
+        );
+        assert_eq!(got["result"]["pane"]["agent_session"], reference);
+        assert_eq!(got["result"]["pane"]["agent_status"], "unknown");
+        assert!(got["result"]["pane"]["agent"].is_null());
+        assert_ok(request(
+            &socket,
+            serde_json::json!({"id":"exit","method":"pane.send_input","params":{"pane_id":pane,"text":"exit","keys":["Enter"]}}),
+        ));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let got = request(
+                &socket,
+                serde_json::json!({"id":"closed","method":"pane.get","params":{"pane_id":pane}}),
+            );
+            if got["error"]["code"] == "pane_not_found" {
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "historical argv incorrectly enabled respawn: {got}"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        let _ = request(
+            &socket,
+            serde_json::json!({"id":"stop","method":"server.stop","params":{}}),
+        );
+    }
+}
+
+#[test]
+fn live_handoff_cannot_reenable_retired_agent_controls() {
+    let _lock = test_lock();
+    let base = unique_test_dir();
+    let config_home = base.join("c");
+    let runtime_dir = base.join("runtime");
+    let socket = runtime_dir.join("kitsune.sock");
+    let spawned = spawn_server(&config_home, &runtime_dir, &socket);
+    wait_for_socket(&socket, Duration::from_secs(10));
+    register_runtime_dir(&runtime_dir);
+    let created = request(
+        &socket,
+        serde_json::json!({"id":"create", "method":"workspace.create", "params":{"cwd":base,"focus":false}}),
+    );
+    let pane = created["result"]["root_pane"]["pane_id"].as_str().unwrap();
+    let check = || {
+        let before = request(
+            &socket,
+            serde_json::json!({"id":"before", "method":"pane.get","params":{"pane_id":pane}}),
+        );
+        let terminal = before["result"]["pane"]["terminal_id"].clone();
+        for (method, params) in [
+            (
+                "agent.start",
+                serde_json::json!({"pane_id":pane,"name":"old-agent","kind":"codex"}),
+            ),
+            (
+                "agent.prompt",
+                serde_json::json!({"target":pane,"text":"must not execute","wait":{"timeout_ms":60000}}),
+            ),
+            (
+                "pane.report_agent",
+                serde_json::json!({"pane_id":pane,"source":"kitsune:codex","agent":"codex","state":"working"}),
+            ),
+            (
+                "pane.report_agent_session",
+                serde_json::json!({"pane_id":pane,"source":"kitsune:codex","agent":"codex","agent_session_id":"must-not-be-recorded"}),
+            ),
+        ] {
+            let response = request(
+                &socket,
+                serde_json::json!({"id":"retired", "method":method,"params":params}),
+            );
+            assert_eq!(response["error"]["code"], "feature_retired");
+        }
+        let got = request(
+            &socket,
+            serde_json::json!({"id":"pane", "method":"pane.get","params":{"pane_id":pane}}),
+        );
+        assert_eq!(got["result"]["pane"]["terminal_id"], terminal);
+        assert_eq!(got["result"]["pane"]["agent_status"], "unknown");
+        assert!(got["result"]["pane"]["agent_session"].is_null());
+        let snapshot = request(
+            &socket,
+            serde_json::json!({"id":"snapshot", "method":"session.snapshot","params":{}}),
+        );
+        assert_eq!(
+            snapshot["result"]["snapshot"]["agents"],
+            serde_json::json!([])
+        );
+    };
+    check();
+    assert_ok(request(
+        &socket,
+        serde_json::json!({"id":"handoff", "method":"server.live_handoff","params":{}}),
+    ));
+    drop(spawned);
+    wait_for_api(&socket, Duration::from_secs(10));
+    check();
+    let _ = request(
+        &socket,
+        serde_json::json!({"id":"stop","method":"server.stop","params":{}}),
+    );
+    cleanup_test_base(&base);
+}
+
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -30,6 +205,7 @@ impl Drop for SpawnedKitsune {
     fn drop(&mut self) {
         let pid = self.child.process_id();
         let _ = self.child.kill();
+        let _ = self.child.wait();
         unregister_spawned_kitsune_pid(pid);
     }
 }
@@ -42,9 +218,10 @@ fn test_lock() -> MutexGuard<'static, ()> {
 }
 
 fn unique_test_dir() -> PathBuf {
+    // Keep named-session handoff sockets within SUN_LEN under disk-backed TMPDIR.
     static COUNTER: AtomicUsize = AtomicUsize::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    PathBuf::from(format!("/tmp/hlh-{}-{n}", std::process::id()))
+    std::env::temp_dir().join(format!("h{:x}-{n:x}", std::process::id()))
 }
 
 fn spawn_server(config_home: &Path, runtime_dir: &Path, api_socket: &Path) -> SpawnedKitsune {
@@ -510,7 +687,7 @@ fn wait_for_http_contains(port: u16, needle: &str, timeout: Duration) -> String 
 fn live_server_holds_one_pty_master_fd_per_pane() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
 
@@ -607,7 +784,7 @@ fn live_server_holds_one_pty_master_fd_per_pane() {
 fn live_handoff_preserves_named_session_socket_paths() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let session_dir = config_home.join("kitsune-dev/sessions/work");
     let api_socket = session_dir.join("kitsune.sock");
@@ -640,7 +817,7 @@ fn live_handoff_preserves_named_session_socket_paths() {
 fn live_handoff_ignores_leaked_default_socket_env_for_named_session() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let default_session_dir = config_home.join("kitsune-dev");
     let default_api_socket = default_session_dir.join("kitsune.sock");
@@ -687,7 +864,7 @@ fn live_handoff_ignores_leaked_default_socket_env_for_named_session() {
 fn live_handoff_preserves_client_socket_env_without_api_socket_env() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = config_home.join("kitsune-dev/kitsune.sock");
     let client_socket = runtime_dir.join("custom-client.sock");
@@ -722,7 +899,7 @@ fn live_handoff_preserves_client_socket_env_without_api_socket_env() {
 fn live_handoff_preserves_pane_process_io() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
@@ -895,7 +1072,7 @@ fn live_handoff_preserves_pane_process_io() {
 fn live_handoff_preserves_keyboard_protocol_for_client_input() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
@@ -986,7 +1163,7 @@ pathlib.Path({received:?}).write_text(data.hex())
 fn live_handoff_preserves_modify_other_keys_for_client_input() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
@@ -1081,7 +1258,7 @@ pathlib.Path({received:?}).write_text(data.hex())
 fn live_handoff_accepts_canonical_pane_id_from_child_env() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let pane_id_marker = base.join("pane-id");
@@ -1123,281 +1300,12 @@ fn live_handoff_accepts_canonical_pane_id_from_child_env() {
     drop(spawned);
     wait_for_api(&api_socket, Duration::from_secs(10));
 
-    assert_ok(request(
+    let pane = request(
         &api_socket,
-        serde_json::json!({
-            "id": "test:old-pane-report",
-            "method": "pane.report_agent",
-            "params": {
-                "pane_id": old_pane_id,
-                "source": "handoff-test",
-                "agent": "pi",
-                "state": "working"
-            }
-        }),
-    ));
-    let agents = request(
-        &api_socket,
-        serde_json::json!({"id":"test:agent-list","method":"agent.list","params":{}}),
+        serde_json::json!({"id":"old-pane", "method":"pane.get", "params":{"pane_id":old_pane_id}}),
     );
-    let found = agents["result"]["agents"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|agent| {
-            agent["agent"].as_str() == Some("pi")
-                && agent["agent_status"].as_str() == Some("working")
-        });
-    assert!(
-        found,
-        "old pane id report did not update restored pane: {agents}"
-    );
-
-    let _ = request(
-        &api_socket,
-        serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
-    );
-    cleanup_test_base(&base);
-}
-
-#[test]
-fn live_handoff_keeps_unmanaged_agent_name_bound_to_saved_session() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("kitsune.sock");
-    let old_session = base.join("old-session.jsonl");
-    let new_session = base.join("new-session.jsonl");
-    let started_marker = base.join("agent-started");
-    let fake_pi = base.join("pi");
-    fs::create_dir_all(&base).unwrap();
-    fs::write(
-        &fake_pi,
-        format!(
-            "#!/bin/sh\nexport KITSUNE_AGENT=pi\necho started > {}\n/bin/sleep 30\n",
-            started_marker.display()
-        ),
-    )
-    .unwrap();
-    fs::set_permissions(&fake_pi, fs::Permissions::from_mode(0o755)).unwrap();
-
-    let spawned = spawn_server(&config_home, &runtime_dir, &api_socket);
-    wait_for_socket(&api_socket, Duration::from_secs(10));
-    register_runtime_dir(&runtime_dir);
-    let created = request(
-        &api_socket,
-        serde_json::json!({
-            "id": "test:workspace:create",
-            "method": "workspace.create",
-            "params": {"cwd": "/tmp", "focus": true}
-        }),
-    );
-    let pane_id = created["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-    assert_ok(request(
-        &api_socket,
-        serde_json::json!({
-            "id": "test:pane:start-agent",
-            "method": "pane.send_input",
-            "params": {"pane_id": pane_id, "text": fake_pi, "keys": ["Enter"]}
-        }),
-    ));
-    support::wait_for_file(&started_marker, Duration::from_secs(5));
-    assert_ok(request(
-        &api_socket,
-        serde_json::json!({
-            "id": "test:agent:session",
-            "method": "pane.report_agent_session",
-            "params": {
-                "pane_id": pane_id,
-                "source": "kitsune:pi",
-                "agent": "pi",
-                "seq": 1,
-                "agent_session_path": old_session,
-                "session_start_source": "startup"
-            }
-        }),
-    ));
-    assert_ok(request(
-        &api_socket,
-        serde_json::json!({
-            "id": "test:agent:report",
-            "method": "pane.report_agent",
-            "params": {
-                "pane_id": pane_id,
-                "source": "kitsune:pi",
-                "agent": "pi",
-                "state": "idle",
-                "seq": 2,
-                "agent_session_path": old_session
-            }
-        }),
-    ));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let response = request(
-            &api_socket,
-            serde_json::json!({
-                "id": "test:agent:wait-for-process",
-                "method": "agent.get",
-                "params": {"target": pane_id}
-            }),
-        );
-        if response.get("result").is_some() {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "agent process was not detected: {response}"
-        );
-        thread::sleep(Duration::from_millis(25));
-    }
-    assert_ok(request(
-        &api_socket,
-        serde_json::json!({
-            "id": "test:agent:rename",
-            "method": "agent.rename",
-            "params": {"target": pane_id, "name": "reviewer"}
-        }),
-    ));
-
-    assert_ok(request(
-        &api_socket,
-        serde_json::json!({"id":"test:handoff","method":"server.live_handoff","params":{}}),
-    ));
-    drop(spawned);
-    wait_for_api(&api_socket, Duration::from_secs(10));
-
-    assert_ok(request(
-        &api_socket,
-        serde_json::json!({
-            "id": "test:agent:new-session",
-            "method": "pane.report_agent_session",
-            "params": {
-                "pane_id": pane_id,
-                "source": "kitsune:pi",
-                "agent": "pi",
-                "seq": 3,
-                "agent_session_path": new_session,
-                "session_start_source": "new"
-            }
-        }),
-    ));
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        let old_name = request(
-            &api_socket,
-            serde_json::json!({
-                "id": "test:agent:get-old-name",
-                "method": "agent.get",
-                "params": {"target": "reviewer"}
-            }),
-        );
-        if old_name["error"]["code"] == "agent_not_found" {
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "old session alias was not cleared: {old_name}"
-        );
-        thread::sleep(Duration::from_millis(25));
-    }
-
-    let _ = request(
-        &api_socket,
-        serde_json::json!({"id":"test:stop","method":"server.stop","params":{}}),
-    );
-    cleanup_test_base(&base);
-}
-
-#[test]
-fn live_handoff_keeps_agent_started_pane_after_agent_exits() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let _lock = test_lock();
-    let base = unique_test_dir();
-    let config_home = base.join("config");
-    let runtime_dir = base.join("runtime");
-    let api_socket = runtime_dir.join("kitsune.sock");
-    let started_marker = base.join("agent-started");
-    let exited_marker = base.join("agent-exited");
-    let shell_marker = base.join("shell-after-agent");
-    let bin = base.join("bin");
-    fs::create_dir_all(&bin).unwrap();
-    let fake_pi = bin.join("pi");
-    fs::write(
-        &fake_pi,
-        format!(
-            "#!/bin/sh\nexport KITSUNE_AGENT=pi\necho started > {}\n/bin/sleep 1\necho exited > {}\n",
-            started_marker.display(),
-            exited_marker.display()
-        ),
-    )
-    .unwrap();
-    fs::set_permissions(&fake_pi, fs::Permissions::from_mode(0o755)).unwrap();
-    let path = format!("{}:/bin:/usr/bin", bin.display());
-
-    let spawned = spawn_server_with_env(
-        &config_home,
-        &runtime_dir,
-        &api_socket,
-        &[("PATH", path.as_str())],
-    );
-    wait_for_socket(&api_socket, Duration::from_secs(10));
-    register_runtime_dir(&runtime_dir);
-    let workspace = request(
-        &api_socket,
-        serde_json::json!({
-            "id": "test:workspace-create",
-            "method": "workspace.create",
-            "params": { "cwd": "/tmp", "focus": false }
-        }),
-    );
-    assert_ok(workspace.clone());
-    let pane_id = workspace["result"]["root_pane"]["pane_id"]
-        .as_str()
-        .unwrap()
-        .to_string();
-
-    let started = request(
-        &api_socket,
-        serde_json::json!({
-            "id": "test:agent-start",
-            "method": "agent.start",
-            "params": {
-                "name": "handoff-agent",
-                "kind": "pi",
-                "pane_id": pane_id,
-                "timeout_ms": 5000
-            }
-        }),
-    );
-    assert_ok(started);
-    support::wait_for_file(&started_marker, Duration::from_secs(5));
-
-    assert_ok(request(
-        &api_socket,
-        serde_json::json!({"id":"test:handoff","method":"server.live_handoff","params":{}}),
-    ));
-    drop(spawned);
-    wait_for_api(&api_socket, Duration::from_secs(10));
-    support::wait_for_file(&exited_marker, Duration::from_secs(5));
-    thread::sleep(Duration::from_millis(300));
-
-    assert_ok(request(
-        &api_socket,
-        serde_json::json!({
-            "id": "test:pane:shell-after-agent",
-            "method": "pane.send_input",
-            "params": {"pane_id": pane_id, "text": format!("echo alive > {}", shell_marker.display()), "keys": ["Enter"]}
-        }),
-    ));
-    support::wait_for_file(&shell_marker, Duration::from_secs(5));
+    assert_eq!(pane["result"]["pane"]["pane_id"], old_pane_id);
+    assert_eq!(pane["result"]["pane"]["agent_status"], "unknown");
 
     let _ = request(
         &api_socket,
@@ -1410,7 +1318,7 @@ fn live_handoff_keeps_agent_started_pane_after_agent_exits() {
 fn live_handoff_keeps_shell_pane_after_foreground_process_exits() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let started_marker = base.join("foreground-started");
@@ -1477,7 +1385,7 @@ fn live_handoff_keeps_shell_pane_after_foreground_process_exits() {
 fn live_handoff_preserves_python_http_server() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");
@@ -1549,7 +1457,7 @@ fn live_handoff_preserves_python_http_server() {
 fn live_handoff_preserves_http_servers_across_multiple_sessions() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let sessions = [
         (None, config_home.join("kitsune-dev/kitsune.sock")),
@@ -1642,7 +1550,7 @@ fn live_handoff_preserves_http_servers_across_multiple_sessions() {
 fn live_handoff_bad_expected_protocol_rolls_back_old_server() {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let marker = base.join("child.pid");
@@ -1722,7 +1630,7 @@ fn live_handoff_bad_expected_protocol_rolls_back_old_server() {
 fn live_handoff_import_failure_rolls_back_old_server_at(failure_point: &str) {
     let _lock = test_lock();
     let base = unique_test_dir();
-    let config_home = base.join("config");
+    let config_home = base.join("c");
     let runtime_dir = base.join("runtime");
     let api_socket = runtime_dir.join("kitsune.sock");
     let client_socket = runtime_dir.join("kitsune-client.sock");

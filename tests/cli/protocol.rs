@@ -2,9 +2,8 @@ use super::harness::*;
 
 #[test]
 fn cli_allows_same_protocol_different_version_and_preserves_server_error() {
-    let base = unique_test_dir();
-    fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("kitsune.sock");
+    let base = super::agent_transport::RetirementTestDirectory::new();
+    let socket_path = base.path().join("kitsune.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -28,44 +27,31 @@ fn cli_allows_same_protocol_different_version_and_preserves_server_error() {
             .read_line(&mut operation_line)
             .unwrap();
         let operation: serde_json::Value = serde_json::from_str(&operation_line).unwrap();
-        assert_eq!(operation["method"], "agent.wait");
+        assert_eq!(operation["method"], "pane.read");
         operation_stream
             .write_all(
-                br#"{"id":"cli:agent:wait","error":{"code":"not_implemented","message":"compatible server error"}}"#,
+                br#"{"id":"cli:pane:read","error":{"code":"not_implemented","message":"compatible server error"}}"#,
             )
             .unwrap();
         operation_stream.write_all(b"\n").unwrap();
         operation_stream.flush().unwrap();
     });
 
-    let waited = run_cli(
-        &socket_path,
-        &[
-            "agent",
-            "wait",
-            "1-1",
-            "--until",
-            "idle",
-            "--timeout",
-            "5000",
-        ],
-    );
+    let waited = run_cli(&socket_path, &["pane", "read", "w1:p1"]);
 
     assert_eq!(waited.status.code(), Some(1));
     assert!(waited.stdout.is_empty());
     let error: serde_json::Value = serde_json::from_slice(&waited.stderr).unwrap();
-    assert_eq!(error["id"], "cli:agent:wait");
+    assert_eq!(error["id"], "cli:pane:read");
     assert_eq!(error["error"]["code"], "not_implemented");
     assert_eq!(error["error"]["message"], "compatible server error");
     server.join().unwrap();
-    cleanup_test_base(&base);
 }
 
 #[test]
 fn server_live_handoff_bypasses_protocol_guard() {
-    let base = unique_test_dir();
-    fs::create_dir_all(&base).unwrap();
-    let socket_path = base.join("kitsune.sock");
+    let base = super::agent_transport::RetirementTestDirectory::new();
+    let socket_path = base.path().join("kitsune.sock");
     let listener = UnixListener::bind(&socket_path).unwrap();
 
     let server = thread::spawn(move || {
@@ -90,5 +76,4 @@ fn server_live_handoff_bypasses_protocol_guard() {
         String::from_utf8_lossy(&handoff.stderr)
     );
     server.join().unwrap();
-    cleanup_test_base(&base);
 }

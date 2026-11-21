@@ -19,7 +19,6 @@ pub(super) enum SettingsAction {
     SaveAgentBorderLabels(bool),
     SavePaneHistory(bool),
     SaveSwitchAsciiInputSourceInPrefix(bool),
-    InstallRecommendedIntegrations,
 }
 
 /// Map an Experiments row index to the toggle action that flips it.
@@ -38,7 +37,6 @@ fn experiment_toggle_action(state: &AppState, idx: usize) -> Option<SettingsActi
 
 impl App {
     pub(crate) fn handle_settings_key(&mut self, key: KeyEvent) {
-        let previous_section = self.state.settings.section;
         if let Some(action) = update_settings_state(&mut self.state, key) {
             match action {
                 SettingsAction::SaveTheme(name) => self.save_theme(&name),
@@ -53,15 +51,7 @@ impl App {
                 SettingsAction::SaveSwitchAsciiInputSourceInPrefix(enabled) => {
                     self.save_switch_ascii_input_source_in_prefix(enabled)
                 }
-                SettingsAction::InstallRecommendedIntegrations => {
-                    self.install_recommended_integrations()
-                }
             }
-        }
-        if previous_section != SettingsSection::Integrations
-            && self.state.settings.section == SettingsSection::Integrations
-        {
-            self.refresh_integration_recommendations();
         }
     }
 }
@@ -113,13 +103,6 @@ fn cancel_settings(state: &mut AppState) {
     super::modal::leave_modal(state);
 }
 
-fn integrations_need_install(state: &AppState) -> bool {
-    state
-        .integration_recommendations
-        .iter()
-        .any(crate::integration::IntegrationRecommendation::needs_install)
-}
-
 fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
     match state.settings.section {
         SettingsSection::Theme => {
@@ -128,9 +111,6 @@ fn apply_settings(state: &mut AppState) -> Option<SettingsAction> {
             state.settings.original_theme = None;
             super::modal::leave_modal(state);
             Some(SettingsAction::SaveTheme(theme_name))
-        }
-        SettingsSection::Integrations if integrations_need_install(state) => {
-            Some(SettingsAction::InstallRecommendedIntegrations)
         }
         SettingsSection::Integrations => None,
         _ => {
@@ -267,9 +247,6 @@ pub(super) fn update_settings_state(state: &mut AppState, key: KeyEvent) -> Opti
             }
         },
         SettingsSection::Integrations => match key.code {
-            KeyCode::Enter | KeyCode::Char(' ') if integrations_need_install(state) => {
-                return Some(SettingsAction::InstallRecommendedIntegrations);
-            }
             KeyCode::BackTab | KeyCode::Left | KeyCode::Char('h') => {
                 state.settings.section = SettingsSection::PaneLabels;
                 state.settings.list.selected = usize::from(!state.agent_border_labels_enabled());
@@ -294,7 +271,6 @@ pub(crate) fn open_settings(state: &mut AppState) {
 }
 
 pub(crate) fn open_settings_at(state: &mut AppState, section: SettingsSection) {
-    state.integration_install_messages.clear();
     state.settings.original_palette = Some(state.palette.clone());
     state.settings.original_theme = Some(state.theme_name.clone());
     state.settings.section = section;
@@ -720,40 +696,18 @@ mod tests {
     }
 
     #[test]
-    fn integration_update_badge_only_tracks_outdated_recommendations() {
+    fn legacy_cleanup_settings_have_no_install_action_or_update_badges() {
         let mut state = state_with_workspaces(&["test"]);
-        state.integration_recommendations = vec![integration_recommendation(
-            crate::integration::IntegrationStatusKind::NotInstalled,
-            true,
-        )];
-        assert!(!state.integration_updates_available());
-
-        state.integration_recommendations = vec![integration_recommendation(
-            crate::integration::IntegrationStatusKind::NotInstalled,
-            false,
-        )];
-        assert!(!state.integration_updates_available());
-
-        state.integration_recommendations = vec![integration_recommendation(
-            crate::integration::IntegrationStatusKind::Current,
-            true,
-        )];
-        assert!(!state.integration_updates_available());
-
-        state.integration_recommendations = vec![integration_recommendation(
-            crate::integration::IntegrationStatusKind::Outdated,
-            true,
-        )];
-        assert!(state.integration_updates_available());
-    }
-
-    #[test]
-    fn settings_tab_hit_area_includes_integration_update_badge() {
-        let mut state = state_with_workspaces(&["test"]);
-        state.integration_recommendations = vec![integration_recommendation(
-            crate::integration::IntegrationStatusKind::Outdated,
-            true,
-        )];
+        open_settings_at(&mut state, SettingsSection::Integrations);
+        assert!(!crate::ui::settings_show_primary_action(&state));
+        assert!(!state.global_menu_attention_badge_visible());
+        assert!(!state.settings_section_has_badge(SettingsSection::Integrations));
+        assert!(update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, crossterm::event::KeyModifiers::NONE)
+        )
+        .is_none());
+        assert_eq!(state.mode, Mode::Settings);
         open_settings(&mut state);
 
         let inner = state.settings_inner_rect();
@@ -774,25 +728,11 @@ mod tests {
                     section.label().len() as u16 + 3 + badge_width
                 })
                 .sum::<u16>();
-        let dotted_width = SettingsSection::Integrations.label().len() as u16 + 4;
+        let dotted_width = SettingsSection::Integrations.label().len() as u16 + 2;
 
         assert_eq!(
             state.settings_tab_at(integrations_x + dotted_width - 1, tab_y),
             Some(SettingsSection::Integrations)
         );
-    }
-
-    fn integration_recommendation(
-        state: crate::integration::IntegrationStatusKind,
-        available: bool,
-    ) -> crate::integration::IntegrationRecommendation {
-        crate::integration::IntegrationRecommendation {
-            target: crate::api::schema::IntegrationTarget::Claude,
-            label: "claude",
-            command: "claude",
-            available,
-            path: std::path::PathBuf::from("/tmp/kitsune-test-integration"),
-            state,
-        }
     }
 }

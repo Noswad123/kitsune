@@ -1,259 +1,27 @@
 //! Pure state mutations on AppState.
 //! These don't need channels, async, or PTY runtime.
 
-use std::time::Instant;
-
 use tracing::{info, warn};
 
-use crate::detect::{Agent, AgentState};
+use crate::detect::AgentState;
 use crate::events::AppEvent;
 use crate::layout::PaneId;
 #[cfg(test)]
 use crate::layout::{find_in_direction, NavDirection};
 use crate::selection::Selection;
-use crate::terminal::{EffectiveStateChange, TerminalStateMutation};
 use crate::workspace::WorkspaceGitStatus;
 
-use super::api_helpers::pane_agent_status;
 use super::state::{
     navigator_display_index_of_row, navigator_display_lines, navigator_first_row_at_or_after,
-    text_matches_query, AgentNotificationDelivery, AppState, Mode, NavigatorRow, NavigatorScope,
-    NavigatorStateFilter, NavigatorTarget, PaneFocusTarget, PendingAgentNotification, ToastKind,
-    ToastNotification, ToastTarget, ViewLayout,
+    text_matches_query, AppState, Mode, NavigatorRow, NavigatorScope, NavigatorStateFilter,
+    NavigatorTarget, PaneFocusTarget, ViewLayout,
 };
-
-fn is_background_completion_transition(prev_state: AgentState, new_state: AgentState) -> bool {
-    matches!(new_state, AgentState::Idle)
-        && matches!(prev_state, AgentState::Working | AgentState::Blocked)
-}
-
-fn is_completion_transition(change: &EffectiveStateChange) -> bool {
-    !change.projection_reconfirmed
-        && is_completion_transition_parts(
-            change.previous_state,
-            change.state,
-            change.previous_agent_label.as_deref(),
-            change.agent_label.as_deref(),
-        )
-}
 
 fn public_tab_id_for_index(ws: &crate::workspace::Workspace, tab_idx: usize) -> Option<String> {
     let tab_number = ws.public_tab_number(tab_idx)?;
     Some(crate::workspace::public_tab_id_for_number(
         &ws.id, tab_number,
     ))
-}
-
-pub fn is_completion_transition_parts(
-    previous_state: AgentState,
-    state: AgentState,
-    previous_agent_label: Option<&str>,
-    agent_label: Option<&str>,
-) -> bool {
-    is_background_completion_transition(previous_state, state)
-        || (previous_state == AgentState::Unknown
-            && state == AgentState::Idle
-            && previous_agent_label.is_some()
-            && previous_agent_label == agent_label)
-}
-
-pub fn active_tab_suppresses_notifications(
-    is_active_tab: bool,
-    outer_terminal_focus: Option<bool>,
-) -> bool {
-    is_active_tab && outer_terminal_focus != Some(false)
-}
-
-#[cfg(test)]
-pub fn notification_sound_for_state_change(
-    suppress_active_tab_notifications: bool,
-    prev_state: AgentState,
-    new_state: AgentState,
-) -> Option<crate::sound::Sound> {
-    if new_state == prev_state {
-        return None;
-    }
-
-    match new_state {
-        AgentState::Blocked => Some(crate::sound::Sound::Request),
-        AgentState::Idle
-            if is_background_completion_transition(prev_state, new_state)
-                && !suppress_active_tab_notifications =>
-        {
-            Some(crate::sound::Sound::Done)
-        }
-        _ => None,
-    }
-}
-
-pub fn notification_sound_for_state_change_with_agent_labels(
-    suppress_active_tab_notifications: bool,
-    prev_state: AgentState,
-    new_state: AgentState,
-    previous_agent_label: Option<&str>,
-    agent_label: Option<&str>,
-) -> Option<crate::sound::Sound> {
-    if new_state == prev_state {
-        return None;
-    }
-
-    match new_state {
-        AgentState::Blocked => Some(crate::sound::Sound::Request),
-        AgentState::Idle
-            if is_completion_transition_parts(
-                prev_state,
-                new_state,
-                previous_agent_label,
-                agent_label,
-            ) && !suppress_active_tab_notifications =>
-        {
-            Some(crate::sound::Sound::Done)
-        }
-        _ => None,
-    }
-}
-
-fn notification_sound_for_effective_state_change(
-    suppress_active_tab_notifications: bool,
-    change: &EffectiveStateChange,
-) -> Option<crate::sound::Sound> {
-    if change.state == change.previous_state {
-        return None;
-    }
-
-    match change.state {
-        AgentState::Blocked => Some(crate::sound::Sound::Request),
-        AgentState::Idle
-            if is_completion_transition(change) && !suppress_active_tab_notifications =>
-        {
-            Some(crate::sound::Sound::Done)
-        }
-        _ => None,
-    }
-}
-
-pub fn notification_toast_for_state_change_with_agent_labels(
-    suppress_active_tab_notifications: bool,
-    prev_state: AgentState,
-    new_state: AgentState,
-    previous_agent_label: Option<&str>,
-    agent_label: Option<&str>,
-) -> Option<ToastKind> {
-    if suppress_active_tab_notifications || new_state == prev_state {
-        return None;
-    }
-
-    match new_state {
-        AgentState::Blocked => Some(ToastKind::NeedsAttention),
-        AgentState::Idle
-            if is_completion_transition_parts(
-                prev_state,
-                new_state,
-                previous_agent_label,
-                agent_label,
-            ) =>
-        {
-            Some(ToastKind::Finished)
-        }
-        _ => None,
-    }
-}
-
-fn notification_toast_for_effective_state_change(
-    suppress_active_tab_notifications: bool,
-    change: &EffectiveStateChange,
-) -> Option<ToastKind> {
-    if suppress_active_tab_notifications || change.state == change.previous_state {
-        return None;
-    }
-
-    match change.state {
-        AgentState::Blocked => Some(ToastKind::NeedsAttention),
-        AgentState::Idle if is_completion_transition(change) => Some(ToastKind::Finished),
-        _ => None,
-    }
-}
-
-pub fn notification_toast_for_pane_state_update(
-    suppress_active_tab_notifications: bool,
-    update: &PaneStateUpdate,
-) -> Option<ToastKind> {
-    if suppress_active_tab_notifications
-        || update.state == update.previous_state
-        || (update.projection_reconfirmed && update.state == AgentState::Idle)
-    {
-        return None;
-    }
-
-    notification_toast_for_state_change_with_agent_labels(
-        suppress_active_tab_notifications,
-        update.previous_state,
-        update.state,
-        update.previous_agent_label.as_deref(),
-        update.agent_label.as_deref(),
-    )
-}
-
-fn toast_agent_label(agent_label: &str) -> &str {
-    agent_label
-}
-
-fn toast_event_text(kind: ToastKind) -> &'static str {
-    match kind {
-        ToastKind::NeedsAttention => "needs attention",
-        ToastKind::Finished => "finished",
-        ToastKind::Info => "notice",
-    }
-}
-
-fn sound_for_toast_kind(
-    kind: ToastKind,
-    suppress_active_tab_notifications: bool,
-) -> Option<crate::sound::Sound> {
-    match kind {
-        ToastKind::NeedsAttention => Some(crate::sound::Sound::Request),
-        ToastKind::Finished if !suppress_active_tab_notifications => {
-            Some(crate::sound::Sound::Done)
-        }
-        ToastKind::Finished | ToastKind::Info => None,
-    }
-}
-
-pub fn notification_context(
-    ws: &crate::workspace::Workspace,
-    workspace_label: &str,
-    ws_idx: usize,
-    pane_id: PaneId,
-) -> String {
-    let mut context = format!("{} · {}", workspace_label, ws_idx + 1);
-    if ws.tabs.len() > 1 {
-        if let Some(tab_idx) = ws.find_tab_index_for_pane(pane_id) {
-            if let Some(label) = ws.tab_display_name(tab_idx) {
-                context.push_str(&format!(" · {label}"));
-            }
-        }
-    }
-    context
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PaneStateUpdate {
-    pub projection_reconfirmed: bool,
-    pub pane_id: PaneId,
-    pub ws_idx: usize,
-    pub previous_agent_label: Option<String>,
-    pub previous_known_agent: Option<Agent>,
-    pub previous_state: AgentState,
-    pub previous_seen: bool,
-    pub previous_presentation: crate::terminal::EffectivePresentation,
-    pub agent_label: Option<String>,
-    pub known_agent: Option<Agent>,
-    pub state: AgentState,
-    pub seen: bool,
-    pub presentation: crate::terminal::EffectivePresentation,
-    pub agent_name_changed: bool,
-    pub agent_released: bool,
-    pub agent_release_status: Option<crate::api::schema::AgentStatus>,
 }
 
 // ---------------------------------------------------------------------------
@@ -361,13 +129,6 @@ impl AppState {
         terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
     ) {
         self.open_navigator_with_scope_from(terminal_runtimes, NavigatorScope::Tree);
-    }
-
-    pub(crate) fn open_agent_navigator_from(
-        &mut self,
-        terminal_runtimes: &crate::terminal::TerminalRuntimeRegistry,
-    ) {
-        self.open_navigator_with_scope_from(terminal_runtimes, NavigatorScope::Agents);
     }
 
     fn open_navigator_with_scope_from(
@@ -543,10 +304,9 @@ impl AppState {
         let label = terminal
             .manual_label
             .clone()
-            .or_else(|| terminal.agent_name.clone())
             .or_else(|| terminal.effective_display_agent())
             .unwrap_or_else(|| agent_label.to_string());
-        let state = terminal.state;
+        let state = AgentState::Unknown;
         let status_label = terminal
             .effective_presentation()
             .state_labels
@@ -691,9 +451,6 @@ impl AppState {
                         .and_then(|terminal| terminal.manual_label.as_deref().map(str::to_string))
                 })
                 .or_else(|| {
-                    terminal.and_then(|terminal| terminal.agent_name.as_deref().map(str::to_string))
-                })
-                .or_else(|| {
                     terminal
                         .and_then(|terminal| terminal.effective_agent_label().map(str::to_string))
                 })
@@ -702,13 +459,11 @@ impl AppState {
                 })
                 .unwrap_or_else(|| format!("pane {pane_number}"));
             let display_agent = terminal.and_then(|terminal| terminal.effective_display_agent());
-            let agent_label = display_agent.as_deref().or_else(|| {
-                terminal
-                    .and_then(|terminal| terminal.agent_name.as_deref())
-                    .or_else(|| terminal.and_then(|terminal| terminal.effective_agent_label()))
-            });
+            let agent_label = display_agent
+                .as_deref()
+                .or_else(|| terminal.and_then(|terminal| terminal.effective_agent_label()));
             let state = terminal
-                .map(|terminal| terminal.state)
+                .map(|_| AgentState::Unknown)
                 .unwrap_or(AgentState::Unknown);
             let status_label = terminal
                 .map(|terminal| terminal.effective_presentation().state_labels)
@@ -1044,89 +799,24 @@ fn state_label_text(state: AgentState, seen: bool) -> &'static str {
 }
 
 fn tab_aggregate_state(
-    tab: &crate::workspace::Tab,
-    terminals: &std::collections::HashMap<
-        crate::terminal::TerminalId,
-        crate::terminal::TerminalState,
-    >,
+    _: &crate::workspace::Tab,
+    _: &std::collections::HashMap<crate::terminal::TerminalId, crate::terminal::TerminalState>,
 ) -> (AgentState, bool) {
-    let mut aggregate = AgentState::Unknown;
-    let mut seen = true;
-    for pane in tab.panes.values() {
-        let Some(terminal) = terminals.get(&pane.attached_terminal_id) else {
-            continue;
-        };
-        if state_priority(terminal.state, pane.seen) > state_priority(aggregate, seen) {
-            aggregate = terminal.state;
-            seen = pane.seen;
-        }
-    }
-    (aggregate, seen)
-}
-
-fn state_priority(state: AgentState, seen: bool) -> u8 {
-    match (state, seen) {
-        (AgentState::Blocked, _) => 5,
-        (AgentState::Working, _) => 4,
-        (AgentState::Idle, false) => 3,
-        (AgentState::Idle, true) => 2,
-        (AgentState::Unknown, _) => 1,
-    }
+    (AgentState::Unknown, true)
 }
 
 fn tab_activity_summary(
-    tab: &crate::workspace::Tab,
-    terminals: &std::collections::HashMap<
-        crate::terminal::TerminalId,
-        crate::terminal::TerminalState,
-    >,
+    _: &crate::workspace::Tab,
+    _: &std::collections::HashMap<crate::terminal::TerminalId, crate::terminal::TerminalState>,
 ) -> String {
-    activity_summary_for_panes(tab.panes.values(), terminals)
+    String::new()
 }
 
 fn workspace_activity_summary(
-    ws: &crate::workspace::Workspace,
-    terminals: &std::collections::HashMap<
-        crate::terminal::TerminalId,
-        crate::terminal::TerminalState,
-    >,
+    _: &crate::workspace::Workspace,
+    _: &std::collections::HashMap<crate::terminal::TerminalId, crate::terminal::TerminalState>,
 ) -> String {
-    activity_summary_for_panes(ws.tabs.iter().flat_map(|tab| tab.panes.values()), terminals)
-}
-
-fn activity_summary_for_panes<'a>(
-    panes: impl Iterator<Item = &'a crate::pane::PaneState>,
-    terminals: &std::collections::HashMap<
-        crate::terminal::TerminalId,
-        crate::terminal::TerminalState,
-    >,
-) -> String {
-    let mut blocked = 0usize;
-    let mut working = 0usize;
-    let mut done = 0usize;
-    for pane in panes {
-        let Some(terminal) = terminals.get(&pane.attached_terminal_id) else {
-            continue;
-        };
-        match (terminal.state, pane.seen) {
-            (AgentState::Blocked, _) => blocked += 1,
-            (AgentState::Working, _) => working += 1,
-            (AgentState::Idle, false) => done += 1,
-            _ => {}
-        }
-    }
-
-    let mut parts = Vec::new();
-    if blocked > 0 {
-        parts.push(format!("{blocked} blocked"));
-    }
-    if working > 0 {
-        parts.push(format!("{working} working"));
-    }
-    if done > 0 {
-        parts.push(format!("{done} done"));
-    }
-    parts.join(" · ")
+    String::new()
 }
 
 // ---------------------------------------------------------------------------
@@ -1137,72 +827,13 @@ impl AppState {
     pub(crate) fn next_agent_metadata_expiry(&self) -> Option<std::time::Instant> {
         self.terminals
             .values()
-            .filter_map(|terminal| terminal.next_agent_metadata_expiry())
-            .chain(
-                self.terminals
-                    .values()
-                    .filter_map(|terminal| terminal.metadata_tokens.next_expiry()),
-            )
+            .filter_map(|terminal| terminal.metadata_tokens.next_expiry())
             .chain(
                 self.workspaces
                     .iter()
                     .filter_map(|workspace| workspace.metadata_tokens.next_expiry()),
             )
             .min()
-    }
-
-    pub(crate) fn expire_agent_metadata_at(
-        &mut self,
-        scheduled_deadline: std::time::Instant,
-        now: std::time::Instant,
-    ) -> Vec<PaneStateUpdate> {
-        let pane_terminals: Vec<_> = self
-            .workspaces
-            .iter()
-            .enumerate()
-            .flat_map(|(ws_idx, ws)| {
-                ws.tabs.iter().flat_map(move |tab| {
-                    tab.layout
-                        .pane_ids()
-                        .into_iter()
-                        .filter_map(move |pane_id| {
-                            ws.pane_state(pane_id)
-                                .map(|pane| (ws_idx, pane_id, pane.attached_terminal_id.clone()))
-                        })
-                })
-            })
-            .collect();
-        pane_terminals
-            .into_iter()
-            .filter_map(|(ws_idx, pane_id, terminal_id)| {
-                let previous_seen = self.workspaces[ws_idx].pane_state(pane_id)?.seen;
-                let mutation = self
-                    .terminals
-                    .get_mut(&terminal_id)?
-                    .expire_agent_metadata_at(scheduled_deadline, now)?;
-                let change = mutation.effective_state_change?;
-                let seen = self.apply_pane_state_change(ws_idx, pane_id, &change)?;
-                let update = PaneStateUpdate {
-                    projection_reconfirmed: change.projection_reconfirmed,
-                    pane_id,
-                    ws_idx,
-                    previous_agent_label: change.previous_agent_label.clone(),
-                    previous_known_agent: change.previous_known_agent,
-                    previous_state: change.previous_state,
-                    previous_seen,
-                    previous_presentation: change.previous_presentation.clone(),
-                    agent_label: change.agent_label.clone(),
-                    known_agent: change.known_agent,
-                    state: change.state,
-                    seen,
-                    presentation: change.presentation.clone(),
-                    agent_name_changed: false,
-                    agent_released: false,
-                    agent_release_status: None,
-                };
-                Some(update)
-            })
-            .collect()
     }
 
     pub(crate) fn expire_metadata_tokens(
@@ -1245,18 +876,6 @@ impl AppState {
             })
             .collect();
         (changed_panes, changed_workspaces)
-    }
-
-    pub(crate) fn pane_is_in_active_tab(&self, ws_idx: usize, pane_id: PaneId) -> bool {
-        let Some(active_ws_idx) = self.active else {
-            return false;
-        };
-        if active_ws_idx != ws_idx {
-            return false;
-        }
-        self.workspaces[ws_idx]
-            .find_tab_index_for_pane(pane_id)
-            .is_some_and(|tab_idx| tab_idx == self.workspaces[ws_idx].active_tab)
     }
 
     pub fn switch_workspace(&mut self, idx: usize) {
@@ -1575,80 +1194,6 @@ impl AppState {
                 self.switch_tab(prev);
             }
         }
-    }
-
-    #[cfg(test)]
-    pub fn next_agent(&mut self) {
-        self.cycle_agent_entry(true);
-    }
-
-    #[cfg(test)]
-    pub fn previous_agent(&mut self) {
-        self.cycle_agent_entry(false);
-    }
-
-    #[cfg(test)]
-    pub fn focus_agent_entry(&mut self, idx: usize) -> bool {
-        let entries = crate::ui::agent_panel_entries(self);
-        let Some(target) = entries.get(idx) else {
-            return false;
-        };
-        let ws_idx = target.ws_idx;
-        let pane_id = target.pane_id;
-
-        if self.active == Some(ws_idx) && self.workspaces[ws_idx].focused_pane_id() == Some(pane_id)
-        {
-            self.ensure_agent_panel_entry_visible(idx);
-            return true;
-        }
-
-        if self.focus_pane_in_workspace(ws_idx, pane_id) {
-            self.ensure_agent_panel_entry_visible(idx);
-            return true;
-        }
-        false
-    }
-
-    #[cfg(test)]
-    fn cycle_agent_entry(&mut self, forward: bool) {
-        let entries = crate::ui::agent_panel_entries(self);
-        if entries.is_empty() {
-            return;
-        }
-
-        let focused = self
-            .active
-            .and_then(|idx| self.workspaces.get(idx))
-            .and_then(crate::workspace::Workspace::focused_pane_id);
-        let current_idx =
-            focused.and_then(|pane_id| entries.iter().position(|entry| entry.pane_id == pane_id));
-        let target_idx = match (current_idx, forward) {
-            (Some(idx), true) => (idx + 1) % entries.len(),
-            (Some(0), false) => entries.len() - 1,
-            (Some(idx), false) => idx - 1,
-            (None, true) => 0,
-            (None, false) => entries.len() - 1,
-        };
-
-        self.focus_agent_entry(target_idx);
-    }
-
-    #[cfg(test)]
-    pub(crate) fn ensure_agent_panel_entry_visible(&mut self, idx: usize) {
-        if self.sidebar_collapsed {
-            return;
-        }
-
-        let (_, detail_area) = crate::ui::expanded_sidebar_sections(
-            self.view.sidebar_rect,
-            self.sidebar_section_split,
-        );
-        self.agent_panel_scroll = crate::ui::agent_panel_scroll_for_target(
-            self,
-            detail_area,
-            self.agent_panel_scroll,
-            idx,
-        );
     }
 
     pub(crate) fn terminal_ids_for_workspace(
@@ -2772,6 +2317,20 @@ impl AppState {
             }
 
             let ws = &mut self.workspaces[ws_idx];
+            if !result.demand.branch
+                && (ws.cached_identity_cwd != result.resolved_identity_cwd
+                    || ws.cached_git_space != result.space)
+            {
+                changed |=
+                    ws.cached_git_branch_identity.is_some() && ws.cached_git_branch.is_some();
+                ws.cached_git_branch_identity = None;
+            }
+            if result.demand.branch {
+                let identity = Some((result.resolved_identity_cwd.clone(), result.space.clone()));
+                changed |= ws.cached_git_branch_identity != identity
+                    && (ws.cached_git_branch.is_some() || result.branch.is_some());
+                ws.cached_git_branch_identity = identity;
+            }
             if ws.cached_identity_cwd != result.resolved_identity_cwd {
                 ws.cached_identity_cwd = result.resolved_identity_cwd;
             }
@@ -2798,635 +2357,38 @@ impl AppState {
         changed
     }
 
-    pub(crate) fn excludes_legacy_agent_event(&self, event: &AppEvent) -> bool {
-        self.external_agent_management
-            && matches!(
-                event,
-                AppEvent::DetectorUpdate { .. }
-                    | AppEvent::StateChanged { .. }
-                    | AppEvent::HookStateReported { .. }
-                    | AppEvent::AgentSessionReported { .. }
-                    | AppEvent::HookAuthorityCleared { .. }
-                    | AppEvent::HookAgentReleased { .. }
-            )
-    }
-
-    pub fn handle_app_event(&mut self, event: AppEvent) -> Vec<PaneStateUpdate> {
-        if self.excludes_legacy_agent_event(&event) {
-            return Vec::new();
-        }
+    pub fn handle_app_event(&mut self, event: AppEvent) {
         match event {
-            AppEvent::PaneDied { pane_id } => {
-                self.handle_pane_died(pane_id);
-                Vec::new()
-            }
-            AppEvent::AgentDetectionManifestsUpdated { updated, status } => {
-                self.agent_manifest_update_status = status;
-                self.refresh_agent_manifest_summaries();
-                if !updated.is_empty()
-                    && matches!(
-                        self.toast_config.delivery,
-                        crate::config::ToastDelivery::Kitsune
-                    )
-                {
-                    let agent_list = updated
-                        .iter()
-                        .map(|item| {
-                            format!(
-                                "{} {}",
-                                crate::detect::agent_label(item.agent),
-                                item.version
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    self.toast = Some(ToastNotification {
-                        kind: ToastKind::Info,
-                        title: "Agent detection rules updated".to_string(),
-                        context: agent_list,
-                        position: None,
-                        target: None,
-                    });
-                }
-                Vec::new()
-            }
-            AppEvent::DetectorUpdate {
-                pane_id,
-                epoch,
-                foreground,
-                fallback,
-                observed_at,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    Some(terminal.apply_detector_update(epoch, foreground, fallback, observed_at))
-                })
-                .into_iter()
-                .collect(),
-            AppEvent::StateChanged {
-                pane_id,
-                agent,
-                state,
-                visible_blocker,
-                visible_working,
-                process_exited,
-                observed_at,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    Some(if process_exited {
-                        terminal.record_process_exit(agent, observed_at)
-                    } else {
-                        terminal.publish_fallback_observation(
-                            crate::terminal::evidence::FallbackObservation {
-                                agent,
-                                state,
-                                visible_blocker,
-                                visible_working,
-                            },
-                            observed_at,
-                        )
-                    })
-                })
-                .into_iter()
-                .collect(),
-            AppEvent::HookStateReported {
-                pane_id,
-                source,
-                agent_label,
-                state,
-                message,
-                seq,
-                session_ref,
-            } => {
-                if crate::agent_resume::is_reserved_native_state_source(&source, &agent_label) {
-                    self.update_terminal_state(pane_id, |terminal| {
-                        terminal.set_agent_session_ref(source, agent_label, session_ref, seq)
-                    })
-                    .into_iter()
-                    .collect()
-                } else {
-                    self.update_terminal_state(pane_id, |terminal| {
-                        terminal.set_hook_authority_with_session_ref(
-                            source,
-                            agent_label,
-                            state,
-                            message,
-                            session_ref,
-                            seq,
-                        )
-                    })
-                    .into_iter()
-                    .collect()
-                }
-            }
-            AppEvent::AgentSessionReported {
-                pane_id,
-                source,
-                agent_label,
-                seq,
-                session_ref,
-                session_start_source,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_agent_session_ref_for_session_start(
-                        source,
-                        agent_label,
-                        session_ref,
-                        seq,
-                        session_start_source,
-                    )
-                })
-                .into_iter()
-                .collect(),
-            AppEvent::HookMetadataReported {
-                pane_id,
-                source,
-                agent_label,
-                applies_to_source,
-                title,
-                display_agent,
-                state_labels,
-                clear_title,
-                clear_display_agent,
-                clear_state_labels,
-                seq,
-                ttl,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    terminal.set_agent_metadata(crate::terminal::AgentMetadataReport {
-                        source,
-                        agent_label,
-                        applies_to_source,
-                        title,
-                        display_agent,
-                        state_labels,
-                        clear_title,
-                        clear_display_agent,
-                        clear_state_labels,
-                        ttl,
-                        seq,
-                    })
-                })
-                .into_iter()
-                .collect(),
-            AppEvent::HookAuthorityCleared {
-                pane_id,
-                source,
-                seq,
-            } => self
-                .update_terminal_state(pane_id, |terminal| {
-                    terminal.clear_hook_authority_with_mutation(source.as_deref(), seq)
-                })
-                .into_iter()
-                .collect(),
-            event @ AppEvent::HookAgentReleased { .. } => {
-                self.handle_app_event_with_release_outcome(event).0
-            }
+            AppEvent::PaneDied { pane_id } => self.handle_pane_died(pane_id),
             // Both intercepted before this dispatch — in App::handle_internal_event (monolithic)
             // or via HeadlessServer forwarding to the foreground client (server); never touch
             // AppState. Kept for AppEvent exhaustiveness.
-            AppEvent::ClipboardWrite { .. } => Vec::new(),
-            AppEvent::PrefixInputSource { .. } => Vec::new(),
+            AppEvent::ClipboardWrite { .. } | AppEvent::PrefixInputSource { .. } => {}
             AppEvent::TerminalCwdReported { pane_id, cwd } => {
                 if !cwd.is_absolute() || !cwd.is_dir() {
-                    return Vec::new();
+                    return;
                 }
                 let Some(terminal_id) = self.workspaces.iter().find_map(|ws| {
                     ws.pane_state(pane_id)
                         .map(|pane| pane.attached_terminal_id.clone())
                 }) else {
-                    return Vec::new();
+                    return;
                 };
                 let Some(terminal) = self.terminals.get_mut(&terminal_id) else {
-                    return Vec::new();
+                    return;
                 };
                 if terminal.cwd != cwd {
                     terminal.cwd = cwd;
                     self.mark_session_dirty();
                 }
-                Vec::new()
             }
-            AppEvent::GitStatusRefreshed {
-                results,
-                cache_updates,
-            } => {
-                let _ = results;
-                let _ = cache_updates;
-                Vec::new()
-            }
-            AppEvent::WorktreeAddFinished(_) => Vec::new(),
-            AppEvent::WorktreeRemoveFinished(_) => Vec::new(),
+            AppEvent::GitStatusRefreshed { .. }
+            | AppEvent::WorktreeAddFinished(_)
+            | AppEvent::WorktreeRemoveFinished(_) => {}
         }
-    }
-
-    pub(crate) fn handle_app_event_with_release_outcome(
-        &mut self,
-        event: AppEvent,
-    ) -> (Vec<PaneStateUpdate>, bool) {
-        if self.excludes_legacy_agent_event(&event) {
-            return (Vec::new(), false);
-        }
-        let AppEvent::HookAgentReleased {
-            pane_id,
-            source,
-            agent_label,
-            seq,
-            session_ref,
-            ..
-        } = event
-        else {
-            return (self.handle_app_event(event), false);
-        };
-        let mut accepted = false;
-        let update = self.update_terminal_state(pane_id, |terminal| {
-            let mutation = terminal.release_agent_with_mutation(
-                &source,
-                &agent_label,
-                seq,
-                session_ref.as_ref(),
-            );
-            accepted = mutation.is_some();
-            mutation
-        });
-        (update.into_iter().collect(), accepted)
-    }
-
-    pub(crate) fn synchronize_pane_detector_epoch(
-        &mut self,
-        pane_id: PaneId,
-        epoch: Option<crate::terminal::evidence::DetectorEpoch>,
-        now: Instant,
-    ) -> Option<PaneStateUpdate> {
-        if self.external_agent_management {
-            return None;
-        }
-        self.update_terminal_state(pane_id, |terminal| {
-            Some(terminal.synchronize_detector_epoch(epoch, now))
-        })
-    }
-
-    fn update_terminal_state<F>(&mut self, pane_id: PaneId, update: F) -> Option<PaneStateUpdate>
-    where
-        F: FnOnce(&mut crate::terminal::TerminalState) -> Option<TerminalStateMutation>,
-    {
-        let ws_idx = self
-            .workspaces
-            .iter()
-            .position(|ws| ws.pane_state(pane_id).is_some())?;
-        let terminal_id = self.workspaces[ws_idx]
-            .pane_state(pane_id)?
-            .attached_terminal_id
-            .clone();
-        let previous_seen = self.workspaces[ws_idx].pane_state(pane_id)?.seen;
-        let now = Instant::now();
-        let (mutation, managed_changed, agent_name_changed, unchanged_change) = {
-            let terminal = self.terminals.get_mut(&terminal_id)?;
-            let previous_agent_name = terminal.agent_name.clone();
-            let mutation = update(terminal)?;
-            let managed_changed = terminal.reconcile_managed_agent_at(now, false);
-            let agent_name_changed = terminal.agent_name != previous_agent_name;
-            let unchanged_change = (mutation.agent_released || agent_name_changed)
-                .then(|| terminal.unchanged_effective_state_change_at(now));
-            (
-                mutation,
-                managed_changed,
-                agent_name_changed,
-                unchanged_change,
-            )
-        };
-        if mutation.session_ref_changed || managed_changed || agent_name_changed {
-            self.mark_session_dirty();
-        }
-        let agent_released = mutation.agent_released;
-        let change = mutation.effective_state_change.or(unchanged_change)?;
-        if change.previous_state != change.state {
-            self.next_agent_state_change_seq += 1;
-            if let Some(terminal) = self.terminals.get_mut(&terminal_id) {
-                terminal.last_agent_state_change_seq = Some(self.next_agent_state_change_seq);
-            }
-        }
-        let seen = self.apply_pane_state_change(ws_idx, pane_id, &change)?;
-        let update = PaneStateUpdate {
-            projection_reconfirmed: change.projection_reconfirmed,
-            pane_id,
-            ws_idx,
-            previous_agent_label: change.previous_agent_label.clone(),
-            previous_known_agent: change.previous_known_agent,
-            previous_state: change.previous_state,
-            previous_seen,
-            previous_presentation: change.previous_presentation.clone(),
-            agent_label: if agent_released {
-                change.previous_agent_label.clone()
-            } else {
-                change.agent_label.clone()
-            },
-            known_agent: if agent_released {
-                change.previous_known_agent
-            } else {
-                change.known_agent
-            },
-            state: change.state,
-            seen,
-            presentation: change.presentation.clone(),
-            agent_name_changed,
-            agent_released,
-            agent_release_status: agent_released.then(|| pane_agent_status(change.state, seen)),
-        };
-        Some(update)
-    }
-
-    pub(crate) fn next_managed_agent_deadline(&self) -> Option<Instant> {
-        if self.external_agent_management {
-            return None;
-        }
-        self.terminals
-            .values()
-            .filter_map(crate::terminal::TerminalState::next_managed_agent_deadline)
-            .min()
-    }
-
-    pub(crate) fn reconcile_managed_agents_at(&mut self, now: Instant) -> Vec<(usize, PaneId)> {
-        if self.external_agent_management {
-            return Vec::new();
-        }
-        let mut changed_terminals = std::collections::HashSet::new();
-        for (terminal_id, terminal) in &mut self.terminals {
-            if terminal.reconcile_managed_agent_at(now, false) {
-                changed_terminals.insert(terminal_id.clone());
-            }
-        }
-        if changed_terminals.is_empty() {
-            return Vec::new();
-        }
-        self.mark_session_dirty();
-        self.workspaces
-            .iter()
-            .enumerate()
-            .flat_map(|(ws_idx, workspace)| {
-                let changed_terminals = &changed_terminals;
-                workspace.tabs.iter().flat_map(move |tab| {
-                    tab.panes.iter().filter_map(move |(&pane_id, pane)| {
-                        changed_terminals
-                            .contains(&pane.attached_terminal_id)
-                            .then_some((ws_idx, pane_id))
-                    })
-                })
-            })
-            .collect()
-    }
-
-    pub(crate) fn publish_pane_process_exit_if_agent(
-        &mut self,
-        pane_id: PaneId,
-    ) -> Option<PaneStateUpdate> {
-        if self.external_agent_management {
-            return None;
-        }
-        let observed_at = std::time::Instant::now();
-        let update = self.update_terminal_state(pane_id, |terminal| {
-            let agent = terminal
-                .effective_known_agent()
-                .or(terminal.detected_agent());
-            if agent.is_none() && !terminal.full_lifecycle_hook_authority_active() {
-                return None;
-            }
-            Some(terminal.record_process_exit(agent, observed_at))
-        })?;
-        update.agent_released.then_some(update)
-    }
-
-    fn apply_pane_state_change(
-        &mut self,
-        ws_idx: usize,
-        pane_id: PaneId,
-        change: &EffectiveStateChange,
-    ) -> Option<bool> {
-        let is_active_tab = self.pane_is_in_active_tab(ws_idx, pane_id);
-        let suppress_active_tab_notifications =
-            active_tab_suppresses_notifications(is_active_tab, self.outer_terminal_focus);
-        let pane = self.workspaces[ws_idx]
-            .tabs
-            .iter_mut()
-            .find_map(|tab| tab.panes.get_mut(&pane_id))?;
-
-        if change.state != AgentState::Idle {
-            pane.seen = true;
-        } else if is_completion_transition(change) {
-            pane.seen = suppress_active_tab_notifications;
-        }
-        let seen = pane.seen;
-
-        if let Some(delivery) = self.record_or_deliver_agent_notification(ws_idx, pane_id, change) {
-            self.apply_agent_notification_delivery(&delivery);
-        }
-
-        Some(seen)
-    }
-
-    fn record_or_deliver_agent_notification(
-        &mut self,
-        ws_idx: usize,
-        pane_id: PaneId,
-        change: &EffectiveStateChange,
-    ) -> Option<AgentNotificationDelivery> {
-        self.pending_agent_notifications.remove(&pane_id);
-
-        let is_active_tab = self.pane_is_in_active_tab(ws_idx, pane_id);
-        let suppress_active_tab_notifications =
-            active_tab_suppresses_notifications(is_active_tab, self.outer_terminal_focus);
-
-        let client_notification_kind = notification_toast_for_effective_state_change(
-            suppress_active_tab_notifications,
-            change,
-        );
-        let sound = notification_sound_for_effective_state_change(
-            suppress_active_tab_notifications,
-            change,
-        );
-        if client_notification_kind.is_none() && sound.is_none() {
-            return None;
-        }
-
-        let agent_label = change
-            .agent_label
-            .clone()
-            .or_else(|| change.previous_agent_label.clone())?;
-        let known_agent = change.known_agent.or(change.previous_known_agent);
-        let kind = client_notification_kind.unwrap_or(match sound {
-            Some(crate::sound::Sound::Request) => ToastKind::NeedsAttention,
-            Some(crate::sound::Sound::Done) | None => ToastKind::Finished,
-        });
-        let workspace_id = self.workspaces[ws_idx].id.clone();
-
-        if self.toast_config.delay_seconds == 0 {
-            return self.agent_notification_delivery(
-                ws_idx,
-                pane_id,
-                workspace_id,
-                agent_label,
-                known_agent,
-                kind,
-                change.state,
-            );
-        }
-
-        self.pending_agent_notifications.insert(
-            pane_id,
-            PendingAgentNotification {
-                pane_id,
-                workspace_id,
-                agent_label,
-                known_agent,
-                kind,
-                state: change.state,
-                deadline: {
-                    let now = std::time::Instant::now();
-                    let delay_seconds = self
-                        .toast_config
-                        .delay_seconds
-                        .min(crate::config::MAX_TOAST_DELAY_SECONDS);
-                    now.checked_add(std::time::Duration::from_secs(delay_seconds))
-                        .unwrap_or(now)
-                },
-            },
-        );
-        None
-    }
-
-    fn agent_notification_delivery(
-        &self,
-        ws_idx: usize,
-        pane_id: PaneId,
-        workspace_id: String,
-        agent_label: String,
-        known_agent: Option<Agent>,
-        kind: ToastKind,
-        expected_state: AgentState,
-    ) -> Option<AgentNotificationDelivery> {
-        let terminal_state = self
-            .workspaces
-            .get(ws_idx)?
-            .pane_state(pane_id)
-            .and_then(|pane| self.terminals.get(&pane.attached_terminal_id))?;
-        if terminal_state.state != expected_state {
-            return None;
-        }
-        if terminal_state
-            .effective_agent_label()
-            .is_some_and(|current| current != agent_label)
-        {
-            return None;
-        }
-
-        let is_active_tab = self.pane_is_in_active_tab(ws_idx, pane_id);
-        let suppress_active_tab_notifications =
-            active_tab_suppresses_notifications(is_active_tab, self.outer_terminal_focus);
-        let sound = sound_for_toast_kind(kind, suppress_active_tab_notifications)
-            .filter(|_| self.sound.allows(known_agent));
-        let build_toast = || {
-            let workspace_label =
-                self.workspaces[ws_idx].display_name_from_terminals(&self.terminals);
-            let context =
-                notification_context(&self.workspaces[ws_idx], &workspace_label, ws_idx, pane_id);
-            ToastNotification {
-                kind,
-                title: format!(
-                    "{} {}",
-                    toast_agent_label(&agent_label),
-                    toast_event_text(kind)
-                ),
-                context,
-                position: None,
-                target: Some(ToastTarget {
-                    workspace_id: workspace_id.clone(),
-                    pane_id,
-                }),
-            }
-        };
-        let toast = (!is_active_tab).then(build_toast);
-        let client_notification = (!suppress_active_tab_notifications).then(build_toast);
-
-        if toast.is_none() && client_notification.is_none() && sound.is_none() {
-            return None;
-        }
-
-        Some(AgentNotificationDelivery {
-            pane_id,
-            workspace_id,
-            agent_label,
-            known_agent,
-            kind,
-            toast,
-            client_notification,
-            sound,
-        })
-    }
-
-    fn apply_agent_notification_delivery(&mut self, delivery: &AgentNotificationDelivery) {
-        if self.local_sound_playback {
-            if let Some(sound) = delivery.sound {
-                crate::sound::play(sound, &self.sound);
-            }
-        }
-
-        if matches!(
-            self.toast_config.delivery,
-            crate::config::ToastDelivery::Kitsune
-        ) {
-            if let Some(toast) = delivery.toast.clone() {
-                self.toast = Some(toast);
-            }
-        }
-    }
-
-    pub fn next_pending_agent_notification_deadline(&self) -> Option<std::time::Instant> {
-        self.pending_agent_notifications
-            .values()
-            .map(|pending| pending.deadline)
-            .min()
-    }
-
-    pub fn drain_due_agent_notifications(
-        &mut self,
-        now: std::time::Instant,
-    ) -> Vec<AgentNotificationDelivery> {
-        let due_panes: Vec<PaneId> = self
-            .pending_agent_notifications
-            .iter()
-            .filter_map(|(&pane_id, pending)| (pending.deadline <= now).then_some(pane_id))
-            .collect();
-        let mut deliveries = Vec::new();
-
-        for pane_id in due_panes {
-            let Some(pending) = self.pending_agent_notifications.remove(&pane_id) else {
-                continue;
-            };
-            let Some(ws_idx) = self
-                .workspaces
-                .iter()
-                .position(|ws| ws.id == pending.workspace_id)
-            else {
-                continue;
-            };
-            let Some(delivery) = self.agent_notification_delivery(
-                ws_idx,
-                pending.pane_id,
-                pending.workspace_id,
-                pending.agent_label,
-                pending.known_agent,
-                pending.kind,
-                pending.state,
-            ) else {
-                continue;
-            };
-            self.apply_agent_notification_delivery(&delivery);
-            deliveries.push(delivery);
-        }
-
-        deliveries
     }
 
     fn handle_pane_died(&mut self, pane_id: PaneId) {
-        self.pending_agent_notifications.remove(&pane_id);
         self.remove_pane_api_records([pane_id]);
         let ws_idx = self
             .workspaces
@@ -3547,17 +2509,6 @@ mod tests {
             checkout_path: "/repo/kitsune".into(),
             is_linked_worktree: false,
         });
-    }
-
-    #[test]
-    fn notification_context_formats_resolved_workspace_label() {
-        let state = app_with_workspaces(&["stale"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
-
-        assert_eq!(
-            notification_context(&state.workspaces[0], "__kitsune_projects__", 0, root),
-            "__kitsune_projects__ · 1"
-        );
     }
 
     fn selected_word(row: &str, col: u16) -> Option<String> {
@@ -3874,7 +2825,7 @@ mod tests {
         assert!(rows.iter().any(|row| matches!(
             row.target,
             crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == agent
-        ) && row.meta.contains("claude")));
+        ) && !row.meta.contains("claude")));
     }
 
     #[test]
@@ -3947,7 +2898,7 @@ mod tests {
         state.navigator.query = "idle".into();
         let rows = state.navigator_rows();
 
-        assert!(rows.iter().any(|row| matches!(
+        assert!(!rows.iter().any(|row| matches!(
             row.target,
             crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == agent
         )));
@@ -3992,7 +2943,7 @@ mod tests {
         state.navigator.state_filter = Some(NavigatorStateFilter::Working);
         let state_rows = state.navigator_rows();
 
-        assert!(state_rows.iter().any(|row| matches!(
+        assert!(!state_rows.iter().any(|row| matches!(
             row.target,
             crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == working
         )));
@@ -4010,11 +2961,11 @@ mod tests {
             crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == shell
         )));
         assert!(
-            text_rows.iter().any(|row| matches!(
+            !text_rows.iter().any(|row| matches!(
                 row.target,
                 crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == working
             )),
-            "literal one-letter search may still match visible state text"
+            "historical agent state must not become searchable live state text"
         );
     }
 
@@ -4093,7 +3044,7 @@ mod tests {
     }
 
     #[test]
-    fn navigator_state_filter_selects_matching_pane_over_workspace() {
+    fn navigator_state_filter_cannot_select_historical_working_state() {
         let mut state = app_with_workspaces(&["one"]);
         let working = state.workspaces[0].test_split(Direction::Horizontal);
         state.ensure_test_terminals();
@@ -4110,11 +3061,7 @@ mod tests {
         state.select_first_navigator_match_from(&terminal_runtimes);
 
         let rows = state.navigator_rows_from(&terminal_runtimes);
-        let selected = &rows[state.navigator.selected];
-        assert!(matches!(
-            selected.target,
-            crate::app::state::NavigatorTarget::Pane { pane_id, .. } if pane_id == working
-        ));
+        assert!(rows.is_empty());
     }
 
     #[test]
@@ -4171,6 +3118,52 @@ mod tests {
         assert!(!changed);
         assert_eq!(state.workspaces[0].branch().as_deref(), Some("old"));
         assert_eq!(state.workspaces[0].git_ahead_behind(), Some((1, 0)));
+    }
+
+    #[test]
+    fn git_identity_refresh_without_branch_demand_invalidates_branch_provenance() {
+        let mut state = app_with_workspaces(&["one"]);
+        let ws = &mut state.workspaces[0];
+        ws.cached_git_branch = Some("old".into());
+        ws.cached_git_branch_identity =
+            Some((ws.cached_identity_cwd.clone(), ws.cached_git_space.clone()));
+        let old_identity = ws.cached_git_branch_identity.clone();
+        ws.identity_cwd = "/new/unverified/identity".into();
+        let result = WorkspaceGitStatus {
+            workspace_id: ws.id.clone(),
+            resolved_identity_cwd: ws.identity_cwd.clone(),
+            status_cache_key: ws.identity_cwd.clone(),
+            demand: crate::workspace::GitStatusRefreshDemand {
+                branch: false,
+                ahead_behind: false,
+            },
+            auto_label: "new".into(),
+            branch: None,
+            ahead_behind: None,
+            space: None,
+        };
+        let terminal_id = ws.tabs[0]
+            .terminal_id(ws.tabs[0].root_pane)
+            .unwrap()
+            .clone();
+        state.terminals.get_mut(&terminal_id).unwrap().cwd = result.resolved_identity_cwd.clone();
+        let runtimes = crate::terminal::TerminalRuntimeRegistry::new();
+        assert!(state.apply_workspace_git_statuses(&runtimes, vec![result.clone()]));
+        assert!(state.workspaces[0].cached_git_branch_identity.is_none());
+        assert!(state.workspaces[0]
+            .verified_branch_from(&state.terminals, &runtimes)
+            .is_none());
+        let mut result = result;
+        result.demand.branch = true;
+        result.branch = Some("current".into());
+        assert!(state.apply_workspace_git_statuses(&runtimes, vec![result]));
+        assert_ne!(state.workspaces[0].cached_git_branch_identity, old_identity);
+        assert_eq!(
+            state.workspaces[0]
+                .verified_branch_from(&state.terminals, &runtimes)
+                .as_deref(),
+            Some("current")
+        );
     }
 
     #[test]
@@ -4262,196 +3255,6 @@ mod tests {
 
         assert!(changed);
         assert_eq!(state.workspaces[0].worktree_space().cloned(), membership);
-    }
-
-    fn mark_agent(state: &mut AppState, ws_idx: usize, tab_idx: usize, pane_id: PaneId) {
-        set_agent_state(state, ws_idx, tab_idx, pane_id, AgentState::Idle);
-    }
-
-    fn set_agent_state(
-        state: &mut AppState,
-        ws_idx: usize,
-        tab_idx: usize,
-        pane_id: PaneId,
-        agent_state: AgentState,
-    ) {
-        state.ensure_test_terminals();
-        let terminal_id = state.workspaces[ws_idx].tabs[tab_idx]
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        if let Some(terminal) = state.terminals.get_mut(&terminal_id) {
-            terminal.set_detected_state(Some(Agent::Pi), agent_state);
-        }
-    }
-
-    fn transition_agent_state(state: &mut AppState, pane_id: PaneId, agent_state: AgentState) {
-        state
-            .update_terminal_state(pane_id, |terminal| {
-                Some(terminal.set_detected_state_with_screen_signals_at(
-                    Some(Agent::Pi),
-                    agent_state,
-                    matches!(agent_state, AgentState::Blocked),
-                    false,
-                    false,
-                    false,
-                    std::time::Instant::now(),
-                ))
-            })
-            .expect("agent state transition should update pane state");
-    }
-
-    #[test]
-    fn next_agent_cycles_agent_panel_entries() {
-        let mut first = Workspace::test_new("one");
-        let first_root = first.tabs[0].root_pane;
-        let first_second = first.test_split(Direction::Horizontal);
-        first.tabs[0].layout.focus_pane(first_root);
-        let second = Workspace::test_new("two");
-        let second_root = second.tabs[0].root_pane;
-
-        let mut state = AppState::test_new();
-        state.workspaces = vec![first, second];
-        state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = Mode::Terminal;
-        mark_agent(&mut state, 0, 0, first_root);
-        mark_agent(&mut state, 0, 0, first_second);
-        mark_agent(&mut state, 1, 0, second_root);
-
-        state.next_agent();
-        assert_eq!(state.active, Some(0));
-        assert_eq!(state.workspaces[0].focused_pane_id(), Some(first_second));
-
-        state.next_agent();
-        assert_eq!(state.active, Some(1));
-        assert_eq!(state.workspaces[1].focused_pane_id(), Some(second_root));
-
-        state.previous_agent();
-        assert_eq!(state.active, Some(0));
-        assert_eq!(state.workspaces[0].focused_pane_id(), Some(first_second));
-        state.assert_invariants_for_test();
-    }
-
-    #[test]
-    fn focus_agent_entry_uses_agent_panel_order() {
-        let mut first = Workspace::test_new("one");
-        let first_root = first.tabs[0].root_pane;
-        let first_second = first.test_split(Direction::Horizontal);
-        first.tabs[0].layout.focus_pane(first_root);
-        let second = Workspace::test_new("two");
-        let second_root = second.tabs[0].root_pane;
-
-        let mut state = AppState::test_new();
-        state.workspaces = vec![first, second];
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = Mode::Terminal;
-        mark_agent(&mut state, 0, 0, first_root);
-        mark_agent(&mut state, 0, 0, first_second);
-        mark_agent(&mut state, 1, 0, second_root);
-
-        assert!(state.focus_agent_entry(2));
-
-        assert_eq!(state.active, Some(1));
-        assert_eq!(state.workspaces[1].focused_pane_id(), Some(second_root));
-        state.assert_invariants_for_test();
-    }
-
-    #[test]
-    fn focus_agent_entry_succeeds_for_already_focused_agent() {
-        let mut state = app_with_workspaces(&["one"]);
-        let root = state.workspaces[0].tabs[0].root_pane;
-        mark_agent(&mut state, 0, 0, root);
-
-        assert!(state.focus_agent_entry(0));
-        assert_eq!(state.active, Some(0));
-        assert_eq!(state.workspaces[0].focused_pane_id(), Some(root));
-        state.assert_invariants_for_test();
-    }
-
-    #[test]
-    fn next_agent_cycles_priority_sorted_agent_panel_entries() {
-        let mut first = Workspace::test_new("one");
-        let first_root = first.tabs[0].root_pane;
-        let first_second = first.test_split(Direction::Horizontal);
-        first.tabs[0].layout.focus_pane(first_root);
-        let second = Workspace::test_new("two");
-        let second_root = second.tabs[0].root_pane;
-
-        let mut state = AppState::test_new();
-        state.workspaces = vec![first, second];
-        state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = Mode::Terminal;
-        state.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
-        set_agent_state(&mut state, 0, 0, first_root, AgentState::Idle);
-        set_agent_state(&mut state, 0, 0, first_second, AgentState::Working);
-        set_agent_state(&mut state, 1, 0, second_root, AgentState::Blocked);
-
-        state.next_agent();
-
-        assert_eq!(state.active, Some(1));
-        assert_eq!(state.workspaces[1].focused_pane_id(), Some(second_root));
-        state.assert_invariants_for_test();
-    }
-
-    #[test]
-    fn priority_sort_keeps_recently_changed_idle_agent_above_older_idle_agent() {
-        let mut workspace = Workspace::test_new("one");
-        let first = workspace.tabs[0].root_pane;
-        let second = workspace.test_split(Direction::Horizontal);
-        workspace.tabs[0].layout.focus_pane(first);
-
-        let mut state = AppState::test_new();
-        state.workspaces = vec![workspace];
-        state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = Mode::Terminal;
-        state.agent_panel_sort = crate::app::state::AgentPanelSort::Priority;
-
-        transition_agent_state(&mut state, first, AgentState::Idle);
-        transition_agent_state(&mut state, second, AgentState::Working);
-        assert_eq!(crate::ui::agent_panel_entries(&state)[0].pane_id, second);
-
-        transition_agent_state(&mut state, second, AgentState::Idle);
-
-        assert_eq!(crate::ui::agent_panel_entries(&state)[0].pane_id, second);
-        state.assert_invariants_for_test();
-    }
-
-    #[test]
-    fn previous_agent_keeps_wrapped_target_visible_in_agent_panel() {
-        let mut workspace = Workspace::test_new("one");
-        let root = workspace.tabs[0].root_pane;
-        for idx in 1..8 {
-            workspace.test_add_tab(Some(&format!("tab-{idx}")));
-        }
-
-        let mut state = AppState::test_new();
-        state.workspaces = vec![workspace];
-        state.ensure_test_terminals();
-        state.active = Some(0);
-        state.selected = 0;
-        state.mode = Mode::Terminal;
-        for tab_idx in 0..state.workspaces[0].tabs.len() {
-            let pane_id = state.workspaces[0].tabs[tab_idx].root_pane;
-            mark_agent(&mut state, 0, tab_idx, pane_id);
-        }
-        state.workspaces[0].tabs[0].layout.focus_pane(root);
-        crate::ui::compute_view(&mut state, ratatui::layout::Rect::new(0, 0, 80, 14));
-
-        state.previous_agent();
-
-        let last_idx = state.workspaces[0].tabs.len() - 1;
-        assert_eq!(state.workspaces[0].active_tab, last_idx);
-        assert!(state.agent_panel_scroll > 0);
-        state.assert_invariants_for_test();
     }
 
     #[test]
@@ -4811,754 +3614,6 @@ mod tests {
     }
 
     #[test]
-    fn state_changed_updates_pane() {
-        let mut state = app_with_workspaces(&["test"]);
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Working,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let terminal_id = state.workspaces[0]
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        let terminal = state.terminals.get(&terminal_id).unwrap();
-        assert_eq!(terminal.state, AgentState::Working);
-        assert_eq!(terminal.detected_agent(), Some(Agent::Pi));
-    }
-
-    #[test]
-    fn state_changed_idle_in_background_marks_unseen() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        state.active = Some(0);
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-
-        // First set it to Working
-        let bg_terminal_id = state.workspaces[1]
-            .panes
-            .get(&bg_pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        state.terminals.get_mut(&bg_terminal_id).unwrap().state = AgentState::Working;
-
-        // Now transition to Idle while in background
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let pane = state.workspaces[1].panes.get(&bg_pane_id).unwrap();
-        assert!(!pane.seen);
-        assert!(matches!(
-            state.toast.as_ref().map(|toast| toast.kind),
-            Some(ToastKind::Finished)
-        ));
-    }
-
-    #[test]
-    fn active_tab_completion_marks_pane_seen() {
-        let mut state = app_with_workspaces(&["active"]);
-        state.active = Some(0);
-        state.outer_terminal_focus = Some(true);
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-        let terminal_id = state.workspaces[0]
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        state.terminals.get_mut(&terminal_id).unwrap().state = AgentState::Working;
-        state.workspaces[0].panes.get_mut(&pane_id).unwrap().seen = false;
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let terminal = state.terminals.get(&terminal_id).unwrap();
-        assert_eq!(terminal.state, AgentState::Idle);
-        let pane = state.workspaces[0].panes.get(&pane_id).unwrap();
-        assert!(pane.seen);
-    }
-
-    #[test]
-    fn initial_idle_in_background_stays_seen() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let pane = state.workspaces[1].panes.get(&bg_pane_id).unwrap();
-        assert!(pane.seen);
-    }
-
-    #[test]
-    fn idle_after_known_unknown_agent_in_background_marks_done() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        state.active = Some(0);
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Unknown,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let pane = state.workspaces[1].panes.get(&bg_pane_id).unwrap();
-        assert!(!pane.seen);
-    }
-
-    #[test]
-    fn waiting_sound_plays_even_in_active_workspace() {
-        assert_eq!(
-            notification_sound_for_state_change(true, AgentState::Working, AgentState::Blocked),
-            Some(crate::sound::Sound::Request)
-        );
-    }
-
-    #[test]
-    fn done_sound_only_plays_in_background() {
-        assert_eq!(
-            notification_sound_for_state_change(false, AgentState::Working, AgentState::Idle),
-            Some(crate::sound::Sound::Done)
-        );
-        assert_eq!(
-            notification_sound_for_state_change(true, AgentState::Working, AgentState::Idle),
-            None
-        );
-        assert_eq!(
-            notification_sound_for_state_change(false, AgentState::Unknown, AgentState::Idle),
-            None
-        );
-    }
-
-    #[test]
-    fn background_waiting_sets_attention_toast() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let toast = state.toast.as_ref().unwrap();
-        assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "pi needs attention");
-        assert_eq!(toast.context, "background · 2");
-    }
-
-    #[test]
-    fn delayed_background_waiting_schedules_before_toast() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        state.toast_config.delay_seconds = 1;
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        assert!(state.toast.is_none());
-        assert!(state.pending_agent_notifications.contains_key(&bg_pane_id));
-
-        let deadline = state.next_pending_agent_notification_deadline().unwrap();
-        let deliveries = state.drain_due_agent_notifications(deadline);
-        assert_eq!(deliveries.len(), 1);
-
-        let toast = state.toast.as_ref().unwrap();
-        assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "pi needs attention");
-        assert_eq!(toast.context, "background · 2");
-        assert!(state.pending_agent_notifications.is_empty());
-    }
-
-    #[test]
-    fn delayed_background_waiting_cancels_when_agent_resumes_working() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        state.toast_config.delay_seconds = 1;
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        let deadline = state.next_pending_agent_notification_deadline().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Working,
-            visible_blocker: false,
-            visible_working: true,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        assert!(state.pending_agent_notifications.is_empty());
-        assert!(state.drain_due_agent_notifications(deadline).is_empty());
-        assert!(state.toast.is_none());
-    }
-
-    #[test]
-    fn delayed_background_waiting_is_suppressed_if_pane_becomes_active() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        state.toast_config.delay_seconds = 1;
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        let deadline = state.next_pending_agent_notification_deadline().unwrap();
-        state.active = Some(1);
-
-        assert!(state.drain_due_agent_notifications(deadline).is_empty());
-        assert!(state.toast.is_none());
-    }
-
-    #[test]
-    fn delayed_active_tab_unfocused_keeps_client_notification_available() {
-        let mut state = app_with_workspaces(&["active"]);
-        state.active = Some(0);
-        state.outer_terminal_focus = Some(false);
-        state.toast_config.delivery = crate::config::ToastDelivery::System;
-        state.toast_config.delay_seconds = 1;
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let deadline = state.next_pending_agent_notification_deadline().unwrap();
-        let deliveries = state.drain_due_agent_notifications(deadline);
-
-        assert_eq!(deliveries.len(), 1);
-        assert!(deliveries[0].toast.is_none());
-        assert!(deliveries[0].client_notification.is_some());
-        assert!(state.toast.is_none());
-    }
-
-    #[test]
-    fn delayed_background_waiting_is_cleared_when_pane_dies() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        state.toast_config.delay_seconds = 1;
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        let deadline = state.next_pending_agent_notification_deadline().unwrap();
-        state.handle_app_event(AppEvent::PaneDied {
-            pane_id: bg_pane_id,
-        });
-
-        assert!(state.pending_agent_notifications.is_empty());
-        assert!(state.drain_due_agent_notifications(deadline).is_empty());
-        assert!(state.toast.is_none());
-    }
-
-    #[test]
-    fn hook_reported_unknown_agent_sets_toast_title_from_label() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::HookStateReported {
-            pane_id: bg_pane_id,
-            source: "custom:hermes".into(),
-            agent_label: "hermes".into(),
-            state: AgentState::Blocked,
-            message: None,
-            seq: None,
-            session_ref: None,
-        });
-
-        let toast = state.toast.as_ref().unwrap();
-        assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "hermes needs attention");
-        assert_eq!(toast.context, "background · 2");
-    }
-
-    #[test]
-    fn visible_blocker_overrides_hook_working_and_notifies() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-        let bg_terminal_id = state.workspaces[1]
-            .panes
-            .get(&bg_pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Codex),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        state.handle_app_event(AppEvent::HookStateReported {
-            pane_id: bg_pane_id,
-            source: "kitsune:codex".into(),
-            agent_label: "codex".into(),
-            state: AgentState::Working,
-            message: None,
-            seq: Some(1),
-            session_ref: None,
-        });
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Codex),
-            state: AgentState::Blocked,
-            visible_blocker: true,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let terminal = state.terminals.get(&bg_terminal_id).unwrap();
-        assert_eq!(terminal.state, AgentState::Blocked);
-        let toast = state.toast.as_ref().unwrap();
-        assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "codex needs attention");
-    }
-
-    #[test]
-    fn reserved_native_state_report_does_not_override_screen_state() {
-        let mut state = app_with_workspaces(&["active"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-        let terminal_id = state.workspaces[0]
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Claude),
-            state: AgentState::Working,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        let epoch = crate::terminal::evidence::DetectorEpoch::new();
-        let observed_at = Instant::now();
-        state.synchronize_pane_detector_epoch(pane_id, Some(epoch), observed_at);
-        state.handle_app_event(AppEvent::DetectorUpdate {
-            pane_id,
-            epoch,
-            foreground: Some(
-                crate::terminal::evidence::ForegroundObservation::Confirmed {
-                    agent: Agent::Claude,
-                    process_group_id: None,
-                },
-            ),
-            fallback: None,
-            observed_at,
-        });
-        state.handle_app_event(AppEvent::HookStateReported {
-            pane_id,
-            source: "kitsune:claude".into(),
-            agent_label: "claude".into(),
-            state: AgentState::Blocked,
-            message: None,
-            seq: Some(1),
-            session_ref: crate::agent_resume::AgentSessionRef::id("claude-session"),
-        });
-        let terminal = state.terminals.get(&terminal_id).unwrap();
-        assert_eq!(terminal.state, AgentState::Working);
-        assert!(terminal.hook_authority.is_none());
-        assert!(terminal.persisted_agent_session.is_some());
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Claude),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let terminal = state.terminals.get(&terminal_id).unwrap();
-        assert_eq!(terminal.state, AgentState::Idle);
-        assert!(state.toast.is_none());
-    }
-
-    #[test]
-    fn official_release_preserves_process_owned_agent_identity() {
-        let mut state = app_with_workspaces(&["active"]);
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-        let terminal_id = state.workspaces[0]
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Working,
-            visible_blocker: false,
-            visible_working: true,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        let epoch = crate::terminal::evidence::DetectorEpoch::new();
-        let observed_at = Instant::now();
-        state.synchronize_pane_detector_epoch(pane_id, Some(epoch), epoch.started_at());
-        state.handle_app_event(AppEvent::DetectorUpdate {
-            pane_id,
-            epoch,
-            foreground: Some(
-                crate::terminal::evidence::ForegroundObservation::Confirmed {
-                    agent: Agent::Pi,
-                    process_group_id: None,
-                },
-            ),
-            fallback: None,
-            observed_at,
-        });
-        let terminal = state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "kitsune:pi".into(),
-            agent: "pi".into(),
-            session_ref: crate::agent_resume::AgentSessionRef::path(
-                std::env::current_dir()
-                    .unwrap()
-                    .join("release-session.jsonl")
-                    .display()
-                    .to_string(),
-            )
-            .unwrap(),
-        });
-        terminal.set_hook_authority(
-            "kitsune:pi".into(),
-            "pi".into(),
-            AgentState::Working,
-            None,
-            Some(1),
-        );
-        terminal.set_agent_name("reviewer".into());
-        state.session_dirty = false;
-
-        let updates = state.handle_app_event(AppEvent::HookAgentReleased {
-            pane_id,
-            source: "kitsune:pi".into(),
-            agent_label: "pi".into(),
-            known_agent: Some(Agent::Pi),
-            seq: Some(2),
-            session_ref: None,
-        });
-
-        assert!(updates.is_empty());
-        let terminal = &state.terminals[&terminal_id];
-        assert_eq!(terminal.state, AgentState::Working);
-        assert_eq!(terminal.detected_agent(), Some(Agent::Pi));
-        assert_eq!(terminal.agent_name.as_deref(), Some("reviewer"));
-        assert!(terminal.hook_authority.is_none());
-        assert!(!state.session_dirty);
-    }
-
-    #[test]
-    fn official_session_scoped_release_ignores_stale_restored_session() {
-        let mut state = app_with_workspaces(&["active"]);
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-        let terminal_id = state.workspaces[0]
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        let current_session = crate::agent_resume::AgentSessionRef::id("current-session").unwrap();
-        state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-                source: "kitsune:djinn".into(),
-                agent: "djinn".into(),
-                session_ref: current_session.clone(),
-            });
-        state.session_dirty = false;
-
-        let updates = state.handle_app_event(AppEvent::HookAgentReleased {
-            pane_id,
-            source: "kitsune:djinn".into(),
-            agent_label: "djinn".into(),
-            known_agent: Some(Agent::Djinn),
-            seq: Some(30),
-            session_ref: crate::agent_resume::AgentSessionRef::id("stale-session"),
-        });
-
-        assert!(updates.is_empty());
-        let terminal = &state.terminals[&terminal_id];
-        assert_eq!(
-            terminal
-                .persisted_agent_session
-                .as_ref()
-                .map(|session| &session.session_ref),
-            Some(&current_session)
-        );
-        assert!(!state.session_dirty);
-    }
-
-    #[test]
-    fn official_session_scoped_release_clears_matching_restored_session() {
-        let mut state = app_with_workspaces(&["active"]);
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-        let terminal_id = state.workspaces[0]
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        let session_ref = crate::agent_resume::AgentSessionRef::id("djinn-session").unwrap();
-        state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-                source: "kitsune:djinn".into(),
-                agent: "djinn".into(),
-                session_ref: session_ref.clone(),
-            });
-        state.session_dirty = false;
-
-        let updates = state.handle_app_event(AppEvent::HookAgentReleased {
-            pane_id,
-            source: "kitsune:djinn".into(),
-            agent_label: "djinn".into(),
-            known_agent: Some(Agent::Djinn),
-            seq: Some(30),
-            session_ref: Some(session_ref),
-        });
-
-        assert!(updates.is_empty());
-        assert!(state.terminals[&terminal_id]
-            .persisted_agent_session
-            .is_none());
-        assert!(state.session_dirty);
-    }
-
-    #[test]
-    fn devin_state_report_refreshes_session_without_overriding_screen_state() {
-        let mut state = app_with_workspaces(&["active"]);
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-        let terminal_id = state.workspaces[0]
-            .panes
-            .get(&pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Devin),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        let epoch = crate::terminal::evidence::DetectorEpoch::new();
-        let observed_at = Instant::now();
-        state.synchronize_pane_detector_epoch(pane_id, Some(epoch), observed_at);
-        state.handle_app_event(AppEvent::DetectorUpdate {
-            pane_id,
-            epoch,
-            foreground: Some(
-                crate::terminal::evidence::ForegroundObservation::Confirmed {
-                    agent: Agent::Devin,
-                    process_group_id: None,
-                },
-            ),
-            fallback: None,
-            observed_at,
-        });
-        state.handle_app_event(AppEvent::HookStateReported {
-            pane_id,
-            source: "kitsune:devin".into(),
-            agent_label: "devin".into(),
-            state: AgentState::Working,
-            message: None,
-            seq: Some(1),
-            session_ref: crate::agent_resume::AgentSessionRef::id("devin-session"),
-        });
-
-        let terminal = state.terminals.get(&terminal_id).unwrap();
-        assert_eq!(terminal.state, AgentState::Idle);
-        assert!(terminal.hook_authority.is_none());
-        assert!(terminal.persisted_agent_session.is_some());
-    }
-
-    #[test]
-    fn hidden_custom_session_ref_only_update_marks_session_dirty_without_visible_update() {
-        let mut state = app_with_workspaces(&["active"]);
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-        let test_dir = std::env::current_dir().unwrap();
-        let first_session = test_dir.join("one.jsonl").display().to_string();
-        let second_session = test_dir.join("two.jsonl").display().to_string();
-
-        let first_updates = state.handle_app_event(AppEvent::HookStateReported {
-            pane_id,
-            source: "custom:pi".into(),
-            agent_label: "pi".into(),
-            state: AgentState::Working,
-            message: None,
-            seq: Some(20),
-            session_ref: crate::agent_resume::AgentSessionRef::path(first_session),
-        });
-        assert_eq!(first_updates.len(), 1);
-        state.session_dirty = false;
-
-        let second_updates = state.handle_app_event(AppEvent::HookStateReported {
-            pane_id,
-            source: "custom:pi".into(),
-            agent_label: "pi".into(),
-            state: AgentState::Working,
-            message: None,
-            seq: Some(21),
-            session_ref: crate::agent_resume::AgentSessionRef::path(second_session),
-        });
-
-        assert!(second_updates.is_empty());
-        assert!(state.session_dirty);
-    }
-
-    #[test]
-    fn custom_release_clears_report_owned_agent() {
-        let mut state = app_with_workspaces(&["active"]);
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-        let terminal_id = state.workspaces[0]
-            .pane_state(pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_hook_authority(
-                "custom:agent".into(),
-                "custom-agent".into(),
-                AgentState::Working,
-                None,
-                Some(1),
-            );
-
-        state.handle_app_event(AppEvent::HookAgentReleased {
-            pane_id,
-            source: "custom:agent".into(),
-            agent_label: "custom-agent".into(),
-            known_agent: None,
-            seq: Some(2),
-            session_ref: None,
-        });
-
-        let terminal = &state.terminals[&terminal_id];
-        assert!(terminal.hook_authority.is_none());
-        assert_eq!(terminal.state, AgentState::Unknown);
-    }
-
-    #[test]
     fn terminal_cwd_report_updates_terminal_cwd_and_marks_session_dirty() {
         let mut state = app_with_workspaces(&["active"]);
         let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
@@ -5572,179 +3627,14 @@ mod tests {
         std::fs::create_dir_all(&cwd).unwrap();
         state.session_dirty = false;
 
-        let updates = state.handle_app_event(AppEvent::TerminalCwdReported {
+        state.handle_app_event(AppEvent::TerminalCwdReported {
             pane_id,
             cwd: cwd.clone(),
         });
 
-        assert!(updates.is_empty());
         assert_eq!(state.terminals.get(&terminal_id).unwrap().cwd, cwd);
         assert!(state.session_dirty);
         let _ = std::fs::remove_dir_all(cwd);
-    }
-
-    #[test]
-    fn background_idle_sets_finished_toast() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        let bg_pane_id = *state.workspaces[1].panes.keys().next().unwrap();
-        let bg_terminal_id = state.workspaces[1]
-            .panes
-            .get(&bg_pane_id)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        state.terminals.get_mut(&bg_terminal_id).unwrap().state = AgentState::Working;
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Droid),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let toast = state.toast.as_ref().unwrap();
-        assert_eq!(toast.kind, ToastKind::Finished);
-        assert_eq!(toast.title, "droid finished");
-        assert_eq!(toast.context, "background · 2");
-        let target = toast.target.as_ref().expect("toast target");
-        assert_eq!(&target.workspace_id, &state.workspaces[1].id);
-        assert_eq!(target.pane_id, bg_pane_id);
-    }
-
-    #[test]
-    fn background_toast_includes_tab_name_when_workspace_has_multiple_tabs() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        state.workspaces[1].tabs[0].set_custom_name("main".into());
-        let second_tab = state.workspaces[1].test_add_tab(Some("logs"));
-        state.ensure_test_terminals();
-        let bg_pane_id = state.workspaces[1].tabs[second_tab].root_pane;
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let toast = state.toast.as_ref().unwrap();
-        assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "pi needs attention");
-        assert_eq!(toast.context, "background · 2 · logs");
-    }
-
-    #[test]
-    fn background_tab_in_active_workspace_still_sets_toast() {
-        let mut state = app_with_workspaces(&["active"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        state.workspaces[0].tabs[0].set_custom_name("main".into());
-        let second_tab = state.workspaces[0].test_add_tab(Some("logs"));
-        state.ensure_test_terminals();
-        let bg_pane_id = state.workspaces[0].tabs[second_tab].root_pane;
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id: bg_pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let toast = state.toast.as_ref().unwrap();
-        assert_eq!(toast.kind, ToastKind::NeedsAttention);
-        assert_eq!(toast.title, "pi needs attention");
-        assert_eq!(toast.context, "active · 1 · logs");
-    }
-
-    #[test]
-    fn active_workspace_active_tab_does_not_set_toast() {
-        let mut state = app_with_workspaces(&["active"]);
-        state.active = Some(0);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        assert!(state.toast.is_none());
-    }
-
-    #[test]
-    fn active_workspace_active_tab_keeps_kitsune_toast_suppressed_when_outer_terminal_is_unfocused()
-    {
-        let mut state = app_with_workspaces(&["active"]);
-        state.active = Some(0);
-        state.outer_terminal_focus = Some(false);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        let pane_id = *state.workspaces[0].panes.keys().next().unwrap();
-
-        state.handle_app_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Pi),
-            state: AgentState::Blocked,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        assert!(state.toast.is_none());
-    }
-
-    #[test]
-    fn active_tab_suppression_preserves_unknown_focus_behavior() {
-        assert!(active_tab_suppresses_notifications(true, None));
-        assert!(active_tab_suppresses_notifications(true, Some(true)));
-        assert!(!active_tab_suppresses_notifications(true, Some(false)));
-        assert!(!active_tab_suppresses_notifications(false, None));
-    }
-
-    #[test]
-    fn agent_detection_manifest_update_event_updates_status_and_toast() {
-        let mut state = AppState::test_new();
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        let status = crate::detect::manifest_update::ManifestUpdateStatus {
-            last_result: Some("checked".to_string()),
-            ..Default::default()
-        };
-
-        let updates = state.handle_app_event(AppEvent::AgentDetectionManifestsUpdated {
-            updated: vec![crate::detect::manifest_update::ManifestUpdateCommit {
-                agent: Agent::Codex,
-                version: crate::detect::manifest_update::ManifestVersion::parse("2026.06.10.1")
-                    .unwrap(),
-            }],
-            status,
-        });
-
-        assert!(updates.is_empty());
-        assert_eq!(
-            state.agent_manifest_update_status.last_result.as_deref(),
-            Some("checked")
-        );
-        let toast = state.toast.as_ref().expect("manifest update toast");
-        assert_eq!(toast.kind, ToastKind::Info);
-        assert_eq!(toast.title, "Agent detection rules updated");
-        assert_eq!(toast.context, "codex 2026.06.10.1");
     }
 
     #[test]
@@ -5886,44 +3776,6 @@ mod tests {
         assert!(!state.pane_graphics_layers.contains_key(&closed));
         assert!(!state.pane_graphics_streams.contains_key(&closed));
         state.assert_invariants_for_test();
-    }
-
-    #[test]
-    fn pane_process_exit_publish_marks_agent_idle_before_pane_removal() {
-        let mut state = app_with_workspaces(&["active", "background"]);
-        state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        state.active = Some(1);
-        state.ensure_test_terminals();
-        let pane_id = state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = state.terminal_id_for_pane(0, pane_id).unwrap();
-        state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_detected_state(Some(Agent::Pi), AgentState::Working);
-        assert_eq!(
-            state.terminals.get(&terminal_id).unwrap().state,
-            AgentState::Working
-        );
-
-        let update = state
-            .publish_pane_process_exit_if_agent(pane_id)
-            .expect("process exit update");
-
-        assert!(!state.pane_is_in_active_tab(update.ws_idx, pane_id));
-        assert_eq!(update.previous_state, AgentState::Working);
-        assert_eq!(update.state, AgentState::Idle);
-        assert_eq!(update.agent_label.as_deref(), Some("pi"));
-        assert_eq!(update.known_agent, Some(Agent::Pi));
-        assert!(update.agent_released);
-        assert_eq!(
-            update.agent_release_status,
-            Some(crate::api::schema::AgentStatus::Done)
-        );
-        assert!(matches!(
-            state.toast.as_ref().map(|toast| toast.kind),
-            Some(ToastKind::Finished)
-        ));
     }
 
     #[test]

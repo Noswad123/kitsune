@@ -1,4 +1,4 @@
-use super::{api_helpers::pane_agent_status, App};
+use super::App;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TerminalTarget {
@@ -49,68 +49,9 @@ impl App {
             }
         }
 
-        let agent_matches: Vec<_> = self
-            .terminal_targets()
-            .into_iter()
-            .filter(|candidate| {
-                self.state
-                    .terminals
-                    .values()
-                    .find(|terminal| terminal.id.to_string() == candidate.terminal_id)
-                    .is_some_and(|terminal| {
-                        terminal.agent_name.as_deref() == Some(target)
-                            || terminal.effective_agent_label() == Some(target)
-                    })
-            })
-            .collect();
-        if let Some(resolved) = self.single_terminal_match(target, agent_matches)? {
-            return Ok(resolved);
-        }
-
         Err(TerminalTargetError::NotFound {
             target: target.to_string(),
         })
-    }
-
-    pub(crate) fn resolve_agent_target(
-        &self,
-        target: &str,
-    ) -> Result<TerminalTarget, TerminalTargetError> {
-        if let Some((ws_idx, pane_id)) = self.parse_current_public_pane_id(target) {
-            if let Some(resolved) = self
-                .terminal_target_for_pane(ws_idx, pane_id)
-                .filter(|resolved| self.target_is_agent(resolved))
-            {
-                return Ok(resolved);
-            }
-        }
-
-        let name_matches: Vec<_> = self
-            .terminal_targets()
-            .into_iter()
-            .filter(|candidate| {
-                self.state
-                    .terminals
-                    .values()
-                    .find(|terminal| terminal.id.to_string() == candidate.terminal_id)
-                    .is_some_and(|terminal| terminal.agent_name.as_deref() == Some(target))
-            })
-            .collect();
-        if let Some(resolved) = self.single_terminal_match(target, name_matches)? {
-            return Ok(resolved);
-        }
-
-        Err(TerminalTargetError::NotFound {
-            target: target.to_string(),
-        })
-    }
-
-    fn target_is_agent(&self, target: &TerminalTarget) -> bool {
-        self.state
-            .terminals
-            .values()
-            .find(|terminal| terminal.id.to_string() == target.terminal_id)
-            .is_some_and(|terminal| terminal.is_agent_terminal())
     }
 
     fn single_terminal_match(
@@ -189,7 +130,7 @@ impl App {
             cwd: ws.tabs[tab_idx]
                 .cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
                 .map(|cwd| cwd.display().to_string()),
-            agent_status: pane_agent_status(terminal.state, pane.seen),
+            agent_status: crate::api::schema::AgentStatus::Unknown,
         })
     }
 }

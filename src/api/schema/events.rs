@@ -71,6 +71,7 @@ pub enum Subscription {
         strip_ansi: bool,
     },
     #[serde(rename = "pane.agent_status_changed")]
+    // Compatibility-only: any request containing this subscription returns feature_retired.
     PaneAgentStatusChanged {
         pane_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -181,6 +182,7 @@ pub enum EventMatch {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
     },
+    // Compatibility-only: execution returns feature_retired without a status probe.
     PaneAgentStatusChanged {
         pane_id: String,
         agent_status: AgentStatus,
@@ -497,4 +499,31 @@ pub enum EventData {
     LayoutUpdated {
         layout: super::panes::PaneLayoutSnapshot,
     },
+}
+
+#[cfg(test)]
+mod retirement_compatibility_tests {
+    use super::*;
+
+    #[test]
+    fn retired_status_subscription_matcher_events_and_success_still_decode() {
+        let subscription = serde_json::json!({"type":"pane.agent_status_changed", "pane_id":"w1:p1", "agent_status":"unknown"});
+        let decoded: Subscription = serde_json::from_value(subscription.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), subscription);
+        let matcher = serde_json::json!({"event":"pane_agent_status_changed", "pane_id":"w1:p1", "agent_status":"done"});
+        let decoded: EventMatch = serde_json::from_value(matcher.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), matcher);
+        let data =
+            serde_json::json!({"pane_id":"w1:p1", "workspace_id":"w1", "agent_status":"done"});
+        let event = serde_json::json!({"event":"pane.agent_status_changed", "data":data});
+        let decoded: SubscriptionEventEnvelope = serde_json::from_value(event.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), event);
+        let mut data = data;
+        data["type"] = serde_json::json!("pane_agent_status_changed");
+        let success = serde_json::json!({"id":"historical", "result":{"type":"wait_matched", "event":{"event":"pane_agent_status_changed", "data":data}}});
+        let decoded: crate::api::schema::SuccessResponse =
+            serde_json::from_value(success.clone()).unwrap();
+        assert_eq!(serde_json::to_value(decoded).unwrap(), success);
+        assert_eq!(crate::protocol::PROTOCOL_VERSION, 18);
+    }
 }

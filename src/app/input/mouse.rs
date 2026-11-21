@@ -100,6 +100,10 @@ impl AppState {
         terminal_runtimes: &mut TerminalRuntimeRegistry,
         mouse: MouseEvent,
     ) -> Option<MouseAction> {
+        if self.mode == Mode::IntegrationInspector {
+            self.integration_inspector_mouse(mouse);
+            return None;
+        }
         if self.mode == Mode::Onboarding {
             self.handle_onboarding_mouse(mouse);
             return None;
@@ -124,7 +128,6 @@ impl AppState {
         }
 
         let launcher_enabled = self.view.layout != ViewLayout::Mobile
-            && !self.sidebar_collapsed
             && matches!(
                 self.mode,
                 Mode::Terminal
@@ -427,14 +430,6 @@ impl AppState {
                     return None;
                 }
 
-                if self.on_sidebar_section_divider(mouse.column, mouse.row) {
-                    self.drag = Some(DragState {
-                        target: DragTarget::SidebarSectionDivider,
-                    });
-                    self.set_sidebar_section_split(mouse.row);
-                    return None;
-                }
-
                 if !in_sidebar {
                     if let Some(border) = self.find_border_at(mouse.column, mouse.row) {
                         let grab_offset = match border.direction {
@@ -516,30 +511,15 @@ impl AppState {
                         return None;
                     }
 
-                    if self
-                        .integration_views_area()
-                        .contains(ratatui::layout::Position::new(mouse.column, mouse.row))
-                    {
+                    if self.toggle_sidebar_section_at(mouse.column, mouse.row) {
+                        return None;
+                    }
+                    if self.integration_section_at(mouse.column, mouse.row) {
                         self.activate_integration_view_at(
                             mouse.column,
                             mouse.row,
                             std::time::Instant::now(),
                         );
-                        return None;
-                    }
-
-                    if self.sidebar_collapsed {
-                        if let Some(idx) = self.collapsed_workspace_at_row(mouse.row) {
-                            self.mode = Mode::Terminal;
-                            return Some(MouseAction::FocusWorkspace { ws_idx: idx });
-                        }
-
-                        if let Some((ws_idx, _tab_idx, pane_id)) =
-                            self.collapsed_agent_detail_target_at(mouse.row)
-                        {
-                            self.mode = Mode::Terminal;
-                            return Some(MouseAction::FocusPane { ws_idx, pane_id });
-                        }
                         return None;
                     }
 
@@ -550,6 +530,12 @@ impl AppState {
                         && mouse.column < new_button.x + new_button.width;
                     if on_new_button {
                         return Some(MouseAction::NewWorkspace);
+                    }
+                    if !self
+                        .spaces_body()
+                        .contains(ratatui::layout::Position::new(mouse.column, mouse.row))
+                    {
+                        return None;
                     }
 
                     if let Some(target) =
@@ -684,7 +670,14 @@ impl AppState {
                     }
                 }
 
-                let workspace_drop_index = self.workspace_drop_index_at_row(mouse.row);
+                let source_ws_idx = match self.drag.as_ref().map(|drag| &drag.target) {
+                    Some(DragTarget::WorkspaceReorder { source_ws_idx, .. }) => {
+                        Some(*source_ws_idx)
+                    }
+                    _ => self.workspace_press.as_ref().map(|press| press.ws_idx),
+                };
+                let workspace_drop_index = source_ws_idx
+                    .and_then(|source| self.workspace_drop_index_at_row(mouse.row, source));
                 let tab_drop_index = self.tab_drop_index_at(mouse.column, mouse.row);
                 if self.drag.is_none() {
                     if let Some(press) = &self.workspace_press {
@@ -796,9 +789,6 @@ impl AppState {
                         }
                         DragTarget::SidebarDivider => {
                             self.set_manual_sidebar_width(mouse.column);
-                        }
-                        DragTarget::SidebarSectionDivider => {
-                            self.set_sidebar_section_split(mouse.row);
                         }
                         DragTarget::ReleaseNotesScrollbar { .. }
                         | DragTarget::ProductAnnouncementScrollbar { .. }
@@ -950,9 +940,11 @@ impl AppState {
 
             MouseEventKind::ScrollUp | MouseEventKind::ScrollDown
                 if in_sidebar
-                    && self
-                        .integration_views_area()
-                        .contains(ratatui::layout::Position::new(mouse.column, mouse.row)) =>
+                    && (self.integration_section_at(mouse.column, mouse.row)
+                        || self.sidebar_sections.sections.iter().any(|s| {
+                            s.header
+                                .contains(ratatui::layout::Position::new(mouse.column, mouse.row))
+                        })) =>
             {
                 self.scroll_integration_views_at(
                     mouse.column,
@@ -964,7 +956,12 @@ impl AppState {
                     },
                 );
             }
-            MouseEventKind::ScrollUp if in_sidebar => {
+            MouseEventKind::ScrollUp
+                if in_sidebar
+                    && self
+                        .spaces_body()
+                        .contains(ratatui::layout::Position::new(mouse.column, mouse.row)) =>
+            {
                 if crate::ui::should_show_scrollbar(crate::ui::workspace_list_scroll_metrics(
                     self,
                     self.workspace_list_rect(),
@@ -974,7 +971,12 @@ impl AppState {
                     self.move_selected_workspace_by_visible_delta(-1);
                 }
             }
-            MouseEventKind::ScrollDown if in_sidebar => {
+            MouseEventKind::ScrollDown
+                if in_sidebar
+                    && self
+                        .spaces_body()
+                        .contains(ratatui::layout::Position::new(mouse.column, mouse.row)) =>
+            {
                 if crate::ui::should_show_scrollbar(crate::ui::workspace_list_scroll_metrics(
                     self,
                     self.workspace_list_rect(),
@@ -1864,7 +1866,6 @@ mod tests {
     use crate::app::input::modal::handle_context_menu_key;
     use crate::{
         app::state::{ContextMenuKind, ContextMenuState, MenuListState, Mode, ViewLayout},
-        detect::{Agent, AgentState},
         workspace::Workspace,
     };
 
@@ -2562,66 +2563,6 @@ mod tests {
         app.handle_mouse(mouse(MouseEventKind::Moved, menu.x + 2, menu.y + 2));
 
         assert_eq!(app.state.context_menu.unwrap().list.highlighted, 1);
-    }
-
-    #[test]
-    fn clicking_agent_toast_focuses_target_pane() {
-        let mut app = app_for_mouse_test();
-        let active = Workspace::test_new("active");
-        let mut background = Workspace::test_new("background");
-        let first_pane = background.tabs[0].root_pane;
-        let target_pane = background.test_split(Direction::Horizontal);
-        background.tabs[0].layout.focus_pane(first_pane);
-
-        app.state.workspaces = vec![active, background];
-        app.state.ensure_test_terminals();
-        app.state.active = Some(0);
-        app.state.selected = 0;
-        app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        app.state.toast_config.delay_seconds = 0;
-        let target_terminal_id = app.state.workspaces[1]
-            .panes
-            .get(&target_pane)
-            .unwrap()
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&target_terminal_id)
-            .unwrap()
-            .state = AgentState::Working;
-
-        app.state
-            .handle_app_event(crate::events::AppEvent::StateChanged {
-                pane_id: target_pane,
-                agent: Some(Agent::Pi),
-                state: AgentState::Idle,
-                visible_blocker: false,
-                visible_working: false,
-                process_exited: false,
-                observed_at: std::time::Instant::now(),
-            });
-        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
-
-        let hit = app.state.view.toast_hit_area;
-        app.handle_mouse(mouse(
-            MouseEventKind::Down(MouseButton::Left),
-            hit.x + 1,
-            hit.y + 1,
-        ));
-
-        assert_eq!(app.state.active, Some(1));
-        assert_eq!(app.state.workspaces[1].focused_pane_id(), Some(target_pane));
-        assert!(app.state.toast.is_none());
-        assert_eq!(app.state.mode, Mode::Terminal);
-
-        app.state.last_pane();
-
-        assert_eq!(app.state.active, Some(0));
-        assert_eq!(
-            app.state.workspaces[0].focused_pane_id(),
-            Some(app.state.workspaces[0].tabs[0].root_pane)
-        );
     }
 
     #[test]

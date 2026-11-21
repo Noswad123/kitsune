@@ -5,7 +5,7 @@ description: "Control Kitsune, a terminal multiplexer for coding agents. Use onl
 
 # Kitsune
 
-Kitsune organizes terminals into workspaces, tabs, and panes, recognizes coding agents running inside panes, and exposes the current session through the `kitsune` CLI.
+Kitsune organizes generic terminals into workspaces, tabs and panes and exposes the session through the `kitsune` CLI. Live agent detection and all live agent API methods are globally retired, including without Coven. Use optional Coven for agent meaning, not a Kit fallback.
 
 Before issuing any control command, verify that this agent is running inside a Kitsune-managed pane:
 
@@ -15,7 +15,7 @@ test "${KITSUNE_ENV:-}" = 1
 
 If the check fails, say that you are not running inside Kitsune and stop. Do not inspect or control the focused Kitsune session from outside Kitsune.
 
-When the check passes, the `kitsune` binary in `PATH` talks to the current session. Use it to inspect neighboring work, create terminal layout, start agents and commands, read output, and wait for state changes.
+When the check passes, the `kitsune` binary in `PATH` talks to the current session. Use it to inspect neighboring work, create terminal layout, run explicitly authorized commands, read output and wait for output. Do not infer native lifecycle, readiness or completion from terminal activity.
 
 ## Learn the current CLI
 
@@ -28,7 +28,6 @@ kitsune --help
 Then print the relevant command group by running the group without a subcommand:
 
 ```bash
-kitsune agent
 kitsune pane
 kitsune workspace
 kitsune tab
@@ -43,19 +42,19 @@ Do not run bare `kitsune` for discovery; it launches or attaches the TUI. Do not
 
 Most control commands return JSON. Read identifiers and state from those responses instead of predicting them.
 
-## Understand layout, panes, and agents
+## Understand Generic Layout
 
 Choose the primitive that matches the job:
 
 - Workspace, tab, and pane topology organize terminal locations.
 - Pane commands control raw terminals, shells, tests, servers, input, and output.
-- Agent commands control the recognized coding agent currently occupying a pane.
+- Agent commands are compatibility spellings, not live controls or pane-read aliases.
 
-A pane exists whether or not it contains an agent. `agent start` requires an existing available shell pane and never creates, splits, or moves layout. Use pane commands for ordinary processes. Use agent commands when Kitsune must validate agent identity or interpret `idle`, `working`, `blocked`, `done`, and `unknown` lifecycle states.
+A pane exists independently of its foreground program. All 12 live agent API methods return `feature_retired` in both ownership modes before target lookup or input. Convenience and raw API CLI retire locally without socket/protocol probes or native execution. Help remains exit 0; invalid syntax remains exit 2. Explicitly offline `kitsune agent explain --file <capture-path> --agent <kind> --json` remains for static local/bundled compatibility maintenance only.
 
-Agent commands accept either a unique live agent name or the pane ID currently hosting that agent. They do not accept terminal IDs or bare agent-kind labels. Names must match `[a-z][a-z0-9_-]{0,31}` and be unique among live agents. A name follows the current pane occupant and is cleared when that agent exits, is released, or is replaced.
+Snapshot `agents: []` applies globally. Historical names, argv and native session references are data, not aliases, current identity or permission to resume. Saved layout/history never triggers provider execution. Generic shell respawn policy is separate from provider resume.
 
-`idle` means the agent is ready for input and its tab has been seen in the focused Kitsune UI. `done` is the same underlying idle state after unseen background work finishes. Focusing the tab or targeting the pane or agent with a focus command marks it seen. CLI reads do not mark it seen. `blocked` means Kitsune recognized an approval or question UI. `unknown` means an agent is present but Kitsune cannot classify it confidently; it does not prove completion.
+AgentStatus subscriptions and the agent `events.wait` matcher are retired, including mixed requests atomically before patterns/probes/streams. Generic output/scroll/workspace subscriptions, event streaming and pane output waits remain. Other previously unsupported generic wait matchers stay unsupported. Four legacy pane hooks retire standalone and retain the older external-ownership error externally. Generic metadata accepts tokens only; mixing retired agent presentation with tokens rejects atomically. Explicit notifications remain generic, never idle-inferred completion.
 
 ## Use IDs and caller context
 
@@ -65,7 +64,7 @@ Public IDs are opaque stable handles:
 - tab: `w1:t1`
 - pane: `w1:p1`
 
-Closed tab and pane IDs are not reused. A pane moved into another workspace receives a new workspace-qualified pane ID. After `pane move`, continue with `.result.move_result.pane.pane_id` or the live agent name. The old value is reported as `.result.move_result.previous_pane_id`; only the moved process's inherited caller context keeps resolving that old ID, so do not use it as a general agent target.
+Closed tab and pane IDs are not reused. A pane moved into another workspace receives a new workspace-qualified pane ID. After `pane move`, continue with `.result.move_result.pane.pane_id`. The old value is reported as `.result.move_result.previous_pane_id`; only the moved process's inherited caller context keeps resolving that old ID, so do not use it as a general target.
 
 Kitsune injects the caller's context into each managed pane:
 
@@ -82,12 +81,12 @@ kitsune workspace list
 kitsune tab list --workspace "$KITSUNE_WORKSPACE_ID"
 kitsune pane current --current
 kitsune pane list --workspace "$KITSUNE_WORKSPACE_ID"
-kitsune agent list
+kitsune pane process-info "$KITSUNE_PANE_ID"
 ```
 
 Creation responses expose the IDs to use next. `workspace create` returns `.result.workspace`, `.result.tab`, and `.result.root_pane`. `tab create` returns `.result.tab` and `.result.root_pane`. `pane split` returns the new pane as `.result.pane`.
 
-## Start and coordinate an agent
+## Create Terminal Layout
 
 Default to a sibling pane in the current tab and the current working directory. Do not create a workspace, tab, worktree, or different cwd unless the user explicitly requests that topology or location.
 
@@ -105,53 +104,7 @@ kitsune pane split --current --direction right --cwd "$PWD" --no-focus
 
 Replace `right` with `down` when appropriate. Read the new pane ID from `.result.pane.pane_id`.
 
-An available shell pane must be at its interactive prompt, with the shell itself in the foreground and no foreground command, editor, or agent running. Start a supported agent in that pane with a useful unique name:
-
-```bash
-kitsune agent start reviewer --kind codex --pane <returned-pane-id>
-```
-
-Use the kind requested by the user. Run `kitsune agent` to inspect the installed kind list and options. Pass native agent arguments only after `--`:
-
-```bash
-kitsune agent start reviewer --kind codex --pane <returned-pane-id> -- <agent-args...>
-```
-
-`agent start` returns only after Kitsune detects the expected agent in the same pane and considers it ready for interactive input. It defaults to a 30-second startup timeout.
-
-Submit work through the agent surface:
-
-```bash
-kitsune agent prompt reviewer "Review the current diff and report only actionable findings." --wait --timeout 120000
-```
-
-`agent prompt` atomically submits text and encoded Enter while honoring the pane's live bracketed-paste mode. For normal agent work, `--wait` is enough: it waits for the first settled `idle`, `done`, or `blocked` state. Do not repeat those defaults with `--until`.
-
-A prompt sent from a non-working state must produce an observed lifecycle change within five seconds. Otherwise Kitsune returns `agent_prompt_stalled` instead of waiting indefinitely. This wait tracks lifecycle state, not an individual turn; if the agent is already working, completion of the active turn may satisfy it.
-
-Use `--until` only for a state-specific workflow, such as waiting for an already-running agent to request input:
-
-```bash
-kitsune agent wait reviewer --until blocked --timeout 120000
-```
-
-Without `--until`, standalone `agent wait` uses the same settled-state defaults as `agent prompt --wait`.
-
-Use logical keys for interactive agent UI controls:
-
-```bash
-kitsune agent send-keys reviewer esc
-kitsune agent send-keys reviewer ctrl+c
-```
-
-Kitsune validates all keys before writing any bytes. Read the result through the resolved agent:
-
-```bash
-kitsune agent get reviewer
-kitsune agent read reviewer --source recent-unwrapped --lines 120
-```
-
-If a wait fails or returns `blocked`, inspect `agent get` and `agent read` before deciding what input to send. Use the pane surface only when raw terminal control is intentional.
+An available shell pane must be at its interactive prompt, with the shell itself in the foreground and no foreground command/editor/provider. Any authorized native command uses generic command submission or Coven's explicit supported adapter, never `kitsune agent start/prompt/wait/attach`. Generic reads/input/output matches cannot validate provider readiness, correlate a turn or authorize further input. Keep generic process observations separate from authenticated native facts.
 
 ## Run an ordinary command in another pane
 
@@ -176,9 +129,9 @@ Use the read source that matches the task:
 - `visible`: the currently rendered viewport.
 - `recent`: recent rendered output, including soft wraps.
 - `recent-unwrapped`: recent output with soft wraps joined; prefer it for logs and transcripts.
-- `detection`: the plain-text bottom-buffer snapshot used for agent detection.
+- `detection`: a generic plain-text bottom-buffer snapshot, independent of the viewport and without a native classifier.
 
-Use `--format ansi` when colors and terminal styling are evidence. Otherwise use text.
+For sources that retain styling, `--format ansi` can preserve it. The `detection` source currently returns plain text for both text and ANSI formats; do not promise ANSI styling or recovered alternate-screen pixels.
 
 `--lines` asks Kitsune for more rows from the pane's available screen and host scrollback. If increasing it does not reveal more of a completed response, the pane is probably running the agent on the terminal's alternate screen. Rows that leave the alternate screen do not enter Kitsune's host scrollback, so a larger line count cannot recover them.
 
@@ -187,9 +140,11 @@ After that failed read, ask the agent to write its complete response as Markdown
 ## Safety and coordination rules
 
 - Use `--no-focus` for background work unless the user asked to switch context.
-- Use `--current`, an explicit pane ID, or a unique agent name. Do not rely on another client's focused pane.
+- Use `--current` or an explicit pane ID. Do not rely on another client's focused pane or historical agent names.
 - Parse IDs from JSON responses. Do not derive them from sidebar order or examples.
 - Do not close workspaces, tabs, panes, or sessions you did not create unless the user explicitly asked.
 - Never run `kitsune server stop` from an active session unless the user explicitly intends to stop the server and its pane processes.
 - Never kill the main Kitsune process. Use named test sessions for experiments that need an isolated server.
 - CLI server errors are JSON on stderr with exit status 1. CLI syntax errors exit with status 2.
+
+Fresh legacy `integration install` is retired for all six targets on all platforms before discovery/probes/writes. Status/uninstall and frozen migration assets remain for explicit cleanup, not automatic uninstall. Generic Integrations sources/leases/views remain separate. See [retirement and validation](AGENT_CONTROL_RETIREMENT.md); remaining static evaluator/DTO/cleanup residue is not live authority or cross-OS qualification.

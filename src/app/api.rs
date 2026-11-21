@@ -5,8 +5,6 @@ mod agent_view;
 mod agents;
 mod annotations;
 mod command_submission;
-#[cfg(test)]
-mod detector_evidence_tests;
 mod env;
 mod integration_views;
 #[cfg(all(test, unix))]
@@ -14,16 +12,21 @@ mod integration_views_roundtrip_tests;
 mod integrations;
 mod layouts;
 #[cfg(test)]
+mod manifest_ownership_tests;
+#[cfg(test)]
 mod ownership_tests;
 mod pane_graphics;
 mod panes;
 mod responses;
 mod session;
 mod tabs;
+mod terminal_navigation;
+#[cfg(test)]
+mod terminal_navigation_tests;
 mod workspaces;
 mod worktrees;
 
-use super::{api_helpers::pane_agent_status, App, Mode, OverlayPaneState, ToastKind};
+use super::{App, Mode, OverlayPaneState, ToastKind};
 use crate::events::AppEvent;
 
 const API_NOTIFICATION_RATE_LIMIT: Duration = Duration::from_secs(1);
@@ -69,11 +72,6 @@ impl App {
 
     pub(crate) fn handle_internal_event_with_render_impact(&mut self, ev: AppEvent) -> bool {
         match ev {
-            AppEvent::DetectorUpdate { pane_id, .. } => {
-                let before = self.detector_presentation_snapshot(pane_id);
-                self.handle_internal_event(ev);
-                before != self.detector_presentation_snapshot(pane_id)
-            }
             AppEvent::GitStatusRefreshed {
                 results,
                 cache_updates,
@@ -83,25 +81,6 @@ impl App {
                 true
             }
         }
-    }
-
-    fn detector_presentation_snapshot(
-        &self,
-        pane_id: crate::layout::PaneId,
-    ) -> Option<(
-        crate::detect::AgentState,
-        Option<String>,
-        crate::terminal::EffectivePresentation,
-        bool,
-    )> {
-        let (_, pane) = self.find_pane(pane_id)?;
-        let terminal = self.state.terminals.get(&pane.attached_terminal_id)?;
-        Some((
-            terminal.state,
-            terminal.effective_agent_label().map(str::to_string),
-            terminal.effective_presentation(),
-            pane.seen,
-        ))
     }
 
     fn handle_git_status_refreshed(
@@ -142,20 +121,6 @@ impl App {
         ev: AppEvent,
         #[cfg(test)] respawn_runtime: Option<crate::terminal::TerminalRuntime>,
     ) {
-        if self.state.excludes_legacy_agent_event(&ev) {
-            return;
-        }
-        // Only the currently attached runtime can supply detector evidence. Do not
-        // let an old queued observation bind its token to a replacement runtime.
-        if let AppEvent::DetectorUpdate { pane_id, epoch, .. } = &ev {
-            let current = self
-                .find_pane(*pane_id)
-                .and_then(|(_, pane)| self.terminal_runtimes.get(&pane.attached_terminal_id))
-                .map(|runtime| runtime.detector_epoch());
-            if current != Some(*epoch) {
-                return;
-            }
-        }
         if let AppEvent::ClipboardWrite { content } = ev {
             #[cfg(not(test))]
             crate::selection::write_osc52_bytes(&content);
@@ -209,13 +174,6 @@ impl App {
             {
                 self.close_popup_pane();
                 return;
-            }
-            let previous_toast = self.state.toast.clone();
-            if let Some(update) = self.state.publish_pane_process_exit_if_agent(*pane_id) {
-                self.sync_full_lifecycle_authority_detection_pauses();
-                self.refresh_new_kitsune_toast_context_for_update(&update, &previous_toast);
-                self.emit_pane_state_update(&update);
-                self.emit_terminal_or_system_agent_notifications(std::slice::from_ref(&update));
             }
             if self.runtime_exit_action(*pane_id) == RuntimeExitAction::RespawnShell
                 && self.respawn_shell_for_launch_pane(
@@ -276,75 +234,13 @@ impl App {
             None
         };
 
-        let released_agent = if let AppEvent::HookAgentReleased {
-            pane_id,
-            known_agent,
-            ..
-        } = &ev
-        {
-            known_agent.map(|agent| (*pane_id, agent))
-        } else {
-            None
-        };
-
-        let manifest_update_agents =
-            if let AppEvent::AgentDetectionManifestsUpdated { updated, .. } = &ev {
-                Some(updated.iter().map(|item| item.agent).collect::<Vec<_>>())
-            } else {
-                None
-            };
         let terminal_cwd_reported = matches!(ev, AppEvent::TerminalCwdReported { .. });
         let previous_toast = self.state.toast.clone();
-        let epoch_pane = match &ev {
-            AppEvent::DetectorUpdate { pane_id, .. }
-            | AppEvent::HookStateReported { pane_id, .. }
-            | AppEvent::AgentSessionReported { pane_id, .. }
-            | AppEvent::HookAgentReleased { pane_id, .. }
-            | AppEvent::HookAuthorityCleared { pane_id, .. } => Some(*pane_id),
-            _ => None,
-        };
-        let mut pane_updates = Vec::new();
-        if let Some(pane_id) = epoch_pane {
-            let epoch = self
-                .find_pane(pane_id)
-                .and_then(|(_, pane)| self.terminal_runtimes.get(&pane.attached_terminal_id))
-                .map(|runtime| runtime.detector_epoch());
-            // A hook can overtake an already queued probe. Admission starts at
-            // runtime creation, not at delivery of either event.
-            let now = epoch.map_or_else(Instant::now, |epoch| epoch.started_at());
-            pane_updates.extend(
-                self.state
-                    .synchronize_pane_detector_epoch(pane_id, epoch, now),
-            );
-        }
-        let (event_updates, release_accepted) =
-            self.state.handle_app_event_with_release_outcome(ev);
-        if let Some(agents) = manifest_update_agents {
-            self.reset_agent_detection_for_agents(&agents);
-        }
-        if let Some((pane_id, agent)) = released_agent {
-            if release_accepted {
-                if let Some((ws_idx, _)) = self.find_pane(pane_id) {
-                    if let Some(runtime) = self.state.runtime_for_pane_in_workspace(
-                        &self.terminal_runtimes,
-                        ws_idx,
-                        pane_id,
-                    ) {
-                        runtime.begin_graceful_release(agent);
-                    }
-                }
-            }
-        }
-        pane_updates.extend(event_updates);
-        self.sync_full_lifecycle_authority_detection_pauses();
+        self.state.handle_app_event(ev);
         if terminal_cwd_reported {
             self.request_git_identity_refresh(Instant::now());
             self.render_dirty.store(true, Ordering::Release);
             self.render_notify.notify_one();
-        }
-        for update in &pane_updates {
-            self.refresh_new_kitsune_toast_context_for_update(update, &previous_toast);
-            self.emit_pane_state_update(update);
         }
         self.sync_agent_metadata_deadline();
         if let Some((
@@ -365,107 +261,8 @@ impl App {
             self.emit_layout_updated_event(ws_idx, tab_idx);
         }
 
-        if self.local_terminal_notifications
-            && matches!(
-                self.state.toast_config.delivery,
-                crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System
-            )
-            && self.state.toast_config.delay_seconds == 0
-        {
-            self.emit_terminal_or_system_agent_notifications(&pane_updates);
-        }
-
         self.sync_toast_deadline(previous_toast);
         self.shutdown_detached_terminal_runtimes();
-    }
-
-    fn reset_agent_detection_for_agents(&self, agents: &[crate::detect::Agent]) {
-        if agents.is_empty() {
-            return;
-        }
-        for (terminal_id, terminal) in &self.state.terminals {
-            let Some(agent) = terminal
-                .effective_known_agent()
-                .or(terminal.detected_agent())
-            else {
-                continue;
-            };
-            if !agents.contains(&agent) {
-                continue;
-            }
-            if let Some(runtime) = self.terminal_runtimes.get(terminal_id) {
-                runtime.reset_agent_detection();
-            }
-        }
-    }
-
-    fn reset_all_agent_detection_runtimes(&self) {
-        for runtime in self.terminal_runtimes.values() {
-            runtime.reset_agent_detection();
-        }
-    }
-
-    pub(crate) fn refresh_new_kitsune_toast_context_for_update(
-        &mut self,
-        update: &crate::app::actions::PaneStateUpdate,
-        previous_toast: &Option<crate::app::state::ToastNotification>,
-    ) {
-        if !matches!(
-            self.state.toast_config.delivery,
-            crate::config::ToastDelivery::Kitsune
-        ) || self.state.toast == *previous_toast
-        {
-            return;
-        }
-
-        let Some(target) = self
-            .state
-            .toast
-            .as_ref()
-            .and_then(|toast| toast.target.as_ref())
-        else {
-            return;
-        };
-        if target.pane_id != update.pane_id {
-            return;
-        }
-        let Some(ws) = self.state.workspaces.get(update.ws_idx) else {
-            return;
-        };
-        if ws.id != target.workspace_id {
-            return;
-        }
-
-        let workspace_label = ws.display_name_from(&self.state.terminals, &self.terminal_runtimes);
-        let context = crate::app::actions::notification_context(
-            ws,
-            &workspace_label,
-            update.ws_idx,
-            update.pane_id,
-        );
-        if let Some(toast) = self.state.toast.as_mut() {
-            toast.context = context;
-        }
-    }
-
-    fn sync_full_lifecycle_authority_detection_pauses(&self) {
-        for workspace in &self.state.workspaces {
-            for tab in &workspace.tabs {
-                for pane in tab.panes.values() {
-                    let Some(terminal) = self.state.terminals.get(&pane.attached_terminal_id)
-                    else {
-                        continue;
-                    };
-                    let Some(runtime) = self.terminal_runtimes.get(&pane.attached_terminal_id)
-                    else {
-                        continue;
-                    };
-                    runtime.set_full_lifecycle_authority_active(
-                        terminal.full_lifecycle_hook_authority_active(),
-                    );
-                }
-            }
-        }
     }
 
     pub(crate) fn show_clipboard_feedback(&mut self) {
@@ -527,36 +324,10 @@ impl App {
             return RuntimeExitAction::ClosePane;
         };
 
-        if terminal.respawn_shell_on_exit || self.should_respawn_shell_after_agent_exit(terminal) {
+        if terminal.respawn_shell_on_exit {
             RuntimeExitAction::RespawnShell
         } else {
             RuntimeExitAction::ClosePane
-        }
-    }
-
-    fn should_respawn_shell_after_agent_exit(
-        &self,
-        terminal: &crate::terminal::TerminalState,
-    ) -> bool {
-        #[cfg(not(windows))]
-        {
-            let _ = terminal;
-            false
-        }
-
-        #[cfg(windows)]
-        {
-            if !terminal.agent_process_exited_within(
-                Instant::now(),
-                WINDOWS_POWERSHELL_AGENT_EXIT_RESPAWN_GRACE,
-            ) {
-                return false;
-            }
-
-            crate::pane::uses_windows_powershell_pane_shell(crate::pane::PaneShellConfig::new(
-                &self.state.default_shell,
-                self.state.shell_mode,
-            ))
         }
     }
 
@@ -625,129 +396,6 @@ impl App {
         true
     }
 
-    pub(crate) fn emit_pane_state_update(&mut self, update: &crate::app::actions::PaneStateUpdate) {
-        let Some(pane_id) = self.public_pane_id(update.ws_idx, update.pane_id) else {
-            return;
-        };
-        let workspace_id = self.public_workspace_id(update.ws_idx);
-
-        if update.agent_name_changed {
-            self.emit_pane_updated(update.ws_idx, update.pane_id);
-        }
-
-        if update.previous_agent_label != update.agent_label || update.agent_released {
-            self.emit_event(crate::api::schema::EventEnvelope {
-                event: crate::api::schema::EventKind::PaneAgentDetected,
-                data: crate::api::schema::EventData::PaneAgentDetected {
-                    pane_id: pane_id.clone(),
-                    workspace_id: workspace_id.clone(),
-                    agent: update.agent_label.clone(),
-                    released: update.agent_released,
-                    final_status: update.agent_release_status,
-                },
-            });
-        }
-
-        let previous_agent_status = pane_agent_status(update.previous_state, update.previous_seen);
-        let agent_status = self
-            .state
-            .workspaces
-            .get(update.ws_idx)
-            .and_then(|ws| ws.pane_state(update.pane_id))
-            .map(|pane| pane_agent_status(update.state, pane.seen))
-            .unwrap_or_else(|| pane_agent_status(update.state, update.seen));
-
-        if previous_agent_status != agent_status
-            || update.previous_presentation != update.presentation
-        {
-            let presentation = update.presentation.clone();
-            self.emit_event(crate::api::schema::EventEnvelope {
-                event: crate::api::schema::EventKind::PaneAgentStatusChanged,
-                data: crate::api::schema::EventData::PaneAgentStatusChanged {
-                    pane_id,
-                    workspace_id,
-                    agent_status,
-                    agent: update.agent_label.clone(),
-                    title: presentation.title,
-                    display_agent: presentation.display_agent,
-                    state_labels: presentation.state_labels,
-                },
-            });
-        }
-    }
-
-    fn emit_terminal_or_system_agent_notifications(
-        &self,
-        pane_updates: &[crate::app::actions::PaneStateUpdate],
-    ) {
-        if !self.local_terminal_notifications
-            || self.state.toast_config.delay_seconds != 0
-            || !matches!(
-                self.state.toast_config.delivery,
-                crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System
-            )
-        {
-            return;
-        }
-
-        let notify = match self.state.toast_config.delivery {
-            crate::config::ToastDelivery::Terminal => crate::terminal_notify::show_notification,
-            crate::config::ToastDelivery::System => crate::platform::show_desktop_notification,
-            _ => return,
-        };
-
-        for update in pane_updates {
-            let is_active_tab = self
-                .state
-                .pane_is_in_active_tab(update.ws_idx, update.pane_id);
-            let suppress_active_tab_notifications =
-                crate::app::actions::active_tab_suppresses_notifications(
-                    is_active_tab,
-                    self.state.outer_terminal_focus,
-                );
-            let Some(kind) = crate::app::actions::notification_toast_for_pane_state_update(
-                suppress_active_tab_notifications,
-                update,
-            ) else {
-                continue;
-            };
-            let Some(ws) = self.state.workspaces.get(update.ws_idx) else {
-                continue;
-            };
-            let Some(pane) = ws
-                .tabs
-                .iter()
-                .find_map(|tab| tab.panes.get(&update.pane_id))
-            else {
-                continue;
-            };
-            let Some(agent_label) = self
-                .state
-                .terminals
-                .get(&pane.attached_terminal_id)
-                .and_then(|terminal| terminal.effective_agent_label())
-            else {
-                continue;
-            };
-            let event_text = match kind {
-                ToastKind::NeedsAttention => "needs attention",
-                ToastKind::Finished => "finished",
-                ToastKind::Info => "notice",
-            };
-            let workspace_label =
-                ws.display_name_from(&self.state.terminals, &self.terminal_runtimes);
-            let _ = notify(
-                &format!("{} {}", agent_label, event_text),
-                Some(&crate::app::actions::notification_context(
-                    ws,
-                    &workspace_label,
-                    update.ws_idx,
-                    update.pane_id,
-                )),
-            );
-        }
-    }
-
     pub(crate) fn sync_toast_deadline(
         &mut self,
         previous_toast: Option<crate::app::state::ToastNotification>,
@@ -761,72 +409,6 @@ impl App {
                 };
                 Instant::now() + duration
             });
-        }
-    }
-
-    pub(crate) fn emit_delayed_client_local_agent_notifications(
-        &self,
-        deliveries: &[crate::app::state::AgentNotificationDelivery],
-    ) {
-        if !self.local_terminal_notifications
-            || !matches!(
-                self.state.toast_config.delivery,
-                crate::config::ToastDelivery::Terminal | crate::config::ToastDelivery::System
-            )
-        {
-            return;
-        }
-
-        let notify = match self.state.toast_config.delivery {
-            crate::config::ToastDelivery::Terminal => crate::terminal_notify::show_notification,
-            crate::config::ToastDelivery::System => crate::platform::show_desktop_notification,
-            _ => unreachable!("toast delivery was checked above"),
-        };
-
-        for delivery in deliveries {
-            let Some(toast) = &delivery.client_notification else {
-                continue;
-            };
-            let _ = notify(&toast.title, Some(&toast.context));
-        }
-    }
-
-    pub(crate) fn refresh_agent_notification_delivery_contexts(
-        &mut self,
-        deliveries: &mut [crate::app::state::AgentNotificationDelivery],
-    ) {
-        for delivery in deliveries {
-            let Some(ws_idx) = self
-                .state
-                .workspaces
-                .iter()
-                .position(|ws| ws.id == delivery.workspace_id)
-            else {
-                continue;
-            };
-            let ws = &self.state.workspaces[ws_idx];
-            let workspace_label =
-                ws.display_name_from(&self.state.terminals, &self.terminal_runtimes);
-            let context = crate::app::actions::notification_context(
-                ws,
-                &workspace_label,
-                ws_idx,
-                delivery.pane_id,
-            );
-            if let Some(toast) = delivery.toast.as_mut() {
-                toast.context = context.clone();
-            }
-            if let Some(toast) = delivery.client_notification.as_mut() {
-                toast.context = context.clone();
-            }
-            if let Some(toast) = self.state.toast.as_mut() {
-                if toast.target.as_ref().is_some_and(|target| {
-                    target.workspace_id == delivery.workspace_id
-                        && target.pane_id == delivery.pane_id
-                }) {
-                    toast.context = context;
-                }
-            }
         }
     }
 
@@ -936,6 +518,25 @@ impl App {
     }
 
     pub(crate) fn handle_api_request(&mut self, request: crate::api::schema::Request) -> String {
+        if let Some(response) = crate::api::schema::retired_request_response(&request) {
+            return response.to_string();
+        }
+        use crate::api::schema::Method;
+        match request.method {
+            Method::PaneReportAgent(params) => {
+                return self.handle_pane_report_agent(request.id, params)
+            }
+            Method::PaneReportAgentSession(params) => {
+                return self.handle_pane_report_agent_session(request.id, params)
+            }
+            Method::PaneClearAgentAuthority(params) => {
+                return self.handle_pane_clear_agent_authority(request.id, params)
+            }
+            Method::PaneReleaseAgent(params) => {
+                return self.handle_pane_release_agent(request.id, params)
+            }
+            _ => {}
+        }
         self.drain_all_internal_events();
         self.handle_api_request_after_internal_events_drained(request)
     }
@@ -944,10 +545,31 @@ impl App {
         &mut self,
         request: crate::api::schema::Request,
     ) -> String {
-        self.sync_terminal_titles();
         use crate::api::schema::{
             ErrorBody, ErrorResponse, Method, ResponseResult, SuccessResponse,
         };
+
+        if let Some(response) = crate::api::schema::retired_request_response(&request) {
+            return response.to_string();
+        }
+
+        match request.method {
+            Method::PaneReportAgent(params) => {
+                return self.handle_pane_report_agent(request.id, params)
+            }
+            Method::PaneReportAgentSession(params) => {
+                return self.handle_pane_report_agent_session(request.id, params)
+            }
+            Method::PaneClearAgentAuthority(params) => {
+                return self.handle_pane_clear_agent_authority(request.id, params)
+            }
+            Method::PaneReleaseAgent(params) => {
+                return self.handle_pane_release_agent(request.id, params)
+            }
+            _ => {}
+        }
+
+        self.sync_terminal_titles();
 
         let response = match request.method {
             Method::ServerStop(_) => {
@@ -977,38 +599,12 @@ impl App {
                     },
                 }
             }
-            Method::ServerAgentManifests(_) => {
-                self.state.refresh_agent_manifest_summaries();
-                let update_status = crate::detect::manifest_update::load_status();
-                SuccessResponse {
-                    id: request.id,
-                    result: ResponseResult::AgentManifestStatus {
-                        last_check_unix: update_status.last_check_unix,
-                        last_result: update_status.last_result.clone(),
-                        manifests: self
-                            .state
-                            .agent_manifest_summaries
-                            .clone()
-                            .into_iter()
-                            .map(|summary| agent_manifest_info(summary, &update_status))
-                            .collect(),
-                    },
-                }
-            }
-            Method::ServerReloadAgentManifests(_) => {
-                let summaries = crate::detect::manifest::reload_manifests();
-                self.state.agent_manifest_summaries = summaries.clone();
-                let update_status = crate::detect::manifest_update::load_status();
-                self.reset_all_agent_detection_runtimes();
-                SuccessResponse {
-                    id: request.id,
-                    result: ResponseResult::AgentManifestReload {
-                        manifests: summaries
-                            .into_iter()
-                            .map(|summary| agent_manifest_info(summary, &update_status))
-                            .collect(),
-                    },
-                }
+            Method::ServerAgentManifests(_) | Method::ServerReloadAgentManifests(_) => {
+                return responses::encode_error(
+                    request.id,
+                    "feature_retired",
+                    crate::api::schema::DETECTOR_MANIFEST_RETIREMENT_MESSAGE,
+                );
             }
             Method::NotificationShow(params) => {
                 return self.handle_notification_show(request.id, params);
@@ -1023,6 +619,10 @@ impl App {
                 );
             }
             Method::SessionSnapshot(_) => return self.handle_session_snapshot(request.id),
+            Method::TerminalInspect(params) => {
+                return self.handle_terminal_inspect(request.id, params)
+            }
+            Method::TerminalFocus(params) => return self.handle_terminal_focus(request.id, params),
             Method::ViewOpen(params) => return self.handle_view_open(request.id, params),
             Method::ViewReplace(params) => return self.handle_view_replace(request.id, params),
             Method::ViewPoll(params) => return self.handle_view_poll(request.id, params),
@@ -1083,10 +683,9 @@ impl App {
             Method::AgentStart(params) => return self.handle_agent_start(request.id, params),
             Method::AgentPrompt(params) => return self.handle_agent_prompt(request.id, params),
             Method::AgentWait(_) => {
-                return responses::encode_error(
+                return responses::encode_error_body(
                     request.id,
-                    "invalid_request",
-                    "agent.wait is handled by the api server",
+                    crate::api::schema::legacy_agent_retirement_error("agent.wait"),
                 );
             }
             Method::AgentRead(params) => return self.handle_agent_read(request.id, params),
@@ -1317,25 +916,6 @@ fn sanitized_notification_text(value: &str, max_chars: usize) -> Option<String> 
     (!sanitized.is_empty()).then_some(sanitized)
 }
 
-fn agent_manifest_info(
-    summary: crate::detect::manifest::AgentManifestSummary,
-    update_status: &crate::detect::manifest_update::ManifestUpdateStatus,
-) -> crate::api::schema::AgentManifestInfo {
-    let remote = update_status.agent_status(summary.agent);
-    crate::api::schema::AgentManifestInfo {
-        agent: crate::detect::agent_label(summary.agent).to_string(),
-        source: summary.active_source.label(),
-        source_kind: summary.active_source.kind().to_string(),
-        active_version: summary.active_version,
-        cached_remote_version: summary.cached_remote_version,
-        local_override_shadowing_remote: summary.local_override_shadowing_remote,
-        remote_update_result: remote.as_ref().map(|status| status.last_result.clone()),
-        remote_update_error: remote.as_ref().and_then(|status| status.last_error.clone()),
-        remote_last_checked_unix: remote.and_then(|status| status.last_checked_unix),
-        warning: summary.warning,
-    }
-}
-
 #[cfg(test)]
 pub(super) mod test_support {
     pub(crate) fn exiting_test_command() -> &'static str {
@@ -1360,16 +940,45 @@ pub(super) mod test_support {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::detect::{Agent, AgentState};
+    use crate::detect::Agent;
 
-    #[cfg(unix)]
-    fn init_repo(path: &std::path::Path) {
-        let status = std::process::Command::new("git")
-            .args(["init", "-q"])
-            .current_dir(path)
-            .status()
-            .unwrap();
-        assert!(status.success(), "git init failed for {}", path.display());
+    #[tokio::test]
+    async fn generic_launch_exit_respawns_shell_without_agent_completion_or_lost_history() {
+        let (mut app, _, terminal_id) = crate::app::test_support::legacy_control_fixture();
+        let pane_id = app.state.workspaces[0].tabs.last().unwrap().root_pane;
+        let terminal = &app.state.terminals[&terminal_id];
+        let session = terminal.persisted_agent_session.clone();
+        let intent = terminal.pending_agent_resume_plan.clone();
+        let label = terminal.manual_label.clone();
+        app.state.toast = None;
+        let (old_runtime, mut old_input) =
+            crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        app.terminal_runtimes
+            .insert(terminal_id.clone(), old_runtime);
+        let (replacement, mut new_input) =
+            crate::terminal::TerminalRuntime::test_with_channel(80, 24);
+        app.handle_internal_event_inner(AppEvent::PaneDied { pane_id }, Some(replacement));
+        let terminal = &app.state.terminals[&terminal_id];
+        assert!(app.find_pane(pane_id).is_some());
+        assert!(app.terminal_runtimes.get(&terminal_id).is_some());
+        assert!(!terminal.respawn_shell_on_exit);
+        assert!(terminal.launch_argv.is_none());
+        assert_eq!(terminal.persisted_agent_session, session);
+        assert_eq!(terminal.pending_agent_resume_plan, intent);
+        assert_eq!(terminal.manual_label, label);
+        assert!(old_input.try_recv().is_err());
+        assert!(new_input.try_recv().is_err());
+        assert!(app.state.toast.is_none());
+        assert!(app
+            .event_hub
+            .events_after(0)
+            .iter()
+            .all(|(_, event)| !matches!(
+                event.event,
+                crate::api::schema::EventKind::PaneAgentDetected
+                    | crate::api::schema::EventKind::PaneAgentStatusChanged
+            )));
+        app.state.assert_invariants_for_test();
     }
 
     fn app_with_overlay(
@@ -1401,132 +1010,6 @@ mod tests {
             },
         );
         app
-    }
-
-    #[tokio::test]
-    async fn manifest_update_event_resets_matching_agent_detection_runtime() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-        app.state.workspaces = vec![crate::workspace::Workspace::test_new("manifest-reset")];
-        app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .seed_restored_agent_identity(Agent::Codex);
-        let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        let reset_notify = runtime.agent_detection_reset_notify_for_test();
-        app.terminal_runtimes.insert(terminal_id, runtime);
-
-        app.handle_internal_event(AppEvent::AgentDetectionManifestsUpdated {
-            updated: vec![crate::detect::manifest_update::ManifestUpdateCommit {
-                agent: Agent::Codex,
-                version: crate::detect::manifest_update::ManifestVersion::parse("2026.06.10.1")
-                    .unwrap(),
-            }],
-            status: crate::detect::manifest_update::ManifestUpdateStatus::default(),
-        });
-
-        tokio::time::timeout(
-            std::time::Duration::from_millis(50),
-            reset_notify.notified(),
-        )
-        .await
-        .expect("matching agent detection runtime should be reset");
-    }
-
-    #[tokio::test]
-    async fn server_reload_agent_manifests_resets_detection_runtimes() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-        app.state.workspaces = vec![crate::workspace::Workspace::test_new("manifest-reload")];
-        app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        let reset_notify = runtime.agent_detection_reset_notify_for_test();
-        app.terminal_runtimes.insert(terminal_id, runtime);
-
-        let response = app.handle_api_request(crate::api::schema::Request {
-            id: "reload_manifests".into(),
-            method: crate::api::schema::Method::ServerReloadAgentManifests(
-                crate::api::schema::EmptyParams::default(),
-            ),
-        });
-        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
-        assert_eq!(response["result"]["type"], "agent_manifest_reload");
-        assert!(!response["result"]["manifests"]
-            .as_array()
-            .unwrap()
-            .is_empty());
-
-        tokio::time::timeout(
-            std::time::Duration::from_millis(50),
-            reset_notify.notified(),
-        )
-        .await
-        .expect("manual manifest reload should reset detection runtimes");
-    }
-
-    #[tokio::test]
-    async fn server_agent_manifests_reports_status_without_resetting_runtimes() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-        app.state.workspaces = vec![crate::workspace::Workspace::test_new("manifest-status")];
-        app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        let (runtime, _rx) = crate::terminal::TerminalRuntime::test_with_channel(80, 24);
-        let reset_notify = runtime.agent_detection_reset_notify_for_test();
-        app.terminal_runtimes.insert(terminal_id, runtime);
-
-        let response = app.handle_api_request(crate::api::schema::Request {
-            id: "manifest_status".into(),
-            method: crate::api::schema::Method::ServerAgentManifests(
-                crate::api::schema::EmptyParams::default(),
-            ),
-        });
-        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
-        assert_eq!(response["result"]["type"], "agent_manifest_status");
-        assert!(!response["result"]["manifests"]
-            .as_array()
-            .unwrap()
-            .is_empty());
-        assert!(
-            tokio::time::timeout(
-                std::time::Duration::from_millis(10),
-                reset_notify.notified(),
-            )
-            .await
-            .is_err(),
-            "status request should not reset detection runtimes"
-        );
     }
 
     #[tokio::test]
@@ -1566,54 +1049,11 @@ mod tests {
         });
         let response: serde_json::Value = serde_json::from_str(&response).unwrap();
 
-        assert_eq!(response["result"]["type"], "agent_explain");
-        assert_eq!(response["result"]["explain"]["state"], "blocked");
+        assert_eq!(response["error"]["code"], "feature_retired");
         assert_eq!(
-            response["result"]["explain"]["matched_rule"]["id"],
-            "live_strong_blocker"
+            response["error"]["message"],
+            crate::api::schema::legacy_agent_retirement_error("agent.explain").message
         );
-    }
-
-    #[tokio::test]
-    async fn agent_explain_rejects_hook_only_full_lifecycle_authority() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-        app.state.workspaces = vec![crate::workspace::Workspace::test_new("agent-explain-omp")];
-        app.state.ensure_test_terminals();
-        let pane_id = app.state.workspaces[0].tabs[0].root_pane;
-        let terminal_id = app.state.workspaces[0].tabs[0].panes[&pane_id]
-            .attached_terminal_id
-            .clone();
-        app.state
-            .terminals
-            .get_mut(&terminal_id)
-            .unwrap()
-            .set_hook_authority(
-                "kitsune:omp".to_string(),
-                "omp".to_string(),
-                AgentState::Working,
-                None,
-                Some(1),
-            );
-        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
-        app.terminal_runtimes.insert(terminal_id, runtime);
-        let target = app.public_pane_id(0, pane_id).unwrap();
-
-        let response = app.handle_api_request(crate::api::schema::Request {
-            id: "agent_explain_omp".into(),
-            method: crate::api::schema::Method::AgentExplain(crate::api::schema::AgentTarget {
-                target,
-            }),
-        });
-        let response: serde_json::Value = serde_json::from_str(&response).unwrap();
-
-        assert_eq!(response["error"]["code"], "agent_not_found");
     }
 
     #[tokio::test]
@@ -1685,195 +1125,6 @@ mod tests {
         assert_eq!(clear["result"]["reason"], "no_foreground_client");
     }
 
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn kitsune_toast_context_uses_live_root_runtime_cwd_label() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-
-        let mut workspace = crate::workspace::Workspace::test_new("stale");
-        workspace.custom_name = None;
-        let root = workspace.tabs[0].root_pane;
-        let terminal_id = workspace.terminal_id(root).cloned().unwrap();
-        let temp_root = std::env::temp_dir().join(format!(
-            "kitsune-toast-context-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let stale_cwd = temp_root.join("__kitsune_original__");
-        let live_cwd = temp_root.join("__kitsune_projects__");
-        std::fs::create_dir_all(&stale_cwd).unwrap();
-        std::fs::create_dir_all(&live_cwd).unwrap();
-        init_repo(&stale_cwd);
-        init_repo(&live_cwd);
-
-        workspace.identity_cwd = stale_cwd.clone();
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        app.state.terminals.get_mut(&terminal_id).unwrap().cwd = stale_cwd;
-        app.state.active = None;
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-        app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        app.state.toast_config.delay_seconds = 0;
-
-        let (events, _) = tokio::sync::mpsc::channel(4);
-        let runtime = crate::terminal::TerminalRuntime::spawn(
-            root,
-            24,
-            80,
-            live_cwd.clone(),
-            0,
-            crate::terminal_theme::TerminalTheme::default(),
-            crate::pane::PaneShellConfig::new("/bin/sh", crate::config::ShellModeConfig::NonLogin),
-            &crate::pane::PaneLaunchEnv::default(),
-            events,
-            std::sync::Arc::new(tokio::sync::Notify::new()),
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        )
-        .unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while runtime.cwd() != Some(live_cwd.clone()) && std::time::Instant::now() < deadline {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        app.terminal_runtimes.insert(terminal_id, runtime);
-
-        app.handle_internal_event(AppEvent::StateChanged {
-            pane_id: root,
-            agent: Some(Agent::Codex),
-            state: AgentState::Working,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        app.handle_internal_event(AppEvent::StateChanged {
-            pane_id: root,
-            agent: Some(Agent::Codex),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        assert_eq!(
-            app.state.toast.as_ref().map(|toast| toast.context.as_str()),
-            Some("__kitsune_projects__ · 1")
-        );
-
-        for (_, runtime) in app.terminal_runtimes.drain() {
-            runtime.shutdown();
-        }
-        let _ = std::fs::remove_dir_all(temp_root);
-    }
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn delayed_kitsune_toast_context_uses_live_root_runtime_cwd_label() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-
-        let mut workspace = crate::workspace::Workspace::test_new("stale");
-        workspace.custom_name = None;
-        let root = workspace.tabs[0].root_pane;
-        let terminal_id = workspace.terminal_id(root).cloned().unwrap();
-        let temp_root = std::env::temp_dir().join(format!(
-            "kitsune-delayed-toast-context-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let stale_cwd = temp_root.join("__kitsune_original__");
-        let live_cwd = temp_root.join("__kitsune_projects__");
-        std::fs::create_dir_all(&stale_cwd).unwrap();
-        std::fs::create_dir_all(&live_cwd).unwrap();
-        init_repo(&stale_cwd);
-        init_repo(&live_cwd);
-
-        workspace.identity_cwd = stale_cwd.clone();
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        app.state.terminals.get_mut(&terminal_id).unwrap().cwd = stale_cwd;
-        app.state.active = None;
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-        app.state.toast_config.delivery = crate::config::ToastDelivery::Kitsune;
-        app.state.toast_config.delay_seconds = 1;
-
-        let (events, _) = tokio::sync::mpsc::channel(4);
-        let runtime = crate::terminal::TerminalRuntime::spawn(
-            root,
-            24,
-            80,
-            live_cwd.clone(),
-            0,
-            crate::terminal_theme::TerminalTheme::default(),
-            crate::pane::PaneShellConfig::new("/bin/sh", crate::config::ShellModeConfig::NonLogin),
-            &crate::pane::PaneLaunchEnv::default(),
-            events,
-            std::sync::Arc::new(tokio::sync::Notify::new()),
-            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        )
-        .unwrap();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while runtime.cwd() != Some(live_cwd.clone()) && std::time::Instant::now() < deadline {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        app.terminal_runtimes.insert(terminal_id, runtime);
-
-        app.handle_internal_event(AppEvent::StateChanged {
-            pane_id: root,
-            agent: Some(Agent::Codex),
-            state: AgentState::Working,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        app.handle_internal_event(AppEvent::StateChanged {
-            pane_id: root,
-            agent: Some(Agent::Codex),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        let notification_deadline = app
-            .state
-            .next_pending_agent_notification_deadline()
-            .expect("pending notification deadline");
-        assert!(app.handle_scheduled_tasks(notification_deadline, false));
-        assert_eq!(
-            app.state.toast.as_ref().map(|toast| toast.context.as_str()),
-            Some("__kitsune_projects__ · 1")
-        );
-
-        for (_, runtime) in app.terminal_runtimes.drain() {
-            runtime.shutdown();
-        }
-        let _ = std::fs::remove_dir_all(temp_root);
-    }
-
     #[test]
     fn overlay_exit_preserves_focus_changed_before_exit() {
         let mut workspace = crate::workspace::Workspace::test_new("overlay");
@@ -1929,119 +1180,6 @@ mod tests {
             crate::api::schema::EventData::LayoutUpdated { layout }
                 if layout.tab_id == tab_id && layout.panes.len() == 1
         ));
-    }
-
-    #[test]
-    fn idle_agent_exit_emits_release_event_without_a_state_change() {
-        for agent_name in [None, Some("reviewer")] {
-            let event_hub = crate::api::EventHub::default();
-            let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-            let mut app = App::new(
-                &crate::config::Config::default(),
-                true,
-                None,
-                api_rx,
-                event_hub.clone(),
-            );
-            let workspace = crate::workspace::Workspace::test_new("idle-agent-exit");
-            let pane_id = workspace.tabs[0].root_pane;
-            let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-            app.state.workspaces = vec![workspace];
-            app.state.ensure_test_terminals();
-            let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-            terminal.set_detected_state(Some(Agent::Pi), AgentState::Idle);
-            if let Some(agent_name) = agent_name {
-                terminal.set_agent_name(agent_name.into());
-            }
-
-            app.handle_internal_event(AppEvent::StateChanged {
-                pane_id,
-                agent: Some(Agent::Pi),
-                state: AgentState::Idle,
-                visible_blocker: false,
-                visible_working: false,
-                process_exited: true,
-                observed_at: std::time::Instant::now(),
-            });
-
-            assert!(app.state.terminals[&terminal_id].agent_name.is_none());
-            assert!(event_hub.events_after(0).iter().any(|(_, event)| matches!(
-                &event.data,
-                crate::api::schema::EventData::PaneAgentDetected {
-                    released: true,
-                    final_status: Some(crate::api::schema::AgentStatus::Idle),
-                    ..
-                }
-            )));
-        }
-    }
-
-    #[test]
-    fn process_exit_releases_a_newer_hook_owned_agent() {
-        let event_hub = crate::api::EventHub::default();
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            event_hub.clone(),
-        );
-        let workspace = crate::workspace::Workspace::test_new("stale-agent-exit");
-        let pane_id = workspace.tabs[0].root_pane;
-        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        let epoch = crate::terminal::evidence::DetectorEpoch::new();
-        let observed_at = std::time::Instant::now();
-        let terminal = app.state.terminals.get_mut(&terminal_id).unwrap();
-        terminal.synchronize_detector_epoch(Some(epoch), epoch.started_at());
-        terminal.apply_detector_update(
-            epoch,
-            Some(
-                crate::terminal::evidence::ForegroundObservation::Confirmed {
-                    agent: Agent::Codex,
-                    process_group_id: None,
-                },
-            ),
-            Some(crate::terminal::evidence::FallbackObservation {
-                agent: Some(Agent::Codex),
-                state: AgentState::Working,
-                visible_blocker: false,
-                visible_working: false,
-            }),
-            observed_at,
-        );
-        terminal
-            .set_hook_authority_at(
-                "kitsune:codex".into(),
-                "codex".into(),
-                AgentState::Working,
-                None,
-                None,
-                Some(1),
-                observed_at + std::time::Duration::from_secs(1),
-            )
-            .unwrap();
-        terminal.set_agent_name("reviewer".into());
-
-        app.handle_internal_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(Agent::Codex),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: true,
-            observed_at,
-        });
-
-        let terminal = &app.state.terminals[&terminal_id];
-        assert_eq!(terminal.state, AgentState::Idle);
-        assert!(terminal.agent_name.is_none());
-        assert!(event_hub.events_after(0).iter().any(|(_, event)| matches!(
-            event.data,
-            crate::api::schema::EventData::PaneAgentDetected { released: true, .. }
-        )));
     }
 
     #[test]
@@ -2131,119 +1269,6 @@ mod tests {
         assert!(app.overlay_panes.is_empty());
     }
 
-    #[tokio::test]
-    async fn pane_died_respawns_shell_and_clears_restored_agent_session() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-        let workspace = crate::workspace::Workspace::test_new("restored");
-        let pane_id = workspace.tabs[0].root_pane;
-        let terminal_id = workspace.terminal_id(pane_id).cloned().unwrap();
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        let terminal = app
-            .state
-            .terminals
-            .get_mut(&terminal_id)
-            .expect("test terminal should exist");
-        terminal.respawn_shell_on_exit = true;
-        terminal.set_agent_name("codex".into());
-        terminal.set_persisted_agent_session(crate::agent_resume::PersistedAgentSession {
-            source: "kitsune:codex".into(),
-            agent: "codex".into(),
-            session_ref: crate::agent_resume::AgentSessionRef::id("codex-session")
-                .expect("test session id should be valid"),
-        });
-
-        let runtime = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
-        let epoch = runtime.detector_epoch();
-        app.terminal_runtimes.insert(terminal_id.clone(), runtime);
-        app.handle_internal_event(AppEvent::DetectorUpdate {
-            pane_id,
-            epoch,
-            foreground: Some(
-                crate::terminal::evidence::ForegroundObservation::Confirmed {
-                    agent: Agent::Codex,
-                    process_group_id: Some(42),
-                },
-            ),
-            fallback: None,
-            observed_at: Instant::now(),
-        });
-        assert!(app.state.terminals[&terminal_id]
-            .foreground_agent_evidence()
-            .is_some());
-
-        // Exercise exit/respawn state handling without claiming a native PTY spawn.
-        let replacement = crate::terminal::TerminalRuntime::test_with_screen_bytes(80, 24, b"");
-        app.handle_internal_event_inner(AppEvent::PaneDied { pane_id }, Some(replacement));
-
-        assert!(
-            app.find_pane(pane_id).is_some(),
-            "respawnable agent pane should stay attached after the agent process exits"
-        );
-        let terminal = app
-            .state
-            .terminals
-            .get(&terminal_id)
-            .expect("terminal should survive respawn");
-        assert!(!terminal.respawn_shell_on_exit);
-        assert!(terminal.persisted_agent_session.is_none());
-        assert!(terminal.agent_name.is_none());
-        assert!(terminal.foreground_agent_evidence().is_none());
-        assert_ne!(
-            app.terminal_runtimes
-                .get(&terminal_id)
-                .unwrap()
-                .detector_epoch(),
-            epoch
-        );
-        app.state.assert_invariants_for_test();
-
-        for (_, runtime) in app.terminal_runtimes.drain() {
-            runtime.shutdown();
-        }
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn windows_powershell_exit_after_agent_process_exit_respawns_shell() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-        let workspace = crate::workspace::Workspace::test_new("powershell");
-        let pane_id = workspace.tabs[0].root_pane;
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        app.state.default_shell = "powershell.exe".into();
-        app.state.shell_mode = crate::config::ShellModeConfig::NonLogin;
-
-        app.handle_internal_event(AppEvent::StateChanged {
-            pane_id,
-            agent: Some(crate::detect::Agent::OpenCode),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: true,
-            observed_at: std::time::Instant::now(),
-        });
-
-        assert_eq!(
-            app.runtime_exit_action(pane_id),
-            RuntimeExitAction::RespawnShell
-        );
-    }
-
     #[cfg(windows)]
     #[test]
     fn windows_powershell_exit_without_recent_agent_process_exit_closes_pane() {
@@ -2265,68 +1290,6 @@ mod tests {
         assert_eq!(
             app.runtime_exit_action(pane_id),
             RuntimeExitAction::ClosePane
-        );
-    }
-
-    #[test]
-    fn terminal_delivery_does_not_refresh_existing_targeted_toast() {
-        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut app = App::new(
-            &crate::config::Config::default(),
-            true,
-            None,
-            api_rx,
-            crate::api::EventHub::default(),
-        );
-        app.local_terminal_notifications = false;
-
-        let mut workspace = crate::workspace::Workspace::test_new("stale");
-        workspace.custom_name = None;
-        workspace.identity_cwd = "/__kitsune_original__".into();
-        let root = workspace.tabs[0].root_pane;
-        let terminal_id = workspace.terminal_id(root).cloned().unwrap();
-        let workspace_id = workspace.id.clone();
-        app.state.workspaces = vec![workspace];
-        app.state.ensure_test_terminals();
-        app.state.terminals.get_mut(&terminal_id).unwrap().cwd = "/__kitsune_projects__".into();
-        app.state.active = None;
-        app.state.selected = 0;
-        app.state.mode = Mode::Terminal;
-        app.state.toast_config.delivery = crate::config::ToastDelivery::Terminal;
-
-        app.handle_internal_event(AppEvent::StateChanged {
-            pane_id: root,
-            agent: Some(Agent::Codex),
-            state: AgentState::Working,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-        app.state.toast = Some(crate::app::state::ToastNotification {
-            kind: ToastKind::Finished,
-            title: "codex finished".into(),
-            context: "__kitsune_original__ · 1".into(),
-            position: None,
-            target: Some(crate::app::state::ToastTarget {
-                workspace_id,
-                pane_id: root,
-            }),
-        });
-
-        app.handle_internal_event(AppEvent::StateChanged {
-            pane_id: root,
-            agent: Some(Agent::Codex),
-            state: AgentState::Idle,
-            visible_blocker: false,
-            visible_working: false,
-            process_exited: false,
-            observed_at: std::time::Instant::now(),
-        });
-
-        assert_eq!(
-            app.state.toast.as_ref().map(|toast| toast.context.as_str()),
-            Some("__kitsune_original__ · 1")
         );
     }
 }

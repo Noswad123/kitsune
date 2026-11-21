@@ -4,15 +4,14 @@ pub(super) fn run_server_command(args: &[String]) -> std::io::Result<Option<i32>
     let Some(subcommand) = args.first().map(|arg| arg.as_str()) else {
         return Ok(None);
     };
-
     match subcommand {
         "stop" => server_stop(&args[1..]).map(Some),
         "live-handoff" => server_live_handoff(&args[1..]).map(Some),
         "--handoff-import" => Ok(None),
         "reload-config" => server_reload_config(&args[1..]).map(Some),
-        "agent-manifests" => server_agent_manifests(&args[1..]).map(Some),
-        "update-agent-manifests" => server_update_agent_manifests(&args[1..]).map(Some),
-        "reload-agent-manifests" => server_reload_agent_manifests(&args[1..]).map(Some),
+        "agent-manifests" | "update-agent-manifests" | "reload-agent-manifests" => {
+            retired_agent_manifests(subcommand, &args[1..]).map(Some)
+        }
         "help" | "--help" | "-h" => {
             print_server_help();
             Ok(Some(0))
@@ -29,7 +28,6 @@ fn server_stop(args: &[String]) -> std::io::Result<i32> {
         eprintln!("{}", crate::product::usage("server stop"));
         return Ok(2);
     }
-
     match crate::session::stop_active_server() {
         Ok(()) => Ok(0),
         Err(err) => {
@@ -44,158 +42,40 @@ fn server_reload_config(args: &[String]) -> std::io::Result<i32> {
         eprintln!("{}", crate::product::usage("server reload-config"));
         return Ok(2);
     }
-
     super::print_response(&super::send_request(&Request {
         id: "cli:server:reload-config".into(),
         method: Method::ServerReloadConfig(EmptyParams::default()),
     })?)
 }
 
-fn server_agent_manifests(args: &[String]) -> std::io::Result<i32> {
+fn retired_agent_manifests(command: &str, args: &[String]) -> std::io::Result<i32> {
+    let allows_json = command != "reload-agent-manifests";
     let json = match args {
         [] => false,
-        [flag] if flag == "--json" => true,
+        [flag] if allows_json && flag == "--json" => true,
         _ => {
+            let suffix = if allows_json { " [--json]" } else { "" };
             eprintln!(
                 "{}",
-                crate::product::usage("server agent-manifests [--json]")
+                crate::product::usage(&format!("server {command}{suffix}"))
             );
             return Ok(2);
         }
     };
-
-    let response = super::send_request(&Request {
-        id: "cli:server:agent-manifests".into(),
-        method: Method::ServerAgentManifests(EmptyParams::default()),
-    })?;
-    if json || response.get("error").is_some() {
-        return super::print_response(&response);
-    }
-
-    print_agent_manifest_status(&response);
-    Ok(0)
-}
-
-fn server_reload_agent_manifests(args: &[String]) -> std::io::Result<i32> {
-    if !args.is_empty() {
-        eprintln!("{}", crate::product::usage("server reload-agent-manifests"));
-        return Ok(2);
-    }
-
-    super::print_response(&super::send_request(&Request {
-        id: "cli:server:reload-agent-manifests".into(),
-        method: Method::ServerReloadAgentManifests(EmptyParams::default()),
-    })?)
-}
-
-fn server_update_agent_manifests(args: &[String]) -> std::io::Result<i32> {
-    let json = match args {
-        [] => false,
-        [flag] if flag == "--json" => true,
-        _ => {
-            eprintln!(
-                "{}",
-                crate::product::usage("server update-agent-manifests [--json]")
-            );
-            return Ok(2);
-        }
-    };
-
-    let response = match update_agent_manifest_status(super::send_request, || {
-        crate::detect::manifest_update::check_and_update().map(|_| ())
-    })? {
-        Ok(response) => response,
-        Err(err) => {
-            if json {
-                return super::print_response(&agent_manifest_update_error_response(&err));
+    if json {
+        super::print_response(&serde_json::json!({
+            "id": format!("cli:server:{command}"),
+            "error": {
+                "code": "feature_retired",
+                "message": crate::api::schema::DETECTOR_MANIFEST_RETIREMENT_MESSAGE,
             }
-            eprintln!("failed to update agent detection manifests: {err}");
-            return Ok(1);
-        }
-    };
-    if json || response.get("error").is_some() {
-        return super::print_response(&response);
-    }
-
-    print_agent_manifest_status(&response);
-    Ok(0)
-}
-
-fn update_agent_manifest_status(
-    mut send_request: impl FnMut(&Request) -> std::io::Result<serde_json::Value>,
-    update_manifests: impl FnOnce() -> Result<(), String>,
-) -> std::io::Result<Result<serde_json::Value, String>> {
-    if let Err(err) = update_manifests() {
-        return Ok(Err(err));
-    }
-
-    let reload_response = send_request(&Request {
-        id: "cli:server:reload-agent-manifests".into(),
-        method: Method::ServerReloadAgentManifests(EmptyParams::default()),
-    })?;
-    if reload_response.get("error").is_some() {
-        return Ok(Ok(reload_response));
-    }
-
-    send_request(&Request {
-        id: "cli:server:agent-manifests".into(),
-        method: Method::ServerAgentManifests(EmptyParams::default()),
-    })
-    .map(Ok)
-}
-
-fn agent_manifest_update_error_response(err: &str) -> serde_json::Value {
-    serde_json::json!({
-        "id": "cli:server:update-agent-manifests",
-        "error": {
-            "code": "agent_manifest_update_failed",
-            "message": err,
-        }
-    })
-}
-
-fn print_agent_manifest_status(response: &serde_json::Value) {
-    let result = &response["result"];
-    let last_check = result["last_check_unix"]
-        .as_u64()
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| "never".to_string());
-    let last_result = result["last_result"].as_str().unwrap_or("not checked");
-    println!("last check: {last_check}");
-    println!("result: {last_result}");
-    println!();
-
-    let Some(manifests) = result["manifests"].as_array() else {
-        return;
-    };
-    for manifest in manifests {
-        let agent = manifest["agent"].as_str().unwrap_or("-");
-        let source = manifest["source_kind"].as_str().unwrap_or("-");
-        let active_version = manifest["active_version"].as_str().unwrap_or("-");
-        let remote_version = manifest["cached_remote_version"].as_str().unwrap_or("-");
-        let remote_result = manifest["remote_update_result"]
-            .as_str()
-            .unwrap_or("not checked");
-        let local_override_shadowing_remote = manifest["local_override_shadowing_remote"]
-            .as_bool()
-            .unwrap_or(false);
-        let marker = if local_override_shadowing_remote {
-            "!"
-        } else if manifest["remote_update_error"].as_str().is_some() {
-            "x"
-        } else {
-            " "
-        };
-        println!(
-            "{marker} {agent:<9} {source:<14} active {active_version:<14} remote {remote_version:<14} {remote_result}"
+        }))
+    } else {
+        eprintln!(
+            "feature_retired: {}",
+            crate::api::schema::DETECTOR_MANIFEST_RETIREMENT_MESSAGE
         );
-        if let Some(error) = manifest["remote_update_error"].as_str() {
-            println!("  {error}");
-        } else if local_override_shadowing_remote {
-            println!("  local override shadows cached remote rules");
-        } else if let Some(warning) = manifest["warning"].as_str() {
-            println!("  {warning}");
-        }
+        Ok(1)
     }
 }
 
@@ -261,34 +141,32 @@ fn parse_live_handoff_params(args: &[String]) -> Option<ServerLiveHandoffParams>
 
 fn print_server_help() {
     eprintln!("{} server commands:", crate::product::cli_name());
-    eprintln!(
-        "  {}                run as headless server",
-        crate::product::command("server")
-    );
-    eprintln!(
-        "  {}           stop the running server via the API socket",
-        crate::product::command("server stop")
-    );
-    eprintln!(
-        "  {}   hand off live panes to a new local server",
-        crate::product::command("server live-handoff")
-    );
-    eprintln!(
-        "  {}  reload config.toml in the running server",
-        crate::product::command("server reload-config")
-    );
-    eprintln!(
-        "  {}  show agent detection manifest status",
-        crate::product::command("server agent-manifests [--json]")
-    );
-    eprintln!(
-        "  {}  fetch and reload agent detection manifests",
-        crate::product::command("server update-agent-manifests [--json]")
-    );
-    eprintln!(
-        "  {}  reload agent detection manifests in the running server",
-        crate::product::command("server reload-agent-manifests")
-    );
+    for (command, description) in [
+        ("server", "run as headless server"),
+        ("server stop", "stop the running server via the API socket"),
+        (
+            "server live-handoff",
+            "hand off live panes to a new local server",
+        ),
+        (
+            "server reload-config",
+            "reload config.toml in the running server",
+        ),
+        (
+            "server agent-manifests [--json]",
+            "retired detector-manifest management",
+        ),
+        (
+            "server update-agent-manifests [--json]",
+            "retired detector-manifest management",
+        ),
+        (
+            "server reload-agent-manifests",
+            "retired detector-manifest management",
+        ),
+    ] {
+        eprintln!("  {}  {description}", crate::product::command(command));
+    }
 }
 
 #[cfg(test)]
@@ -296,81 +174,24 @@ mod tests {
     use super::*;
 
     #[test]
-    fn update_agent_manifest_status_fetches_reloads_then_reads_status() {
-        let mut methods = Vec::new();
-        let response = update_agent_manifest_status(
-            |request| {
-                methods.push(request.method.clone());
-                match &request.method {
-                    Method::ServerReloadAgentManifests(_) => Ok(serde_json::json!({
-                        "id": request.id,
-                        "result": { "type": "agent_manifest_reload", "manifests": [] }
-                    })),
-                    Method::ServerAgentManifests(_) => Ok(serde_json::json!({
-                        "id": request.id,
-                        "result": {
-                            "type": "agent_manifest_status",
-                            "last_result": "checked",
-                            "manifests": []
-                        }
-                    })),
-                    _ => panic!("unexpected request"),
-                }
-            },
-            || Ok(()),
-        )
-        .unwrap()
-        .unwrap();
-
-        assert_eq!(response["result"]["type"], "agent_manifest_status");
-        assert_eq!(
-            methods,
-            vec![
-                Method::ServerReloadAgentManifests(EmptyParams::default()),
-                Method::ServerAgentManifests(EmptyParams::default())
-            ]
-        );
-    }
-
-    #[test]
-    fn update_agent_manifest_status_skips_server_when_fetch_fails() {
-        let response = update_agent_manifest_status(
-            |_request| panic!("server should not be called after fetch failure"),
-            || Err("network unavailable".to_string()),
-        )
-        .unwrap();
-
-        assert_eq!(response, Err("network unavailable".to_string()));
-        assert_eq!(
-            agent_manifest_update_error_response("network unavailable")["error"]["code"],
-            "agent_manifest_update_failed"
-        );
-    }
-
-    #[test]
-    fn update_agent_manifest_status_stops_after_reload_error() {
-        let mut methods = Vec::new();
-        let response = update_agent_manifest_status(
-            |request| {
-                methods.push(request.method.clone());
-                Ok(serde_json::json!({
-                    "id": request.id,
-                    "error": {
-                        "code": "reload_failed",
-                        "message": "reload failed"
-                    }
-                }))
-            },
-            || Ok(()),
-        )
-        .unwrap()
-        .unwrap();
-
-        assert_eq!(response["error"]["code"], "reload_failed");
-        assert_eq!(
-            methods,
-            vec![Method::ServerReloadAgentManifests(EmptyParams::default())]
-        );
+    fn retired_manifest_commands_fail_locally() {
+        for command in [
+            "agent-manifests",
+            "update-agent-manifests",
+            "reload-agent-manifests",
+        ] {
+            assert_eq!(retired_agent_manifests(command, &[]).unwrap(), 1);
+            if command != "reload-agent-manifests" {
+                assert_eq!(
+                    retired_agent_manifests(command, &["--json".into()]).unwrap(),
+                    1
+                );
+            }
+            assert_eq!(
+                retired_agent_manifests(command, &["--invalid".into()]).unwrap(),
+                2
+            );
+        }
     }
 
     #[test]
@@ -382,9 +203,7 @@ mod tests {
             "--expected-version".to_string(),
             "0.6.2".to_string(),
         ];
-
         let params = parse_live_handoff_params(&args).expect("params");
-
         assert_eq!(
             params.import_exe.as_deref(),
             Some("/home/me/.local/bin/kitsune")

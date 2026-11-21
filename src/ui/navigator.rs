@@ -479,33 +479,13 @@ fn pane_detail(
     }
     if let Some(terminal_id) = tab.terminal_id(pane_id) {
         if let Some(terminal) = app.terminals.get(terminal_id) {
-            let presentation = terminal.effective_presentation();
-            if let Some(title) = presentation.title {
+            if let Some(label) = terminal.manual_label.as_deref() {
+                parts.push(label.to_string());
+            }
+            if let Some(title) = terminal.terminal_title_stripped() {
                 parts.push(title);
             }
-            let display_agent = terminal.effective_display_agent();
-            if let Some(agent) = display_agent.as_deref().or_else(|| {
-                terminal
-                    .agent_name
-                    .as_deref()
-                    .or_else(|| terminal.effective_agent_label())
-            }) {
-                parts.push(agent.to_string());
-                let seen = tab
-                    .panes
-                    .get(&pane_id)
-                    .map(|pane| pane.seen)
-                    .unwrap_or(true);
-                let state = row_state(app, ws_idx, tab_idx, pane_id);
-                let status = presentation
-                    .state_labels
-                    .get(display_state(state, seen))
-                    .cloned()
-                    .unwrap_or_else(|| display_state(state, seen).to_string());
-                parts.push(status);
-            } else {
-                parts.push("shell".to_string());
-            }
+            parts.push(terminal.cwd.display().to_string());
         }
     }
     parts.join(" · ")
@@ -521,31 +501,6 @@ fn rowless_workspace_activity(
         .find(|row| matches!(row.target, NavigatorTarget::Workspace { ws_idx: row_ws_idx } if row_ws_idx == ws_idx))
         .map(|row| row.meta)
         .unwrap_or_default()
-}
-
-fn row_state(
-    app: &AppState,
-    ws_idx: usize,
-    tab_idx: usize,
-    pane_id: crate::layout::PaneId,
-) -> crate::detect::AgentState {
-    app.workspaces
-        .get(ws_idx)
-        .and_then(|ws| ws.tabs.get(tab_idx))
-        .and_then(|tab| tab.terminal_id(pane_id))
-        .and_then(|terminal_id| app.terminals.get(terminal_id))
-        .map(|terminal| terminal.state)
-        .unwrap_or(crate::detect::AgentState::Unknown)
-}
-
-fn display_state(state: crate::detect::AgentState, seen: bool) -> &'static str {
-    match (state, seen) {
-        (crate::detect::AgentState::Blocked, _) => "blocked",
-        (crate::detect::AgentState::Working, _) => "working",
-        (crate::detect::AgentState::Idle, false) => "done",
-        (crate::detect::AgentState::Idle, true) => "idle",
-        (crate::detect::AgentState::Unknown, _) => "unknown",
-    }
 }
 
 fn render_footer(app: &AppState, frame: &mut Frame, area: Rect) {
@@ -604,6 +559,30 @@ fn render_footer(app: &AppState, frame: &mut Frame, area: Rect) {
 mod tests {
     use super::*;
     use crate::detect::AgentState;
+
+    #[test]
+    fn pane_detail_uses_generic_labels_titles_and_path_not_historical_agent_name() {
+        let mut app = AppState::test_new();
+        app.workspaces = vec![crate::workspace::Workspace::test_new("generic-workspace")];
+        app.ensure_test_terminals();
+        let pane = app.workspaces[0].tabs[0].root_pane;
+        let id = app.workspaces[0].terminal_id(pane).unwrap().clone();
+        let terminal = app.terminals.get_mut(&id).unwrap();
+        terminal.agent_name = Some("retired-agent-name".into());
+        terminal.set_manual_label("manual-shell".into());
+        terminal.set_terminal_title(Some("opaque shell title".into()));
+        terminal.cwd = "/fixture/generic".into();
+        let detail = pane_detail(&app, &TerminalRuntimeRegistry::new(), 0, 0, pane);
+        assert!(detail.contains("manual-shell"));
+        assert!(detail.contains("opaque shell title"));
+        assert!(detail.contains("/fixture/generic"));
+        assert!(!detail.contains("retired-agent-name"));
+        assert!(!detail.contains("unknown"));
+        assert_eq!(
+            app.terminals[&id].agent_name.as_deref(),
+            Some("retired-agent-name")
+        );
+    }
 
     fn row(depth: u8, is_workspace: bool) -> NavigatorRow {
         NavigatorRow {

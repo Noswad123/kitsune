@@ -17,25 +17,6 @@ pub(crate) fn integration_target_label(
     }
 }
 
-pub(crate) fn integration_target_command(
-    target: crate::api::schema::IntegrationTarget,
-) -> &'static str {
-    integration_target_command_names(target)[0]
-}
-
-pub(crate) fn integration_target_command_names(
-    target: crate::api::schema::IntegrationTarget,
-) -> &'static [&'static str] {
-    match target {
-        crate::api::schema::IntegrationTarget::Pi => &["pi"],
-        crate::api::schema::IntegrationTarget::Claude => &["claude"],
-        crate::api::schema::IntegrationTarget::Codex => &["codex"],
-        crate::api::schema::IntegrationTarget::Copilot => &["copilot"],
-        crate::api::schema::IntegrationTarget::Opencode => &["opencode"],
-        crate::api::schema::IntegrationTarget::Djinn => &["djinn"],
-    }
-}
-
 pub(crate) fn integration_target_supported(target: crate::api::schema::IntegrationTarget) -> bool {
     #[cfg(windows)]
     {
@@ -55,37 +36,6 @@ pub(crate) fn integration_target_supported(target: crate::api::schema::Integrati
         let _ = target;
         true
     }
-}
-
-pub(crate) fn integration_target_available(target: crate::api::schema::IntegrationTarget) -> bool {
-    if !integration_target_supported(target) {
-        return false;
-    }
-
-    integration_target_command_names(target)
-        .iter()
-        .any(|command| command_available(command))
-        || integration_target_install_layout_available(target)
-}
-
-pub(crate) fn integration_target_install_layout_available(
-    target: crate::api::schema::IntegrationTarget,
-) -> bool {
-    match target {
-        crate::api::schema::IntegrationTarget::Codex => codex_standalone_binary_available(),
-        _ => false,
-    }
-}
-
-pub(crate) fn command_available(command: &str) -> bool {
-    let Some(paths) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&paths).any(|dir| {
-        command_path_candidates(&dir, command)
-            .into_iter()
-            .any(|path| executable_file_exists(&path))
-    })
 }
 
 pub(crate) fn command_path_candidates(dir: &Path, command: &str) -> Vec<PathBuf> {
@@ -130,30 +80,7 @@ pub(crate) fn executable_file_exists(path: &Path) -> bool {
     }
 }
 
-pub(crate) fn codex_standalone_binary_available() -> bool {
-    let Ok(releases_dir) =
-        codex_dir().map(|dir| dir.join("packages").join("standalone").join("releases"))
-    else {
-        return false;
-    };
-    let Ok(entries) = fs::read_dir(releases_dir) else {
-        return false;
-    };
-
-    entries.filter_map(Result::ok).any(|entry| {
-        executable_file_exists(&entry.path().join("bin").join(codex_executable_name()))
-    })
-}
-
-pub(crate) fn codex_executable_name() -> &'static str {
-    if cfg!(windows) {
-        "codex.exe"
-    } else {
-        "codex"
-    }
-}
-
-// Includes read-only inspection of retired legacy hooks on Linux.
+// Read-only inspection of retired legacy hooks on every platform.
 pub(crate) fn installed_integration_statuses() -> Vec<super::IntegrationStatus> {
     integration_specs()
         .into_iter()
@@ -162,59 +89,6 @@ pub(crate) fn installed_integration_statuses() -> Vec<super::IntegrationStatus> 
                 return None;
             }
             Some(integration_status_at(target, path.ok()?, expected_version))
-        })
-        .collect()
-}
-
-pub(crate) fn integration_recommendations() -> Vec<super::IntegrationRecommendation> {
-    integration_specs()
-        .into_iter()
-        .filter_map(|(target, path, expected_version)| {
-            #[cfg(target_os = "linux")]
-            if matches!(
-                target,
-                crate::api::schema::IntegrationTarget::Pi
-                    | crate::api::schema::IntegrationTarget::Claude
-                    | crate::api::schema::IntegrationTarget::Codex
-                    | crate::api::schema::IntegrationTarget::Copilot
-                    | crate::api::schema::IntegrationTarget::Opencode
-            ) {
-                return None;
-            }
-            if !integration_target_supported(target) {
-                return None;
-            }
-            let path = path.ok()?;
-            let status = integration_status_at(target, path.clone(), expected_version);
-            Some(super::IntegrationRecommendation {
-                target,
-                label: integration_target_label(target),
-                command: integration_target_command(target),
-                available: integration_target_available(target)
-                    || status.state != super::IntegrationStatusKind::NotInstalled,
-                path,
-                state: status.state,
-            })
-        })
-        .collect()
-}
-
-pub(crate) fn outdated_installed_integrations() -> Vec<super::IntegrationStatus> {
-    installed_integration_statuses()
-        .into_iter()
-        .filter(|status| {
-            #[cfg(target_os = "linux")]
-            if matches!(
-                status.target,
-                crate::api::schema::IntegrationTarget::Pi
-                    | crate::api::schema::IntegrationTarget::Claude
-                    | crate::api::schema::IntegrationTarget::Codex
-                    | crate::api::schema::IntegrationTarget::Copilot
-                    | crate::api::schema::IntegrationTarget::Opencode
-            ) {
-                return false;
-            }
-            status.state == super::IntegrationStatusKind::Outdated
         })
         .collect()
 }
@@ -254,63 +128,6 @@ fn integration_specs() -> [(
             super::OPENCODE_INTEGRATION_VERSION,
         ),
     ]
-}
-
-pub(crate) fn integration_update_instructions(
-    targets: &[crate::api::schema::IntegrationTarget],
-) -> String {
-    let commands: Vec<String> = targets
-        .iter()
-        .map(|target| {
-            #[cfg(target_os = "linux")]
-            if *target == crate::api::schema::IntegrationTarget::Pi {
-                return super::PI_COVEN_GUIDANCE.to_string();
-            }
-            #[cfg(target_os = "linux")]
-            if *target == crate::api::schema::IntegrationTarget::Claude {
-                return super::CLAUDE_COVEN_GUIDANCE.to_string();
-            }
-            #[cfg(target_os = "linux")]
-            if *target == crate::api::schema::IntegrationTarget::Codex {
-                return super::CODEX_COVEN_GUIDANCE.to_string();
-            }
-            #[cfg(target_os = "linux")]
-            if *target == crate::api::schema::IntegrationTarget::Copilot {
-                return super::COPILOT_COVEN_GUIDANCE.to_string();
-            }
-            #[cfg(target_os = "linux")]
-            if *target == crate::api::schema::IntegrationTarget::Opencode {
-                return super::OPENCODE_COVEN_GUIDANCE.to_string();
-            }
-            format!(
-                "`kitsune integration install {}`",
-                integration_target_label(*target)
-            )
-        })
-        .collect();
-
-    match commands.as_slice() {
-        [] => String::new(),
-        [command] => format!("run {command}"),
-        [rest @ .., last] => format!("run {} and {last}", rest.join(", ")),
-    }
-}
-
-pub(crate) fn print_outdated_update_notice() -> bool {
-    let outdated = outdated_installed_integrations();
-    if outdated.is_empty() {
-        return false;
-    }
-
-    let targets = outdated
-        .iter()
-        .map(|integration| integration.target)
-        .collect::<Vec<_>>();
-    eprintln!(
-        "installed kitsune integrations need updating; {}.",
-        integration_update_instructions(&targets).replace('`', "")
-    );
-    true
 }
 
 pub(crate) fn integration_status_at(
