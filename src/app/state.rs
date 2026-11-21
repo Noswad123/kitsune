@@ -96,6 +96,9 @@ use crate::workspace::Workspace;
 pub struct Palette {
     /// Primary accent (highlight, active borders).
     pub accent: Color,
+    /// Pane-only overrides; absent values follow the current palette dynamically.
+    pub pane_border_active: Option<Color>,
+    pub pane_border_inactive: Option<Color>,
     /// Background for floating panels, overlays, and modals.
     pub panel_bg: Color,
     /// Subtle surface background for selected/focused items.
@@ -133,6 +136,8 @@ impl Palette {
     pub fn catppuccin() -> Self {
         Self {
             accent: Color::Rgb(137, 180, 250), // blue
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(24, 24, 37),
             surface0: Color::Rgb(49, 50, 68),
             surface1: Color::Rgb(69, 71, 90),
@@ -155,6 +160,8 @@ impl Palette {
     pub fn catppuccin_latte() -> Self {
         Self {
             accent: Color::Rgb(30, 102, 245),
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(239, 241, 245),
             surface0: Color::Rgb(204, 208, 218),
             surface1: Color::Rgb(188, 192, 204),
@@ -177,6 +184,8 @@ impl Palette {
     pub fn terminal() -> Self {
         Self {
             accent: Color::Blue,
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Reset,
             surface0: Color::Reset,
             surface1: Color::DarkGray,
@@ -199,6 +208,8 @@ impl Palette {
     pub fn tokyo_night() -> Self {
         Self {
             accent: Color::Rgb(122, 162, 247), // blue
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(26, 27, 38),
             surface0: Color::Rgb(36, 40, 59),
             surface1: Color::Rgb(65, 72, 104),
@@ -221,6 +232,8 @@ impl Palette {
     pub fn tokyo_night_day() -> Self {
         Self {
             accent: Color::Rgb(46, 125, 233),
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(225, 226, 231),
             surface0: Color::Rgb(196, 200, 218),
             surface1: Color::Rgb(168, 174, 203),
@@ -243,6 +256,8 @@ impl Palette {
     pub fn dracula() -> Self {
         Self {
             accent: Color::Rgb(189, 147, 249), // purple
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(40, 42, 54),
             surface0: Color::Rgb(68, 71, 90),
             surface1: Color::Rgb(98, 114, 164),
@@ -265,6 +280,8 @@ impl Palette {
     pub fn nord() -> Self {
         Self {
             accent: Color::Rgb(136, 192, 208), // frost
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(46, 52, 64),
             surface0: Color::Rgb(59, 66, 82),
             surface1: Color::Rgb(67, 76, 94),
@@ -287,6 +304,8 @@ impl Palette {
     pub fn gruvbox() -> Self {
         Self {
             accent: Color::Rgb(215, 153, 33), // yellow
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(40, 40, 40),
             surface0: Color::Rgb(60, 56, 54),
             surface1: Color::Rgb(80, 73, 69),
@@ -309,6 +328,8 @@ impl Palette {
     pub fn gruvbox_light() -> Self {
         Self {
             accent: Color::Rgb(7, 102, 120),
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(251, 241, 199),
             surface0: Color::Rgb(235, 219, 178),
             surface1: Color::Rgb(213, 196, 161),
@@ -331,6 +352,8 @@ impl Palette {
     pub fn one_dark() -> Self {
         Self {
             accent: Color::Rgb(97, 175, 239), // blue
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(40, 44, 52),
             surface0: Color::Rgb(44, 49, 58),
             surface1: Color::Rgb(62, 68, 81),
@@ -353,6 +376,8 @@ impl Palette {
     pub fn one_light() -> Self {
         Self {
             accent: Color::Rgb(64, 120, 242),
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(250, 250, 250),
             surface0: Color::Rgb(240, 240, 241),
             surface1: Color::Rgb(229, 229, 230),
@@ -375,6 +400,8 @@ impl Palette {
     pub fn solarized() -> Self {
         Self {
             accent: Color::Rgb(38, 139, 210), // blue
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(0, 43, 54),
             surface0: Color::Rgb(7, 54, 66),
             surface1: Color::Rgb(88, 110, 117),
@@ -397,6 +424,8 @@ impl Palette {
     pub fn solarized_light() -> Self {
         Self {
             accent: Color::Rgb(38, 139, 210),
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(253, 246, 227),
             surface0: Color::Rgb(238, 232, 213),
             surface1: Color::Rgb(147, 161, 161),
@@ -419,6 +448,8 @@ impl Palette {
     pub fn kanagawa() -> Self {
         Self {
             accent: Color::Rgb(126, 156, 216), // blue
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(31, 31, 40),
             surface0: Color::Rgb(42, 42, 55),
             surface1: Color::Rgb(54, 54, 70),
@@ -441,6 +472,8 @@ impl Palette {
     pub fn kanagawa_lotus() -> Self {
         Self {
             accent: Color::Rgb(77, 105, 155),
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(242, 236, 188),
             surface0: Color::Rgb(220, 213, 172),
             surface1: Color::Rgb(201, 203, 209),
@@ -463,6 +496,8 @@ impl Palette {
     pub fn rose_pine() -> Self {
         Self {
             accent: Color::Rgb(196, 167, 231), // iris
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(25, 23, 36),
             surface0: Color::Rgb(31, 29, 46),
             surface1: Color::Rgb(38, 35, 58),
@@ -485,6 +520,8 @@ impl Palette {
     pub fn rose_pine_dawn() -> Self {
         Self {
             accent: Color::Rgb(144, 122, 169),
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(250, 244, 237),
             surface0: Color::Rgb(242, 233, 225),
             surface1: Color::Rgb(255, 250, 243),
@@ -507,6 +544,8 @@ impl Palette {
     pub fn vesper() -> Self {
         Self {
             accent: Color::Rgb(255, 199, 153),
+            pane_border_active: None,
+            pane_border_inactive: None,
             panel_bg: Color::Rgb(26, 26, 26),
             surface0: Color::Rgb(35, 35, 35),
             surface1: Color::Rgb(40, 40, 40),
@@ -550,11 +589,35 @@ impl Palette {
         }
     }
 
+    pub fn pane_border_active(&self) -> Color {
+        self.pane_border_active.unwrap_or(self.accent)
+    }
+
+    pub fn pane_border_inactive(&self) -> Color {
+        self.pane_border_inactive.unwrap_or(self.overlay0)
+    }
+
+    pub fn with_pane_border_overrides(mut self, custom: &crate::config::PaneBorderColors) -> Self {
+        if let Some(c) = &custom.pane_border_active {
+            self.pane_border_active = Some(crate::config::parse_color(c));
+        }
+        if let Some(c) = &custom.pane_border_inactive {
+            self.pane_border_inactive = Some(crate::config::parse_color(c));
+        }
+        self
+    }
+
     /// Apply custom color overrides on top of this palette.
     pub fn with_overrides(mut self, custom: &crate::config::CustomThemeColors) -> Self {
         use crate::config::parse_color;
         if let Some(c) = &custom.accent {
             self.accent = parse_color(c);
+        }
+        if let Some(c) = &custom.pane_border_active {
+            self.pane_border_active = Some(parse_color(c));
+        }
+        if let Some(c) = &custom.pane_border_inactive {
+            self.pane_border_inactive = Some(parse_color(c));
         }
         if let Some(c) = &custom.panel_bg {
             self.panel_bg = parse_color(c);
@@ -1122,6 +1185,7 @@ pub struct ThemeRuntimeConfig {
     pub light_name: String,
     pub auto_switch: bool,
     pub custom: Option<crate::config::CustomThemeColors>,
+    pub host_borders: Option<crate::config::PaneBorderColors>,
     pub legacy_accent: Option<String>,
 }
 
@@ -1922,6 +1986,7 @@ impl AppState {
                 light_name: "catppuccin-latte".to_string(),
                 auto_switch: false,
                 custom: None,
+                host_borders: None,
                 legacy_accent: None,
             },
             host_terminal_appearance: None,
@@ -2291,6 +2356,86 @@ impl AppState {
 mod tests {
     use super::*;
     use crossterm::event::KeyEvent;
+
+    #[test]
+    fn builtin_pane_border_colors_follow_palette_dynamically() {
+        for mut palette in [
+            Palette::catppuccin(),
+            Palette::catppuccin_latte(),
+            Palette::terminal(),
+            Palette::tokyo_night(),
+            Palette::tokyo_night_day(),
+            Palette::dracula(),
+            Palette::nord(),
+            Palette::gruvbox(),
+            Palette::gruvbox_light(),
+            Palette::one_dark(),
+            Palette::one_light(),
+            Palette::solarized(),
+            Palette::solarized_light(),
+            Palette::kanagawa(),
+            Palette::kanagawa_lotus(),
+            Palette::rose_pine(),
+            Palette::rose_pine_dawn(),
+            Palette::vesper(),
+        ] {
+            assert_eq!(palette.pane_border_active, None);
+            assert_eq!(palette.pane_border_inactive, None);
+            assert_eq!(palette.pane_border_active(), palette.accent);
+            assert_eq!(palette.pane_border_inactive(), palette.overlay0);
+            palette.accent = Color::Magenta;
+            palette.overlay0 = Color::Cyan;
+            assert_eq!(palette.pane_border_active(), Color::Magenta);
+            assert_eq!(palette.pane_border_inactive(), Color::Cyan);
+        }
+    }
+
+    #[test]
+    fn partial_host_border_override_preserves_global_inactive_and_other_colors() {
+        let base = Palette::catppuccin();
+        let global = base
+            .clone()
+            .with_overrides(&crate::config::CustomThemeColors {
+                pane_border_active: Some("red".into()),
+                pane_border_inactive: Some("#123456".into()),
+                ..Default::default()
+            });
+        assert_eq!(global.pane_border_active(), Color::Red);
+        assert_eq!(global.pane_border_inactive(), Color::Rgb(18, 52, 86));
+        let host = global
+            .clone()
+            .with_pane_border_overrides(&crate::config::PaneBorderColors {
+                pane_border_active: Some("green".into()),
+                pane_border_inactive: None,
+            });
+        assert_eq!(host.pane_border_active(), Color::Green);
+        assert_eq!(host.pane_border_inactive(), global.pane_border_inactive());
+        let mut expected = base;
+        expected.pane_border_active = Some(Color::Green);
+        expected.pane_border_inactive = Some(Color::Rgb(18, 52, 86));
+        assert_eq!(host, expected);
+        assert_eq!(
+            host.clone()
+                .with_pane_border_overrides(&crate::config::PaneBorderColors {
+                    pane_border_active: None,
+                    pane_border_inactive: None,
+                }),
+            host
+        );
+    }
+
+    #[test]
+    fn explicit_reset_pane_border_is_not_an_absent_override() {
+        let palette =
+            Palette::catppuccin().with_pane_border_overrides(&crate::config::PaneBorderColors {
+                pane_border_active: Some("reset".into()),
+                pane_border_inactive: None,
+            });
+        assert_eq!(palette.pane_border_active, Some(Color::Reset));
+        assert_eq!(palette.pane_border_active(), Color::Reset);
+        assert_eq!(palette.pane_border_inactive, None);
+        assert_eq!(palette.pane_border_inactive(), palette.overlay0);
+    }
 
     #[test]
     fn agent_terminal_keeps_final_child_cursor_exposed() {

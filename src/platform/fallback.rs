@@ -10,6 +10,11 @@ pub(crate) fn process_observation_metadata() -> Option<super::ProcessObservation
 /// Unsupported platform stub.
 pub fn raise_server_nofile_limit() {}
 
+/// Hostname lookup is unsupported on this platform.
+pub(crate) fn hostname() -> Option<String> {
+    None
+}
+
 pub(crate) fn should_draw_host_cursor_by_default() -> bool {
     false
 }

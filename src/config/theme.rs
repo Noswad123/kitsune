@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use serde::Deserialize;
 use tracing::warn;
 
@@ -24,6 +26,45 @@ pub struct ThemeConfig {
     pub light_name: Option<String>,
     /// Custom overrides — applied on top of the selected base theme.
     pub custom: Option<CustomThemeColors>,
+    /// Pane-border overrides selected by the local OS hostname.
+    pub hosts: BTreeMap<String, PaneBorderColors>,
+}
+
+/// Host-specific presentation overrides; other theme accents stay unchanged.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct PaneBorderColors {
+    pub pane_border_active: Option<String>,
+    pub pane_border_inactive: Option<String>,
+}
+
+impl ThemeConfig {
+    /// Select one host entry, full name before short name, ignoring ASCII case.
+    /// A full-name entry is not merged with a short-name entry.
+    pub fn borders_for_hostname(&self, hostname: Option<&str>) -> Option<&PaneBorderColors> {
+        let hostname = hostname?.trim_end_matches('.');
+        if hostname.is_empty() {
+            return None;
+        }
+        let short = hostname.split('.').next()?;
+        for candidate in [hostname, short] {
+            let mut matches = self
+                .hosts
+                .iter()
+                .filter(|(name, _)| name.eq_ignore_ascii_case(candidate));
+            if let Some((_, borders)) = matches.next() {
+                if matches.next().is_some() {
+                    warn!(
+                        hostname = candidate,
+                        "ambiguous theme.hosts entries; ignoring host border overrides"
+                    );
+                    return None;
+                }
+                return Some(borders);
+            }
+        }
+        None
+    }
 }
 
 /// Per-token color overrides. All fields optional — only set what you want to change.
@@ -31,6 +72,8 @@ pub struct ThemeConfig {
 #[serde(default)]
 pub struct CustomThemeColors {
     pub accent: Option<String>,
+    pub pane_border_active: Option<String>,
+    pub pane_border_inactive: Option<String>,
     pub panel_bg: Option<String>,
     pub surface0: Option<String>,
     pub surface1: Option<String>,
@@ -184,5 +227,100 @@ red = "rgb(255, 85, 85)"
         assert!(config.theme.dark_name.is_none());
         assert!(config.theme.light_name.is_none());
         assert!(config.theme.custom.is_none());
+        assert!(config.theme.hosts.is_empty());
+    }
+
+    #[test]
+    fn host_border_overrides_parse_and_match_without_changing_accents() {
+        let config: Config = toml::from_str(
+            r##"
+[theme.custom]
+accent = "#B4BEFE"
+pane_border_inactive = "#555555"
+
+[theme.hosts.bumblebee]
+pane_border_active = "#FFD700"
+pane_border_inactive = "#807000"
+
+[theme.hosts.megatron]
+pane_border_active = "#FF4040"
+pane_border_inactive = "#802020"
+
+[theme.hosts."bumblebee.example.net"]
+pane_border_active = "#FFFFFF"
+"##,
+        )
+        .unwrap();
+        let theme = &config.theme;
+        for name in ["bumblebee", "BUMBLEBEE", "Bumblebee.other.net."] {
+            let borders = theme.borders_for_hostname(Some(name)).unwrap();
+            assert_eq!(borders.pane_border_active.as_deref(), Some("#FFD700"));
+            assert_eq!(borders.pane_border_inactive.as_deref(), Some("#807000"));
+        }
+        let full = theme
+            .borders_for_hostname(Some("BUMBLEBEE.EXAMPLE.NET"))
+            .unwrap();
+        assert_eq!(full.pane_border_active.as_deref(), Some("#FFFFFF"));
+        assert!(full.pane_border_inactive.is_none());
+        let megatron = theme.borders_for_hostname(Some("megatron")).unwrap();
+        assert_eq!(megatron.pane_border_active.as_deref(), Some("#FF4040"));
+        assert_eq!(megatron.pane_border_inactive.as_deref(), Some("#802020"));
+        for name in [None, Some("unknown"), Some(""), Some(".")] {
+            assert!(theme.borders_for_hostname(name).is_none());
+        }
+        let custom = theme.custom.as_ref().unwrap();
+        assert_eq!(custom.accent.as_deref(), Some("#B4BEFE"));
+        assert_eq!(custom.pane_border_inactive.as_deref(), Some("#555555"));
+    }
+
+    #[test]
+    fn saving_theme_selection_preserves_nested_host_border_tables() {
+        let content = r##"
+[theme.hosts.bumblebee]
+pane_border_active = "#FFD700"
+[theme.hosts."megatron.example.net"]
+pane_border_active = "#FF4040"
+"##;
+        let content = crate::config::upsert_section_value(content, "theme", "name", "\"nord\"");
+        let content = crate::config::upsert_section_bool(&content, "theme", "auto_switch", false);
+        let config: Config = toml::from_str(&content).unwrap();
+        assert_eq!(config.theme.name.as_deref(), Some("nord"));
+        assert!(!config.theme.auto_switch);
+        assert_eq!(config.theme.hosts.len(), 2);
+        assert_eq!(
+            config
+                .theme
+                .borders_for_hostname(Some("bumblebee"))
+                .unwrap()
+                .pane_border_active
+                .as_deref(),
+            Some("#FFD700")
+        );
+        assert_eq!(
+            config
+                .theme
+                .borders_for_hostname(Some("megatron.example.net"))
+                .unwrap()
+                .pane_border_active
+                .as_deref(),
+            Some("#FF4040")
+        );
+    }
+
+    #[test]
+    fn case_colliding_host_entries_are_not_selected_arbitrarily() {
+        let config: Config = toml::from_str(
+            r#"
+[theme.hosts.Bumblebee]
+pane_border_active = "yellow"
+[theme.hosts.bumblebee]
+pane_border_active = "red"
+"#,
+        )
+        .unwrap();
+        assert!(config
+            .theme
+            .borders_for_hostname(Some("BUMBLEBEE"))
+            .is_none());
     }
 }

@@ -27,6 +27,7 @@ use windows_sys::{
             JobObjects::IsProcessInJob,
             Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE},
             Ole::CF_UNICODETEXT,
+            SystemInformation::{ComputerNameDnsFullyQualified, GetComputerNameExW},
             Threading::{
                 GetCurrentProcess, GetExitCodeProcess, OpenProcess, TerminateProcess,
                 CREATE_NO_WINDOW, DETACHED_PROCESS, PROCESS_BASIC_INFORMATION,
@@ -75,6 +76,30 @@ pub(crate) fn should_draw_host_cursor_by_default() -> bool {
 }
 
 pub fn raise_server_nofile_limit() {}
+
+/// Returns the OS hostname, never an inherited environment override.
+pub(crate) fn hostname() -> Option<String> {
+    let mut size = 0;
+    // SAFETY: A null buffer with zero capacity queries the required UTF-16 size.
+    unsafe { GetComputerNameExW(ComputerNameDnsFullyQualified, null_mut(), &mut size) };
+    if size == 0 {
+        return None;
+    }
+    let mut buffer = vec![0_u16; size as usize];
+    // SAFETY: The buffer has the requested capacity, including the trailing NUL.
+    if unsafe {
+        GetComputerNameExW(
+            ComputerNameDnsFullyQualified,
+            buffer.as_mut_ptr(),
+            &mut size,
+        )
+    } == 0
+    {
+        return None;
+    }
+    let name = String::from_utf16(buffer.get(..size as usize)?).ok()?;
+    (!name.is_empty() && !name.contains('\0')).then_some(name)
+}
 
 fn raw_command_shell(comspec: Option<std::ffi::OsString>) -> std::ffi::OsString {
     comspec

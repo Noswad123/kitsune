@@ -419,7 +419,7 @@ pub(super) fn render_popup_pane(
         .unwrap_or("popup");
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(app.palette.accent))
+        .border_style(Style::default().fg(app.palette.pane_border_active()))
         .title(pane_border_title(title, outer.width, true).unwrap_or_default())
         .style(Style::default().bg(app.palette.panel_bg));
     frame.render_widget(Clear, outer);
@@ -490,9 +490,9 @@ fn render_pane_borders_at(
         let cell = &mut buf[(x, y)];
         cell.set_symbol(symbol);
         let color = if focused {
-            app.palette.accent
+            app.palette.pane_border_active()
         } else {
-            app.palette.overlay0
+            app.palette.pane_border_inactive()
         };
         cell.set_style(Style::default().fg(color));
     }
@@ -677,9 +677,9 @@ fn render_pane_border_titles_at(
             continue;
         }
         let color = if info.is_focused {
-            app.palette.accent
+            app.palette.pane_border_active()
         } else {
-            app.palette.overlay0
+            app.palette.pane_border_inactive()
         };
         let mut style = Style::default().fg(color);
         if info.is_focused {
@@ -1530,6 +1530,22 @@ mod tests {
         assert_eq!(buffer[(2, 2)].style().fg, Some(app.palette.accent));
         assert_eq!(buffer[(2, 1)].symbol(), "│");
         assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.accent));
+
+        app.palette = app
+            .palette
+            .with_pane_border_overrides(&crate::config::PaneBorderColors {
+                pane_border_active: Some("green".into()),
+                pane_border_inactive: Some("red".into()),
+            });
+        terminal
+            .draw(|frame| render_view_pane_borders(&app, &ws, frame))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(2, 2)].symbol(), "┼");
+        assert_eq!(buffer[(2, 2)].fg, Color::Green);
+        assert_eq!(buffer[(2, 1)].symbol(), "│");
+        assert_eq!(buffer[(2, 1)].fg, Color::Green);
+        assert_eq!(buffer[(3, 3)].fg, Color::Red);
     }
 
     #[test]
@@ -1567,6 +1583,62 @@ mod tests {
         let buffer = terminal.backend().buffer();
         assert_eq!(buffer[(1, 1)].style().fg, Some(app.palette.accent));
         assert_eq!(buffer[(2, 1)].style().fg, Some(app.palette.overlay0));
+
+        app.palette = app
+            .palette
+            .with_pane_border_overrides(&crate::config::PaneBorderColors {
+                pane_border_active: Some("green".into()),
+                pane_border_inactive: Some("red".into()),
+            });
+        terminal
+            .draw(|frame| render_view_pane_borders(&app, &ws, frame))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(1, 1)].fg, Color::Green);
+        assert_eq!(buffer[(2, 1)].fg, Color::Red);
+    }
+
+    #[test]
+    fn pane_border_titles_use_active_and_inactive_overrides() {
+        let mut app = AppState::test_new();
+        let mut ws = Workspace::test_new("test");
+        let root = ws.tabs[0].root_pane;
+        ws.test_split(ratatui::layout::Direction::Horizontal);
+        ws.tabs[0].layout.focus_pane(root);
+        for pane in ws.tabs[0].panes.values() {
+            let id = pane.attached_terminal_id.clone();
+            let mut terminal = TerminalState::new(id.clone(), "/tmp".into());
+            terminal.set_manual_label("shell".into());
+            app.terminals.insert(id, terminal);
+        }
+        app.palette = app
+            .palette
+            .with_pane_border_overrides(&crate::config::PaneBorderColors {
+                pane_border_active: Some("green".into()),
+                pane_border_inactive: Some("red".into()),
+            });
+        let area = Rect::new(0, 0, 40, 4);
+        let infos = apply_pane_chrome(ws.tabs[0].layout.panes(area), true, false);
+        let splits = ws.tabs[0].layout.splits(area);
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(40, 4)).unwrap();
+        terminal
+            .draw(|frame| render_pane_borders(&app, &ws, &infos, &splits, frame))
+            .unwrap();
+        let buffer = terminal.backend().buffer();
+        for info in &infos {
+            let cell = &buffer[(info.rect.x + 2, info.rect.y)];
+            assert_eq!(cell.symbol(), "s");
+            assert_eq!(
+                cell.fg,
+                if info.is_focused {
+                    Color::Green
+                } else {
+                    Color::Red
+                }
+            );
+            assert_eq!(cell.modifier.contains(Modifier::BOLD), info.is_focused);
+        }
     }
 
     #[tokio::test]

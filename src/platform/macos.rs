@@ -15,6 +15,19 @@ use super::{
 const PROC_PGRP_ONLY: u32 = 2;
 const SERVER_NOFILE_LIMIT_TARGET: libc::rlim_t = 8192;
 
+/// Returns the OS hostname, never an inherited environment override.
+pub(crate) fn hostname() -> Option<String> {
+    let mut buffer = [0_u8; 256];
+    // SAFETY: The buffer is writable for the supplied length. Check termination
+    // explicitly because gethostname may truncate without a trailing NUL.
+    if unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) } != 0 {
+        return None;
+    }
+    let len = buffer.iter().position(|&byte| byte == 0)?;
+    let name = std::str::from_utf8(&buffer[..len]).ok()?;
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
 pub(crate) fn should_draw_host_cursor_by_default() -> bool {
     false
 }

@@ -324,6 +324,17 @@ impl PrefixInputSource for RealPrefixInputSource {
     }
 }
 
+#[cfg(test)]
+mod hostname_tests {
+    #[test]
+    fn hostname_is_absent_or_nonempty_and_nul_free() {
+        if let Some(name) = super::hostname() {
+            assert!(!name.is_empty());
+            assert!(!name.contains('\0'));
+        }
+    }
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;

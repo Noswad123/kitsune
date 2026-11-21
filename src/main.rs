@@ -128,6 +128,18 @@ const DEFAULT_CONFIG: &str = r##"# kitsune configuration
 # accent = "#f5c2e7"
 # red = "#ff6188"
 # green = "#a6e3a1"
+# pane_border_active = "#b4befe"
+# pane_border_inactive = "#6c7086"
+
+# Keep one config in Git, with pane-border colors selected by the local OS hostname.
+# Full hostname wins, then short hostname; matching is ASCII case-insensitive.
+# Overrides affect pane borders/titles (including popup panes), not other accents.
+# [theme.hosts.bumblebee]
+# pane_border_active = "#FFD700"
+# pane_border_inactive = "#807000"
+# [theme.hosts.megatron]
+# pane_border_active = "#FF4040"
+# pane_border_inactive = "#802020"
 
 [terminal]
 # Executable used for new interactive panes.

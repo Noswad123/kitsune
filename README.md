@@ -127,6 +127,44 @@ Kitsune has its own runtime identity so it can coexist with an installed Herdr s
 
 Internal module/type names may still reference Herdr where keeping the fork easy to compare with upstream is more valuable than a broad rename.
 
+## Machine-specific pane borders
+
+Keep the same Git-tracked `~/.config/kitsune/config.toml` on multiple machines
+and select pane-border colors by the local OS hostname:
+
+```toml
+[theme.hosts.bumblebee]
+pane_border_active = "#FFD700"
+pane_border_inactive = "#807000"
+
+[theme.hosts.megatron]
+pane_border_active = "#FF4040"
+pane_border_inactive = "#802020"
+```
+
+These replace the focused/inactive pane border and title colors, including popup
+pane borders, without changing other theme accents. Selection uses the hostname
+of the machine running the Kitsune instance, not the SSH destination inside a
+pane or a forwarded `HOSTNAME` variable. Thus a remote Kitsune started on Bumblebee
+uses yellow while the outer instance on Megatron stays red.
+
+Matching ignores ASCII case and tries the full hostname before the short name
+(`bumblebee.example.net` can match `bumblebee`). Quote full-name table keys, for
+example `[theme.hosts."bumblebee.example.net"]`. A full-name match selects only
+that entry; it is not merged with the short-name entry. Avoid entries differing
+only by case: ambiguous matches are ignored with a warning.
+
+Host entries override only the fields supplied, after `[theme.custom]` colors.
+You can also set `pane_border_active` / `pane_border_inactive` under
+`[theme.custom]` as global defaults. Unspecified colors retain the normal
+accent/muted-border colors. Unknown hosts or unavailable hostname lookup use
+global defaults. Existing configuration reload and theme preview preserve these
+rules. Install the updated build on each machine; existing running servers need
+the updated binary before these settings take effect.
+
+This changes colors only: single-pane layouts remain borderless, and
+`[ui] pane_borders = false` still hides pane borders.
+
 ## Build and run
 
 The current terminal engine is vendored libghostty-vt and requires the matching

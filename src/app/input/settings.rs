@@ -97,19 +97,10 @@ fn toast_delivery_for_index(idx: usize) -> ToastDelivery {
 }
 
 fn preview_selected_theme(state: &mut AppState) {
-    use crate::app::state::Palette;
-
     let name = THEME_NAMES[state.settings.list.selected];
-    if let Some(mut palette) = Palette::from_name(name) {
-        if let Some(custom) = &state.theme_runtime.custom {
-            palette = palette.with_overrides(custom);
-        }
-        if let Some(accent) = &state.theme_runtime.legacy_accent {
-            palette.accent = crate::config::parse_color(accent);
-        }
-        state.palette = palette;
-        state.theme_name = name.to_string();
-    }
+    state.palette =
+        crate::app::resolve_palette_for_theme_name(name, "catppuccin", &state.theme_runtime);
+    state.theme_name = name.to_string();
 }
 
 fn cancel_settings(state: &mut AppState) {
@@ -523,6 +514,44 @@ mod tests {
         assert_eq!(state.theme_name, original_theme);
         assert_eq!(state.palette.accent, original_palette.accent);
         assert_eq!(state.palette.panel_bg, original_palette.panel_bg);
+    }
+
+    #[test]
+    fn settings_preview_and_cancel_preserve_host_border_overrides() {
+        use ratatui::style::Color;
+
+        let mut state = state_with_workspaces(&["test"]);
+        state.theme_runtime.host_borders = Some(crate::config::PaneBorderColors {
+            pane_border_active: Some("#FFD700".into()),
+            pane_border_inactive: Some("#807000".into()),
+        });
+        state.palette = crate::app::resolve_palette_for_theme_name(
+            &state.theme_name,
+            "catppuccin",
+            &state.theme_runtime,
+        );
+        let original = state.palette.clone();
+        open_settings(&mut state);
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Down, KeyModifiers::empty()),
+        );
+        assert_eq!(state.palette.pane_border_active(), Color::Rgb(255, 215, 0));
+        assert_eq!(
+            state.palette.pane_border_inactive(),
+            Color::Rgb(128, 112, 0)
+        );
+        assert_eq!(
+            state.palette.accent,
+            crate::app::state::Palette::from_name(&state.theme_name)
+                .unwrap()
+                .accent
+        );
+        update_settings_state(
+            &mut state,
+            KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()),
+        );
+        assert_eq!(state.palette, original);
     }
 
     #[test]

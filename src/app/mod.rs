@@ -292,6 +292,19 @@ fn theme_runtime_config(
     config: &crate::config::Config,
     use_legacy_ui_accent: bool,
 ) -> state::ThemeRuntimeConfig {
+    let hostname = if config.theme.hosts.is_empty() {
+        None
+    } else {
+        crate::platform::hostname()
+    };
+    theme_runtime_config_for_hostname(config, use_legacy_ui_accent, hostname.as_deref())
+}
+
+fn theme_runtime_config_for_hostname(
+    config: &crate::config::Config,
+    use_legacy_ui_accent: bool,
+    hostname: Option<&str>,
+) -> state::ThemeRuntimeConfig {
     let manual_name = config
         .theme
         .name
@@ -304,6 +317,7 @@ fn theme_runtime_config(
         light_name: config.theme.light_name.clone().unwrap_or(default_light),
         auto_switch: config.theme.auto_switch,
         custom: config.theme.custom.clone(),
+        host_borders: config.theme.borders_for_hostname(hostname).cloned(),
         legacy_accent: (use_legacy_ui_accent
             && config.ui.accent != "cyan"
             && config
@@ -335,6 +349,9 @@ fn resolve_palette_for_theme_name(
     }
     if let Some(accent) = &runtime.legacy_accent {
         palette.accent = crate::config::parse_color(accent);
+    }
+    if let Some(borders) = &runtime.host_borders {
+        palette = palette.with_pane_border_overrides(borders);
     }
 
     palette
@@ -2614,6 +2631,118 @@ mod tests {
             app.state.palette.accent,
             ratatui::style::Color::Rgb(1, 2, 3)
         );
+    }
+
+    #[test]
+    fn host_border_palette_resolution_preserves_other_theme_colors() {
+        use ratatui::style::Color;
+
+        let config: Config = toml::from_str(
+            r##"
+[theme]
+name = "tokyo-night"
+auto_switch = true
+[theme.custom]
+accent = "#B4BEFE"
+pane_border_inactive = "#555555"
+[theme.hosts.bumblebee]
+pane_border_active = "#FFD700"
+[theme.hosts.megatron]
+pane_border_active = "#FF4040"
+pane_border_inactive = "#802020"
+"##,
+        )
+        .unwrap();
+        for (hostname, active, inactive) in [
+            (
+                Some("BUMBLEBEE.example.net"),
+                Color::Rgb(255, 215, 0),
+                Color::Rgb(85, 85, 85),
+            ),
+            (
+                Some("megatron"),
+                Color::Rgb(255, 64, 64),
+                Color::Rgb(128, 32, 32),
+            ),
+            (
+                Some("unknown"),
+                Color::Rgb(180, 190, 254),
+                Color::Rgb(85, 85, 85),
+            ),
+            (None, Color::Rgb(180, 190, 254), Color::Rgb(85, 85, 85)),
+        ] {
+            let runtime = theme_runtime_config_for_hostname(&config, true, hostname);
+            for (appearance, base) in [
+                (
+                    crate::terminal_theme::HostAppearance::Dark,
+                    state::Palette::tokyo_night(),
+                ),
+                (
+                    crate::terminal_theme::HostAppearance::Light,
+                    state::Palette::tokyo_night_day(),
+                ),
+            ] {
+                let (palette, _) = resolve_effective_theme(&runtime, Some(appearance));
+                assert_eq!(palette.pane_border_active(), active);
+                assert_eq!(palette.pane_border_inactive(), inactive);
+                let expected = base.with_overrides(config.theme.custom.as_ref().unwrap());
+                // Removing border fields must leave exactly the original theme.
+                let mut other_colors = palette;
+                other_colors.pane_border_active = expected.pane_border_active;
+                other_colors.pane_border_inactive = expected.pane_border_inactive;
+                assert_eq!(other_colors, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn host_border_overrides_apply_at_startup_and_clear_on_reload() {
+        use ratatui::style::Color;
+
+        let mut config = Config::default();
+        config.theme.custom = Some(crate::config::CustomThemeColors {
+            accent: Some("#B4BEFE".into()),
+            pane_border_inactive: Some("#555555".into()),
+            ..Default::default()
+        });
+        let hostname = crate::platform::hostname();
+        if let Some(name) = &hostname {
+            config.theme.hosts.insert(
+                name.clone(),
+                crate::config::PaneBorderColors {
+                    pane_border_active: Some("#FFD700".into()),
+                    pane_border_inactive: Some("#807000".into()),
+                },
+            );
+        }
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(&config, true, None, api_rx, crate::api::EventHub::default());
+        assert_eq!(
+            app.state.palette.pane_border_active(),
+            if hostname.is_some() {
+                Color::Rgb(255, 215, 0)
+            } else {
+                Color::Rgb(180, 190, 254)
+            }
+        );
+        assert_eq!(app.state.palette.accent, Color::Rgb(180, 190, 254));
+
+        config.theme.hosts.clear();
+        let report = app.apply_live_config(&config, &[], &[], false);
+        assert_eq!(report.status, crate::config::ConfigReloadStatus::Applied);
+        assert!(app.state.theme_runtime.host_borders.is_none());
+        assert_eq!(
+            app.state.palette.pane_border_active(),
+            Color::Rgb(180, 190, 254)
+        );
+        assert_eq!(
+            app.state.palette.pane_border_inactive(),
+            Color::Rgb(85, 85, 85)
+        );
+
+        config.theme.custom = None;
+        app.apply_live_config(&config, &[], &[], false);
+        assert_eq!(app.state.palette, state::Palette::catppuccin());
     }
 
     #[test]
